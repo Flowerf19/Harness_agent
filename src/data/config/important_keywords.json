@@ -1,0 +1,45 @@
+{
+  "basic_info": [
+    "tên",
+    "tuổi",
+    "sinh",
+    "sinh nhật",
+    "ngày sinh"
+  ],
+  "hobbies": [
+    "thích",
+    "yêu",
+    "mê",
+    "sở thích",
+    "hobby"
+  ],
+  "emotions": [
+    "buồn",
+    "vui",
+    "stress",
+    "lo",
+    "hạnh phúc",
+    "tâm trạng"
+  ],
+  "relationships": [
+    "độc thân",
+    "người yêu",
+    "bạn gái",
+    "bạn trai"
+  ],
+  "dreams": [
+    "muốn",
+    "ước",
+    "dự định",
+    "kế hoạch",
+    "mơ ước"
+  ],
+  "changes": [
+    "không thích",
+    "bỏ",
+    "giờ thích",
+    "chuyển sang",
+    "chia tay",
+    "có người yêu"
+  ]
+}

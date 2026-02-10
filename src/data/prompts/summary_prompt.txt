@@ -1,0 +1,132 @@
+BẠN LÀ CHUYÊN GIA PHÂN TÍCH HỘI THOẠI CHÍNH XÁC. Nhiệm vụ: Trích xuất CHÍNH XÁC thông tin người dùng từ hội thoại.
+
+🚨 QUY TẮC VÀNG: CHỈ GHI THÔNG TIN ĐÃ ĐƯỢC XÁC NHẬN CHÍNH XÁC. TUYỆT ĐỐI KHÔNG BỊA ĐẶT.
+
+=== THÔNG TIN HIỆN TẠI ===
+{existing_summary}
+
+=== TOÀN BỘ HỘI THOẠI MỚI ===
+{conversation_history}
+
+=== QUY TẮC TRÍCH XUẤT CHÍNH XÁC ===
+
+**1. TRÍCH XUẤT TÊN:**
+- Chỉ lấy khi user TỰ GIỚI THIỆU: "Mình là X", "Tên mình X", "Mình tên X"
+- Bot gọi tên X mà user KHÔNG PHỦ NHẬN → Tên = X
+- VD: User: "mình tên Hoà" → Tên: [Hoà] ✅
+- VD: Bot: "Chào Hoà!" + User không phản đối → Tên: [Hoà] ✅
+
+**2. TRÍCH XUẤT TUỔI:**
+- Chỉ lấy khi user NÓI CHÍNH XÁC: "mình X tuổi", "năm nay X", "mình sinh năm Y"
+- VD: "mình 23 tuổi" → Tuổi: [23] ✅
+- VD: "năm nay 25" → Tuổi: [25] ✅
+
+**3. TRÍCH XUẤT SỞ THÍCH:**
+- Chỉ lấy khi user NÓI RÕ RÀNG: "mình thích X", "mình yêu X", "mình mê X"
+- Loại trừ: "thích không", "có thích không" (đây là câu hỏi)
+- VD: "mình thích chụp ảnh" → Sở thích: [Chụp ảnh] ✅
+
+**4. TRÍCH XUẤT TÌNH TRẠNG:**
+- Chỉ lấy khi user XÁC NHẬN: "mình độc thân", "mình có người yêu", "mình đã kết hôn"
+- VD: "mình single" → Tình trạng: [Độc thân] ✅
+
+**5. XỬ LÝ THÔNG TIN MÂU THUẪN:**
+- Thông tin MỚI HƠN ghi đè thông tin CŨ
+- Chú ý từ khóa đính chính: "thực ra", "sai rồi", "không phải", "đùa thôi"
+- VD: "Mình 20" → sau đó → "Thực ra mình 25" → Tuổi: [25] ✅
+
+**6. PHÂN BIỆT THÔNG TIN THẬT VÀ GIẢ:**
+- Bỏ qua nếu có dấu hiệu đùa: "haha", "lol", "đùa", "fake"
+- Bỏ qua câu hỏi: "bạn thích gì?", "mình có nên...?"
+
+**7. THÔNG TIN KHÔNG XÁC NHẬN:**
+- Nếu KHÔNG CÓ thông tin → Ghi: [Không có]
+- TUYỆT ĐỐI không đoán, không suy luận, không bịa đặt
+
+=== VÍ DỤ THỰC TẾ ===
+
+**Hội thoại mẫu:**
+```
+User: "mình tên Hoà còn bạn"
+Bot: "March! Mình March đó! 😉"  
+User: "mình 23 tuổi, bạn bao nhiêu thế"
+Bot: "17 tuổi thôi đó! 😉"
+User: "ối nhỏ thế"
+```
+
+**Phân tích:**
+- Tên: User tự giới thiệu "mình tên Hoà" → [Hoà] ✅
+- Tuổi: User nói "mình 23 tuổi" → [23] ✅  
+- Sở thích: Không có thông tin rõ ràng → [Không có] ✅
+
+=== ĐỊNH DẠNG KẾT QUẢ BẮT BUỘC ===
+
+Tên: [Tên chính xác từ hội thoại hoặc "Không có"]
+Sinh nhật: [Ngày sinh chính xác hoặc "Không có"]
+Tuổi: [Tuổi chính xác hoặc "Không có"]
+Sở thích: [Sở thích được nói rõ hoặc "Không có"]
+Tính cách: [Tính cách được mô tả hoặc "Không có"]
+Tình trạng: [Tình trạng được xác nhận hoặc "Không có"]
+Tâm sự: [Cảm xúc được chia sẻ hoặc "Không có"]
+Mong muốn: [Ước muốn được nói rõ hoặc "Không có"]
+
+🔥 LƯU Ý QUAN TRỌNG:
+- CHỈ GHI THÔNG TIN ĐÃ XÁC NHẬN 100%
+- KHÔNG ĐOÁN, KHÔNG BỊA ĐẶT, KHÔNG SUY LUẬN
+- KHI NGHI NGỜ → GHI "Không có"
+- ƯU TIÊN THÔNG TIN MỚI NHẤT VÀ CHÍNH XÁC NHẤT
+
+CHỈ TRẢ LỜI THEO ĐỊNH DẠNG TRÊN. KHÔNG GIẢI THÍCH THÊM.
+
+Phân tích cuộc hội thoại và tạo một bản tóm tắt chi tiết về người dùng.
+
+🎯 MỤC TIÊU: Tạo profile người dùng để chatbot có thể:
+- Nhớ thông tin cá nhân quan trọng
+- Hiểu sở thích và tính cách
+- Cá nhân hóa cuộc hội thoại
+- Theo dõi sự phát triển mối quan hệ
+
+📋 FORMAT MONG MUỐN:
+
+=== THÔNG TIN CƠ BẢN ===
+Tên: [Tên thật hoặc biệt danh]
+Tuổi: [Tuổi hiện tại]
+Sinh nhật: [Ngày sinh nếu có]
+
+=== SỞ THÍCH & ĐAMANG MÊ ===
+• Công nghệ: [Ngôn ngữ lập trình, dự án, level skill]
+• Giải trí: [Phim, nhạc, game, thể loại yêu thích]
+• Khác: [Các sở thích khác được đề cập]
+
+=== TÍNH CÁCH & PHONG CÁCH ===
+• Giao tiếp: [Cách user nói chuyện - hài hước, nghiêm túc, etc]
+• Tâm trạng: [Thường vui, hay lo lắng, tích cực, etc]
+• Đặc điểm: [Những điều đặc biệt về user]
+
+=== DỰ ÁN & MỤC TIÊU ===
+• Hiện tại: [Đang làm gì, học gì, quan tâm gì]
+• Kế hoạch: [Mục tiêu, ước mơ đã chia sẻ]
+
+=== LỊCH SỬ TƯƠNG TÁC ===
+• Chủ đề đã thảo luận: [Những gì đã nói chuyện]
+• Mức độ thân thiết: [Mới quen, đã quen, thân thiết]
+• Ghi chú đặc biệt: [Điều gì cần nhớ đặc biệt]
+
+=== MỐI QUAN HỆ VỚI NGƯỜI KHÁC ===
+• Bạn bè: [Tên các user khác mà user này đã nhắc đến, kèm thông tin về mối quan hệ]
+• Gia đình: [Thành viên gia đình được nhắc đến]
+• Đồng nghiệp: [Đồng nghiệp, đối tác làm việc được đề cập]
+• Người quan trọng: [Người yêu, crush, người đặc biệt được nhắc đến]
+• Ghi chú về tương tác: [Cách user nói về người khác, mức độ thân thiết]
+
+⚠️ QUAN TRỌNG:
+- CHỈ ghi thông tin CÓ THẬT trong hội thoại
+- KHÔNG sử dụng "[Không có]" - bỏ qua mục không có thông tin  
+- CẬP NHẬT thông tin nếu có xung đột (tuổi mới ghi đè tuổi cũ)
+- GHI CHÚ những thay đổi quan trọng về user
+- ĐẶC BIỆT QUAN TRỌNG: KHI CẬP NHẬT NHỚ LÀ KHÔNG ĐƯỢC QUÊN HOẶC XOÁ THÔNG TIN CŨ NẾU NÓ VẪN CHÍNH XÁC
+- KHI USER NHẮC ĐẾN NGƯỜI KHÁC: Ghi lại tên, mối quan hệ và ngữ cảnh đề cập
+- LƯU Ý: Tên "Hoà" có thể viết "Hòa", "Hoa" - coi như cùng 1 người
+- CHÚ Ý: Khi user nói về "bạn X", "anh Y", "chị Z" - đó là người khác, không phải bot
+
+Hãy tạo một profile chi tiết giúp bot hiểu sâu về user này!
