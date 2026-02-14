@@ -9,6 +9,7 @@ from config.settings import Config
 from services.anti_spam_service import AntiSpamService
 from services.conversation_manager import ConversationManager
 from services.gemini_service import GeminiService
+from services.lm_studio_service import LMStudioService
 from services.message_processor import MessageProcessor
 from services.ollama_service import OllamaService
 from services.relationship_service import RelationshipService
@@ -25,6 +26,9 @@ class LLMMessageCog(commands.Cog):
         if Config.LLM_PROVIDER == "ollama":
             self.llm_service = OllamaService()
             logger.info(f"🤖 initialized with Ollama ({Config.OLLAMA_MODEL})")
+        elif Config.LLM_PROVIDER == "lm_studio":
+            self.llm_service = LMStudioService()
+            logger.info("🤖 initialized with LM Studio")
         else:
             self.llm_service = GeminiService()
             logger.info("🤖 initialized with Gemini")
