@@ -173,6 +173,10 @@ python src/bot.py
 | `OLLAMA_URL` | Yes | Ollama server URL |
 | `GEMINI_API_KEY` | no | Google Gemini API key |
 | `DEEPSEEK_API_KEY` | No | DeepSeek API key (backup) |
+| `QWEN_API_KEY` | No | Alibaba Qwen API key |
+| `QWEN_API_URL` | No | Qwen API URL (default: https://dashscope.aliyuncs.com/compatible-mode/v1) |
+| `QWEN_MODEL` | No | Qwen model name (default: qwen-max) |
+| `LLM_PROVIDER` | No | LLM provider ('gemini', 'ollama', 'lm_studio', or 'qwen'; default: gemini) |
 | `LLM_MODEL` | No | Model name (default: gemini-2.0-flash) |
 | `ENABLE_TYPING_SIMULATION` | No | Enable typing delays (default: 1) |
 | `TYPING_SPEED_WPM` | No | Words per minute (default: 250) |

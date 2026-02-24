@@ -13,9 +13,16 @@ class Config:
     SYNC_COMMANDS = os.getenv("SYNC_COMMANDS", "0")
 
     # LLM Provider settings
-    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # 'gemini' or 'ollama'
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # 'gemini', 'ollama', or 'qwen'
     OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434")
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:30b-a3b-instruct-2507-q4_K_M")
+
+    # Qwen API settings
+    QWEN_API_KEY = os.getenv("QWEN_API_KEY")
+    QWEN_API_URL = os.getenv(
+        "QWEN_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    )
+    QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen-max")
 
     # Typing simulation settings
     ENABLE_TYPING_SIMULATION = os.getenv("ENABLE_TYPING_SIMULATION", "1") == "1"

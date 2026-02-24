@@ -12,6 +12,7 @@ from services.gemini_service import GeminiService
 from services.lm_studio_service import LMStudioService
 from services.message_processor import MessageProcessor
 from services.ollama_service import OllamaService
+from services.qwen_service import QwenService
 from services.relationship_service import RelationshipService
 from services.summary_service import SummaryService
 
@@ -29,6 +30,9 @@ class LLMMessageCog(commands.Cog):
         elif Config.LLM_PROVIDER == "lm_studio":
             self.llm_service = LMStudioService()
             logger.info("🤖 initialized with LM Studio")
+        elif Config.LLM_PROVIDER == "qwen":
+            self.llm_service = QwenService()
+            logger.info("🤖 initialized with Qwen")
         else:
             self.llm_service = GeminiService()
             logger.info("🤖 initialized with Gemini")
@@ -446,7 +450,7 @@ class LLMMessageCog(commands.Cog):
                         )
 
             # Process the message through relationship service
-            self.relationship_service.process_message(
+            await self.relationship_service.process_message(
                 user_id,
                 author_username,
                 content,
