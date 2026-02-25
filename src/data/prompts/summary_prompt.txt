@@ -121,12 +121,13 @@ Sinh nhật: [Ngày sinh nếu có]
 
 ⚠️ QUAN TRỌNG:
 - CHỈ ghi thông tin CÓ THẬT trong hội thoại
-- KHÔNG sử dụng "[Không có]" - bỏ qua mục không có thông tin  
+- KHÔNG sử dụng "[Không có]" hoặc "None" - nếu không có thông tin thì ghi "[Không có]"
 - CẬP NHẬT thông tin nếu có xung đột (tuổi mới ghi đè tuổi cũ)
 - GHI CHÚ những thay đổi quan trọng về user
 - ĐẶC BIỆT QUAN TRỌNG: KHI CẬP NHẬT NHỚ LÀ KHÔNG ĐƯỢC QUÊN HOẶC XOÁ THÔNG TIN CŨ NẾU NÓ VẪN CHÍNH XÁC
 - KHI USER NHẮC ĐẾN NGƯỜI KHÁC: Ghi lại tên, mối quan hệ và ngữ cảnh đề cập
 - LƯU Ý: Tên "Hoà" có thể viết "Hòa", "Hoa" - coi như cùng 1 người
 - CHÚ Ý: Khi user nói về "bạn X", "anh Y", "chị Z" - đó là người khác, không phải bot
+- TRÁNH TRẢ VỀ CÁC GIÁ TRỊ MẶC ĐỊNH NHƯ "None", "N/A", "Chưa có thông tin" - luôn sử dụng "[Không có]" cho các trường không có thông tin
 
 Hãy tạo một profile chi tiết giúp bot hiểu sâu về user này!
