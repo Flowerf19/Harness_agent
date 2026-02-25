@@ -291,23 +291,45 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
             # Parse the LLM response as JSON
             import json
 
-            response_json = json.loads(llm_response)
+            # First, try to parse the entire response as JSON
+            try:
+                response_json = json.loads(llm_response)
+            except json.JSONDecodeError:
+                # If that fails, try to extract JSON from the response
+                # Look for JSON between curly braces
+                import re
+
+                json_match = re.search(r"\{.*\}", llm_response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group()
+                    response_json = json.loads(json_str)
+                else:
+                    # If still no JSON found, raise the original exception
+                    raise json.JSONDecodeError(
+                        "No JSON found in response", llm_response, 0
+                    )
 
             relationships_found = []
             for rel_data in response_json.get("relationships", []):
-                relationships_found.append(
-                    {
-                        "person1": rel_data["person1"].strip(),
-                        "person2": rel_data["person2"].strip(),
-                        "relationship_type": rel_data["relationship_type"],
-                        "reported_by": author_id,
-                        "timestamp": datetime.now().isoformat(),
-                        "context": rel_data["context"],
-                        "confidence": rel_data.get(
-                            "confidence", 0.7
-                        ),  # Default confidence if not provided
-                    }
-                )
+                # Validate that required fields exist
+                if (
+                    "person1" in rel_data
+                    and "person2" in rel_data
+                    and "relationship_type" in rel_data
+                ):
+                    relationships_found.append(
+                        {
+                            "person1": rel_data["person1"].strip(),
+                            "person2": rel_data["person2"].strip(),
+                            "relationship_type": rel_data["relationship_type"],
+                            "reported_by": author_id,
+                            "timestamp": datetime.now().isoformat(),
+                            "context": rel_data.get("context", ""),
+                            "confidence": rel_data.get(
+                                "confidence", 0.7
+                            ),  # Default confidence if not provided
+                        }
+                    )
 
             return relationships_found
 
