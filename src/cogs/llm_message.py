@@ -341,6 +341,7 @@ class LLMMessageCog(commands.Cog):
         """
         Split response into natural parts: mỗi câu là một phần, xuống dòng đúng dấu câu.
         Hỗ trợ các dấu: . ! ? … ~ (và các dấu kết câu tiếng Việt phổ biến)
+        Cải tiến: Giữ các emoji liền kề với văn bản không bị tách riêng lẻ
         """
         import re
 
@@ -348,15 +349,47 @@ class LLMMessageCog(commands.Cog):
         if not response:
             return []
 
-        # Regex: tách theo dấu kết câu, giữ lại dấu và khoảng trắng phía sau
-        # Bao gồm: . ! ? … ~ và các dấu câu unicode
-        sentence_end_re = re.compile(r"([^.!?…~]+[.!?…~]+[\s\n]*)", re.UNICODE)
-        parts = sentence_end_re.findall(response)
+        # Tách theo dấu kết câu nhưng cố gắng giữ các emoji liền kề
+        # Regex: tách theo dấu câu nhưng không tách nếu sau đó là emoji
+        # Trước tiên tìm các vị trí có dấu câu kết thúc câu
+        sentence_end_re = re.compile(r"([^.!?…~]+[.!?…~]+)(\s*)", re.UNICODE)
+        matches = sentence_end_re.finditer(response)
+
+        # Lấy các phần đã tách
+        parts = []
+        last_end = 0
+        for match in matches:
+            sentence = match.group(0)  # Toàn bộ câu bao gồm dấu câu và khoảng trắng
+            start, end = match.span()
+
+            # Kiểm tra nếu sau khoảng trắng có emoji hoặc ký tự đặc biệt
+            remaining = response[end:]
+            # Tìm các emoji shortcode (dạng :emoji:), teencode (dạng :3, :D, :v, :)), hoặc emoji unicode theo sau
+            emoji_pattern = r"^(:[a-z0-9_+-]+:|:[3DPpSDd\)\(Oo]+|;\)|\^\^|<3|xD?|v\.v|>\.<|=\.\.=|\s*[^\w\s]{1,2}\s*|[^\x00-\x7F]{1,4})"
+            emoji_match = re.match(emoji_pattern, remaining.lstrip())
+
+            if emoji_match:
+                # Nếu có emoji theo sau, thêm cả emoji vào phần hiện tại
+                emoji_end = emoji_match.end()
+                # Kết hợp câu với emoji theo sau
+                combined_part = sentence + remaining[:emoji_end].strip()
+                parts.append(combined_part)
+                last_end = end + emoji_end
+            else:
+                # Không có emoji đặc biệt theo sau, chỉ thêm câu hiện tại
+                parts.append(sentence)
+                last_end = end
 
         # Nếu còn phần dư (không kết thúc bằng dấu câu), thêm vào cuối
-        consumed = "".join(parts)
-        if len(consumed) < len(response):
-            parts.append(response[len(consumed) :].strip())
+        if last_end < len(response):
+            remaining = response[last_end:].strip()
+            if remaining:
+                # Kiểm tra xem phần còn lại có bắt đầu bằng emoji không
+                if parts:
+                    # Nếu có phần cuối cùng, thêm phần còn lại vào đó
+                    parts[-1] = (parts[-1] + " " + remaining).strip()
+                else:
+                    parts.append(remaining)
 
         # Loại bỏ phần rỗng và strip từng phần
         return [p.strip() for p in parts if p.strip()]
