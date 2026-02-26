@@ -1,6 +1,5 @@
 import logging
 import os
-import re
 
 import discord  # type: ignore
 from discord.ext import commands  # type: ignore
@@ -88,6 +87,7 @@ class LLMMessageCog(commands.Cog):
         user_id = str(message.author.id)
 
         # Process relationship data (always, regardless of response)
+        # Semantic understanding like real name extraction is handled by LLM
         await self._process_relationship_data(message, content, user_id)
 
         # Anti-spam check
@@ -298,48 +298,48 @@ class LLMMessageCog(commands.Cog):
         import asyncio
         import random
 
+        # Split response by line breaks first to preserve them
+        lines = response.split("\n")
+
         # Check if typing simulation is enabled
         if not Config.ENABLE_TYPING_SIMULATION:
-            # Send response normally without typing effect
-            if len(response) <= 2000:
-                await message.reply(response)
-                return
-            # Fall back to simple splitting for long messages
-            parts = [response[i : i + 2000] for i in range(0, len(response), 2000)]
-            for i, part in enumerate(parts):
-                if i == 0:
-                    await message.reply(part)
+            # Send response normally without typing effect, but preserve line breaks
+            for i, line in enumerate(lines):
+                # Only send non-empty lines to avoid "Cannot send an empty message" error
+                if line.strip():  # This checks if the line has non-whitespace content
+                    if i == 0:
+                        await message.reply(line)
+                    else:
+                        await message.channel.send(line)
                 else:
-                    await message.channel.send(part)
+                    # If we want to preserve empty lines for formatting, we can send a space or skip
+                    # For now, we'll skip empty lines to prevent the error
+                    continue
             return
 
-        # Split response into sentences/parts
-        response_parts = self._split_response_naturally(response)
+        # Send each line with typing simulation
+        for i, line in enumerate(lines):
+            # Skip empty lines to avoid "Cannot send an empty message" error
+            if line.strip():  # Only process lines that have non-whitespace content
+                # Show typing indicator
+                async with message.channel.typing():
+                    # Realistic typing delay based on message length
+                    typing_delay = self._calculate_typing_delay(line)
+                    await asyncio.sleep(typing_delay)
 
-        # Send each part with typing simulation
-        for i, part in enumerate(response_parts):
-            if not part.strip():
-                continue
+                # Send the message
+                if i == 0:
+                    await message.reply(line)
+                else:
+                    await message.channel.send(line)
 
-            # Show typing indicator
-            async with message.channel.typing():
-                # Realistic typing delay based on message length
-                typing_delay = self._calculate_typing_delay(part)
-                await asyncio.sleep(typing_delay)
-
-            # Send the message
-            if i == 0:
-                await message.reply(part)
-            else:
-                await message.channel.send(part)
-
-            # Short pause between messages (except for last one)
-            if i < len(response_parts) - 1:
-                await asyncio.sleep(random.uniform(0.3, Config.PART_BREAK_DELAY))
+                # Short pause between messages (except for last one)
+                if i < len(lines) - 1:
+                    await asyncio.sleep(random.uniform(0.3, Config.PART_BREAK_DELAY))
 
     def _split_response_naturally(self, response: str) -> list:
         """
-        Split response into natural parts: mỗi câu là một phần, xuống dòng đúng dấu câu.
+        Split response into natural parts: mỗi câu là một phần.
         Hỗ trợ các dấu: . ! ? … ~ (và các dấu kết câu tiếng Việt phổ biến)
         Cải tiến: Giữ các emoji liền kề với văn bản không bị tách riêng lẻ
         """
@@ -452,37 +452,8 @@ class LLMMessageCog(commands.Cog):
                     mention.global_name if hasattr(mention, "global_name") else None,
                 )
 
-            # Extract real names from message content if user mentions them
-            # Pattern để detect khi user nói về tên thật của ai đó
-            name_patterns = [
-                r"tên\s+(tôi|mình|em)\s+(?:là\s+)?(\w+)",  # "tên tôi là X"
-                r"(?:tôi|mình|em)\s+tên\s+(?:là\s+)?(\w+)",  # "tôi tên X"
-                r"(?:gọi|call)\s+(?:tôi|mình|em)\s+(?:là\s+)?(\w+)",  # "gọi tôi là X"
-                r"(\w+)\s+tên\s+(?:thật\s+)?(?:là\s+)?(\w+)",  # "A tên thật là B"
-            ]
-
-            for pattern in name_patterns:
-                matches = re.finditer(pattern, content.lower())
-                for match in matches:
-                    if len(match.groups()) == 2:
-                        # Case: "A tên là B"
-                        person_ref, real_name = match.groups()
-                        if person_ref in ["tôi", "mình", "em"]:
-                            # User talking about themselves
-                            self.relationship_service.update_user_name(
-                                user_id,
-                                author_username,
-                                author_username,
-                                real_name.title(),
-                            )
-                    elif len(match.groups()) == 1:
-                        # Case: "tôi tên X"
-                        real_name = match.groups()[0]
-                        self.relationship_service.update_user_name(
-                            user_id, author_username, author_username, real_name.title()
-                        )
-
             # Process the message through relationship service
+            # Note: Real name extraction and other semantic understanding is handled by LLM
             await self.relationship_service.process_message(
                 user_id,
                 author_username,
@@ -497,128 +468,6 @@ class LLMMessageCog(commands.Cog):
 
         except Exception as e:
             logger.error(f"❌ Error processing relationship data: {e}")
-
-    @commands.command(name="queue_status")
-    async def queue_status_command(self, ctx):
-        """Check conversation queue status"""
-        status = self.conversation_manager.get_queue_status()
-
-        embed = discord.Embed(
-            title="📋 Conversation Queue Status", color=discord.Color.blue()
-        )
-
-        if status["currently_responding_to"]:
-            embed.add_field(
-                name="🔒 Currently Responding To",
-                value=f"User ID: {status['currently_responding_to']} ({status['lock_duration']}s)",
-                inline=False,
-            )
-        else:
-            embed.add_field(name="🔓 Status", value="Available", inline=False)
-
-        embed.add_field(
-            name="⏳ Pending Messages", value=str(status["pending_count"]), inline=True
-        )
-
-        if status["pending_users"]:
-            pending_display = ", ".join(
-                [f"User {uid}" for uid in status["pending_users"]]
-            )
-            embed.add_field(
-                name="👥 Waiting Users", value=pending_display, inline=False
-            )
-
-        await ctx.reply(embed=embed)
-
-    @commands.command(name="clear_queue")
-    async def clear_queue_command(self, ctx):
-        """Clear pending message queue"""
-        if ctx.author.guild_permissions.manage_messages:
-            count = self.conversation_manager.clear_pending_queue()
-            await ctx.reply(f"✅ Cleared {count} pending messages from queue")
-        else:
-            await ctx.reply(
-                "❌ You need Manage Messages permission to use this command"
-            )
-
-    @commands.command(name="debug_duplicate")
-    async def debug_duplicate_command(self, ctx):
-        """Debug duplicate response issues"""
-        debug_info = self.message_processor.get_debug_info()
-
-        embed = discord.Embed(
-            title="🔍 Duplicate Response Debug", color=discord.Color.orange()
-        )
-        embed.add_field(
-            name="Processed Messages", value=debug_info["processed_count"], inline=True
-        )
-        embed.add_field(
-            name="Currently Processing",
-            value=debug_info["processing_count"],
-            inline=True,
-        )
-        embed.add_field(
-            name="Message Locks", value=debug_info["locks_count"], inline=True
-        )
-
-        if debug_info["recent_processed"]:
-            recent = "\n".join([f"`{msg}`" for msg in debug_info["recent_processed"]])
-            embed.add_field(name="Recent Processed", value=recent, inline=False)
-
-        if debug_info["current_processing"]:
-            current = "\n".join(
-                [f"`{msg}`" for msg in debug_info["current_processing"]]
-            )
-            embed.add_field(name="Currently Processing", value=current, inline=False)
-
-        if debug_info["locked_messages"]:
-            locked = "\n".join([f"`{msg}`" for msg in debug_info["locked_messages"]])
-            embed.add_field(name="Locked Messages", value=locked, inline=False)
-
-        await ctx.reply(embed=embed)
-
-    @commands.command(name="test_typing")
-    async def test_typing_command(self, ctx):
-        """Test typing simulation effect"""
-        test_response = """Đây là test typing effect!  😊
-
-Câu này sẽ được gửi riêng lẻ với typing delay tự nhiên.  
-
-Và cuối cùng là câu này!  (づ｡◕‿‿◕｡)づ"""
-
-        await self.send_response_in_parts(
-            ctx.message, test_response, str(ctx.author.id)
-        )
-
-    @commands.command(name="typing_settings")
-    @commands.has_permissions(manage_messages=True)
-    async def typing_settings_command(self, ctx):
-        """Show current typing simulation settings (Admin only)"""
-        embed = discord.Embed(
-            title="⌨️ Typing Simulation Settings", color=discord.Color.blue()
-        )
-
-        embed.add_field(
-            name="Status",
-            value="✅ Enabled" if Config.ENABLE_TYPING_SIMULATION else "❌ Disabled",
-            inline=True,
-        )
-        embed.add_field(
-            name="Speed (WPM)", value=str(Config.TYPING_SPEED_WPM), inline=True
-        )
-        embed.add_field(
-            name="Min Delay (s)", value=str(Config.MIN_TYPING_DELAY), inline=True
-        )
-        embed.add_field(
-            name="Max Delay (s)", value=str(Config.MAX_TYPING_DELAY), inline=True
-        )
-        embed.add_field(
-            name="Break Delay (s)", value=str(Config.PART_BREAK_DELAY), inline=True
-        )
-
-        embed.set_footer(text="Để thay đổi, sửa file .env và restart bot")
-
-        await ctx.reply(embed=embed)
 
 
 async def setup(bot):

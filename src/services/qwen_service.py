@@ -142,62 +142,34 @@ class QwenService:
         # Remove extra whitespace
         response = response.strip()
 
-        # Split by natural breaks (sentences, questions, exclamations)
-        parts = re.split(r"([.!?]+\s*)", response)
+        if not response:
+            return []
 
-        # Combine sentence with its punctuation
-        combined_parts = []
-        for i in range(0, len(parts), 2):
-            if i + 1 < len(parts):
-                part = (parts[i] + parts[i + 1]).strip()
+        # Simple approach: split by newlines first to preserve line breaks
+        lines = response.split("\n")
+
+        # Then for very long lines, optionally split by sentences
+        result = []
+        for line in lines:
+            if len(line) <= 2000:  # Discord message limit
+                if line.strip():  # Only add non-empty lines
+                    result.append(line)
             else:
-                part = parts[i].strip()
+                # For very long lines, split by natural breaks (sentences, questions, exclamations)
+                parts = re.split(r"([.!?]+\s*)", line)
 
-            if part:
-                combined_parts.append(part)
-
-        # If no natural splits found, split by length
-        if len(combined_parts) <= 1 and len(response) > 100:
-            # Split by commas or natural pauses
-            parts = re.split(r"([,;]\s*)", response)
-            combined_parts = []
-            current_part = ""
-
-            for part in parts:
-                if len(current_part + part) < 80:
-                    current_part += part
-                else:
-                    if current_part.strip():
-                        combined_parts.append(current_part.strip())
-                    current_part = part
-
-            if current_part.strip():
-                combined_parts.append(current_part.strip())
-
-        # Ensure no part is too long (max 200 chars)
-        final_parts = []
-        for part in combined_parts:
-            if len(part) > 200:
-                # Split long parts by words
-                words = part.split()
-                current_chunk = ""
-
-                for word in words:
-                    if len(current_chunk + " " + word) < 200:
-                        current_chunk += (" " + word) if current_chunk else word
+                # Combine sentence with its punctuation
+                combined_parts = []
+                for i in range(0, len(parts), 2):
+                    if i + 1 < len(parts):
+                        part = (parts[i] + parts[i + 1]).strip()
                     else:
-                        if current_chunk:
-                            final_parts.append(current_chunk.strip())
-                        current_chunk = word
+                        part = parts[i].strip()
 
-                if current_chunk:
-                    final_parts.append(current_chunk.strip())
-            else:
-                final_parts.append(part)
+                    if part:
+                        combined_parts.append(part)
 
-        # Ensure we have at least one part
-        if not final_parts:
-            final_parts = [response]
+                # Add the split parts
+                result.extend(combined_parts)
 
-        self.logger.debug(f"Split response into {len(final_parts)} parts")
-        return final_parts
+        return result

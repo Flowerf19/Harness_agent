@@ -1,10 +1,7 @@
-import asyncio
 import json
 import logging
 import os
 from typing import Dict, List, Optional
-
-import aiofiles
 
 logger = logging.getLogger(__name__)
 
@@ -113,50 +110,8 @@ class SummaryService:
         os.makedirs(self.prompts_dir, exist_ok=True)
         os.makedirs(self.config_dir, exist_ok=True)
 
-        # Load important keywords
-        self.important_keywords = self._load_important_keywords()
-
         # Tracking for updates
         self._last_update = {}
-
-    def _load_important_keywords(self) -> Dict:
-        """Load important keywords for summary updates"""
-        keywords_file = os.path.join(self.config_dir, "important_keywords.json")
-
-        # Default keywords if file doesn't exist
-        default_keywords = {
-            "basic_info": ["tên", "tuổi", "sinh", "sinh nhật", "ngày sinh"],
-            "hobbies": ["thích", "yêu", "mê", "sở thích", "hobby"],
-            "emotions": ["buồn", "vui", "stress", "lo", "hạnh phúc", "tâm trạng"],
-            "relationships": ["độc thân", "người yêu", "bạn gái", "bạn trai"],
-            "dreams": ["muốn", "ước", "dự định", "kế hoạch", "mơ ước"],
-            "changes": [
-                "không thích",
-                "bỏ",
-                "giờ thích",
-                "chuyển sang",
-                "chia tay",
-                "có người yêu",
-            ],
-        }
-
-        if not os.path.exists(keywords_file):
-            # Create the file with default keywords
-            os.makedirs(os.path.dirname(keywords_file), exist_ok=True)
-            try:
-                with open(keywords_file, "w", encoding="utf-8") as f:
-                    json.dump(default_keywords, f, ensure_ascii=False, indent=2)
-                logger.info(f"Created default keywords file: {keywords_file}")
-            except Exception as e:
-                logger.error(f"Error creating keywords file: {e}")
-            return default_keywords
-
-        try:
-            with open(keywords_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Error loading keywords file: {e}")
-            return default_keywords
 
     def get_user_history(self, user_id: str) -> List[Dict]:
         """FIXED: Get user conversation history với absolute path"""
@@ -250,22 +205,15 @@ class SummaryService:
     def should_update_summary(
         self, user_id: str, message_content: str, current_summary: str
     ) -> bool:
-        """REALTIME: Enhanced check for immediate summary updates"""
-        message_lower = message_content.lower()
+        """REALTIME: Enhanced check for immediate summary updates
+        Note: Semantic understanding of important information is handled by LLM
+        """
+        message_content.lower()
 
         # FORCE UPDATE cho template summary
         if self._is_template_summary(current_summary):
             logger.info(f"🔄 Template summary detected for {user_id} - FORCE UPDATE")
             return True
-
-        # Check for important keywords
-        for category, keywords in self.important_keywords.items():
-            for keyword in keywords:
-                if keyword in message_lower:
-                    logger.info(
-                        f"Important keyword '{keyword}' found in message from {user_id}"
-                    )
-                    return True
 
         # REALTIME: Tăng tần suất update
         import random

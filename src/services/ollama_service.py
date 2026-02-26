@@ -1,6 +1,8 @@
-import os
-import aiohttp
 import logging
+import os
+
+import aiohttp
+
 from config.settings import Config
 
 
@@ -120,7 +122,7 @@ class OllamaService:
 
     def _split_response_naturally(self, response: str) -> list:
         """
-        Split response into natural parts: mỗi câu là một phần, xuống dòng đúng dấu câu.
+        Split response into natural parts: mỗi câu là một phần.
         """
         import re
 
@@ -128,11 +130,31 @@ class OllamaService:
         if not response:
             return []
 
-        sentence_end_re = re.compile(r"([^.!?…~]+[.!?…~]+[\s\n]*)", re.UNICODE)
-        parts = sentence_end_re.findall(response)
+        # Simple approach: split by newlines first to preserve line breaks
+        lines = response.split("\n")
 
-        consumed = "".join(parts)
-        if len(consumed) < len(response):
-            parts.append(response[len(consumed) :].strip())
+        # Then for very long lines, optionally split by sentences
+        result = []
+        for line in lines:
+            if len(line) <= 2000:  # Discord message limit
+                if line.strip():  # Only add non-empty lines
+                    result.append(line)
+            else:
+                # For very long lines, split by natural breaks (sentences, questions, exclamations)
+                parts = re.split(r"([.!?]+\s*)", line)
 
-        return [p.strip() for p in parts if p.strip()]
+                # Combine sentence with its punctuation
+                combined_parts = []
+                for i in range(0, len(parts), 2):
+                    if i + 1 < len(parts):
+                        part = (parts[i] + parts[i + 1]).strip()
+                    else:
+                        part = parts[i].strip()
+
+                    if part:
+                        combined_parts.append(part)
+
+                # Add the split parts
+                result.extend(combined_parts)
+
+        return result
