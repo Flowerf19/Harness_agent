@@ -110,6 +110,64 @@ class SummaryService:
         os.makedirs(self.prompts_dir, exist_ok=True)
         os.makedirs(self.config_dir, exist_ok=True)
 
+        # Initialize default summary template
+        self.default_summary = self._get_default_summary()
+
+    def _get_default_summary(self) -> str:
+        """Get default summary template for new users"""
+        return """=== THÔNG TIN CƠ BẢN ===
+Tên: [Không có]
+Tuổi: [Không có]
+Sinh nhật: [Không có]
+
+=== SỞ THÍCH & ĐAM MÊ ===
+• Công nghệ: [Không có]
+• Giải trí: [Không có]
+• Khác: [Không có]
+
+=== TÍNH CÁCH & PHONG CÁCH ===
+• Giao tiếp: [Không có]
+• Tâm trạng: [Không có]
+• Đặc điểm: [Không có]
+
+=== MỐI QUAN HỆ VỚI NGƯỜI KHÁC ===
+• Bạn bè: [Không có]
+• Gia đình: [Không có]
+• Đồng nghiệp: [Không có]
+• Người quan trọng: [Không có]
+• Ghi chú về tương tác: [Không có]
+
+=== LỊCH SỬ TƯƠNG TÁC ===
+• Chủ đề đã thảo luận: [Không có]
+• Mức độ thân thiết: [Không có]
+• Ghi chú đặc biệt: [Không có]
+
+=== DỰ ÁN & MỤC TIÊU ===
+• Hiện tại: [Không có]
+• Kế hoạch: [Không có]"""
+
+    def ensure_user_files_exist(self, user_id: str):
+        """Ensure user data files exist"""
+        import json
+        import os
+
+        # Create directory if not exists
+        os.makedirs(self.summaries_dir, exist_ok=True)
+
+        # Create history file if not exists
+        history_file = os.path.join(self.summaries_dir, f"{user_id}_history.json")
+        if not os.path.exists(history_file):
+            with open(history_file, "w", encoding="utf-8") as f:
+                json.dump([], f, ensure_ascii=False, indent=2)
+            logger.debug(f"📄 Created default history file for user {user_id}")
+
+        # Create summary file if not exists
+        summary_file = os.path.join(self.summaries_dir, f"{user_id}_summary.txt")
+        if not os.path.exists(summary_file):
+            with open(summary_file, "w", encoding="utf-8") as f:
+                f.write(self.default_summary)
+            logger.debug(f"📄 Created default summary file for user {user_id}")
+
         # Tracking for updates
         self._last_update = {}
 
@@ -119,9 +177,14 @@ class SummaryService:
 
         logger.debug(f"🔍 Looking for history file: {history_file}")
 
-        # Check if file exists with absolute path
+        # Ensure the file exists
         if not os.path.exists(history_file):
             logger.info(f"📝 History file not found: {history_file}")
+            # Create the file with an empty array
+            os.makedirs(self.summaries_dir, exist_ok=True)
+            with open(history_file, "w", encoding="utf-8") as f:
+                json.dump([], f, ensure_ascii=False, indent=2)
+            logger.debug(f"📄 Created default history file for user {user_id}")
             return []
 
         try:
@@ -169,9 +232,14 @@ class SummaryService:
         """Get user summary với absolute path và better caching"""
         summary_file = os.path.join(self.summaries_dir, f"{user_id}_summary.txt")
 
+        # Ensure the file exists
         if not os.path.exists(summary_file):
-            logger.debug(f"📝 Summary file not found: {summary_file}")
-            return ""
+            # Create the file with default content
+            os.makedirs(self.summaries_dir, exist_ok=True)
+            with open(summary_file, "w", encoding="utf-8") as f:
+                f.write(self.default_summary)
+            logger.debug(f"📄 Created default summary file for user {user_id}")
+            return self.default_summary
 
         try:
             with open(summary_file, "r", encoding="utf-8") as f:
@@ -216,9 +284,16 @@ class SummaryService:
             return True
 
         # REALTIME: Tăng tần suất update
+        # Tăng xác suất cập nhật để đảm bảo thông tin được cập nhật thường xuyên hơn
         import random
 
-        return random.random() < 0.3  # Tăng từ 10% lên 30%
+        # Nếu có nhiều tin nhắn mới hoặc thông tin chưa được cập nhật, tăng xác suất
+        if len(message_content) > 10 and "tên" in message_content.lower():
+            return True  # Luôn cập nhật khi người dùng nói về tên
+
+        return (
+            random.random() < 0.4
+        )  # Tăng từ 30% lên 40% để cải thiện khả năng cập nhật
 
     def _is_template_summary(self, summary: str) -> bool:
         """Check if summary is a template (has [Không có] or None entries)"""
@@ -276,8 +351,8 @@ class SummaryService:
             matches = re.findall(pattern, summary, re.IGNORECASE)
             empty_count += len(matches)
 
-        # Nếu có >= 15 trường trống/template trên tổng số 19 trường, thì счит là template
-        if empty_count >= 15:
+        # Nếu có >= 12 trường trống/template trên tổng số 19 trường, thì счит là template (giảm ngưỡng từ 15 xuống 12)
+        if empty_count >= 12:
             logger.info(
                 f"🔍 Template summary detected ({empty_count} empty/placeholder fields out of 19)"
             )
@@ -297,9 +372,9 @@ class SummaryService:
             )
 
             # REALTIME: Giảm threshold để update nhanh hơn
-            if len(history) < 4:  # Giảm từ 6 xuống 4
+            if len(history) < 3:  # Giảm từ 4 xuống 3 để tăng khả năng cập nhật sớm
                 logger.info(
-                    f"📝 User {user_id}: Not enough messages ({len(history)}/4) for summary"
+                    f"📝 User {user_id}: Not enough messages ({len(history)}/3) for summary"
                 )
                 return None
 
@@ -323,9 +398,11 @@ class SummaryService:
             total_chars = sum(len(msg.get("content", "")) for msg in user_messages)
             logger.info(f"📊 User {user_id}: {total_chars} total characters")
 
-            if total_chars < 15:  # Giảm từ 20 xuống 15
+            if (
+                total_chars < 10
+            ):  # Giảm từ 15 xuống 10 để tăng khả năng cập nhật với tin nhắn ngắn nhưng quan trọng
                 logger.info(
-                    f"📝 User {user_id}: Content too short for meaningful summary"
+                    f"📝 User {user_id}: Content too short for meaningful summary (< 10 chars)"
                 )
                 return None
 
@@ -371,6 +448,8 @@ class SummaryService:
 
             # REALTIME: Enhanced prompt để force tạo summary mới
             summary_prompt = f"""{summary_prompt_template}
+
+USER_ID_MUC_TIEU: {user_id}
 
 QUAN TRỌNG: Tạo summary hoàn toàn mới dựa trên cuộc hội thoại thực tế.
 KHÔNG sử dụng "[Không có]" - chỉ ghi thông tin có thật.

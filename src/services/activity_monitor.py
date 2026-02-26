@@ -87,7 +87,7 @@ class ActivityMonitor:
             self.user_conditions[user_id].last_activity = current_time
             self.user_conditions[user_id].message_count += 1
 
-    def record_priority_event(
+    async def record_priority_event(
         self, user_id: str, event_type: str, event_data: Any = None
     ):
         """Ghi nhận sự kiện ưu tiên cần xử lý ngay"""
@@ -96,7 +96,10 @@ class ActivityMonitor:
         # Gọi các callback cho sự kiện ưu tiên
         for callback in self.priority_event_callbacks:
             try:
-                callback(user_id, event_type, event_data)
+                if asyncio.iscoroutinefunction(callback):
+                    await callback(user_id, event_type, event_data)
+                else:
+                    callback(user_id, event_type, event_data)
             except Exception as e:
                 logger.error(f"❌ Error in priority event callback: {e}")
 
@@ -129,7 +132,10 @@ class ActivityMonitor:
         # Gọi các callback
         for callback in self.message_count_callbacks:
             try:
-                await callback(user_id, condition)
+                if asyncio.iscoroutinefunction(callback):
+                    await callback(user_id, condition)
+                else:
+                    callback(user_id, condition)
             except Exception as e:
                 logger.error(f"❌ Error in message count callback: {e}")
 
@@ -145,7 +151,10 @@ class ActivityMonitor:
         # Gọi các callback
         for callback in self.timeout_callbacks:
             try:
-                await callback(user_id, condition)
+                if asyncio.iscoroutinefunction(callback):
+                    await callback(user_id, condition)
+                else:
+                    callback(user_id, condition)
             except Exception as e:
                 logger.error(f"❌ Error in timeout callback: {e}")
 

@@ -15,9 +15,12 @@ class MemoryBackgroundService:
     Dịch vụ chạy nền để xử lý cập nhật Episodic Memory và Core Persona
     """
 
-    def __init__(self, llm_service, data_dir: str):
+    def __init__(self, llm_service, data_dir: str, relationship_service=None):
         self.llm_service = llm_service
         self.data_dir = data_dir
+        self.relationship_service = (
+            relationship_service  # Thêm relationship service để tích hợp
+        )
 
         # Đường dẫn lưu trữ
         self.user_summaries_dir = os.path.join(data_dir, "user_summaries")
@@ -40,6 +43,41 @@ class MemoryBackgroundService:
         # Cờ để kiểm soát vòng lặp
         self.running = False
         self.task = None
+
+    def ensure_user_files_exist(self, user_id: str):
+        """Ensure user data files exist"""
+        import json
+        import os
+        from datetime import datetime
+
+        # Create directory if not exists
+        os.makedirs(self.user_summaries_dir, exist_ok=True)
+
+        # Create episodic memory file if not exists
+        episodic_file = os.path.join(
+            self.user_summaries_dir, f"{user_id}_episodic.json"
+        )
+        if not os.path.exists(episodic_file):
+            with open(episodic_file, "w", encoding="utf-8") as f:
+                json.dump([], f, ensure_ascii=False, indent=2)
+            logger.debug(f"📄 Created default episodic memory file for user {user_id}")
+
+        # Create metadata file if not exists
+        metadata_file = os.path.join(
+            self.user_summaries_dir, f"{user_id}_metadata.json"
+        )
+        if not os.path.exists(metadata_file):
+            with open(metadata_file, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "created_at": datetime.now().isoformat(),
+                        "last_persona_update": None,
+                    },
+                    f,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            logger.debug(f"📄 Created default metadata file for user {user_id}")
 
     def start(self):
         """Khởi động dịch vụ nền và activity monitor"""
@@ -79,11 +117,13 @@ class MemoryBackgroundService:
         """Ghi nhận hoạt động của người dùng"""
         self.activity_monitor.record_activity(user_id)
 
-    def record_priority_event(
+    async def record_priority_event(
         self, user_id: str, event_type: str, event_data: Any = None
     ):
         """Ghi nhận sự kiện ưu tiên"""
-        self.activity_monitor.record_priority_event(user_id, event_type, event_data)
+        await self.activity_monitor.record_priority_event(
+            user_id, event_type, event_data
+        )
 
     async def _on_message_count_trigger(self, user_id: str, condition):
         """Xử lý khi đạt ngưỡng tin nhắn"""
@@ -105,10 +145,14 @@ class MemoryBackgroundService:
         logger.info(f"🔄 Processing priority event {event_type} for {user_id}")
 
         if event_type == "personal_info_update":
-            # Cập nhật core persona ngay lập tức
+            # Cập nhật episodic memory trước để đảm bảo thông tin mới được ghi nhận
+            await self._update_episodic_memory(user_id)
+            # Sau đó cập nhật core persona với thông tin mới
             await self._update_core_persona(user_id)
         elif event_type == "relationship_change":
             # Cập nhật thông tin mối quan hệ
+            await self._update_episodic_memory(user_id)
+            # Sau đó cập nhật core persona với thông tin mới
             await self._update_core_persona(user_id)
         # Thêm các loại sự kiện khác nếu cần
 
@@ -146,8 +190,8 @@ Hãy trích xuất các thông tin sau theo định dạng JSON:
 {{
   "events": [
     {{
-      "type": "fact|event|behavior|preference|milestone|change",
-      "category": "personal_info|interests|habits|goals|relationships|activities|status_change",
+      "type": "fact|event|behavior|preference|milestone|change|interaction",
+      "category": "personal_info|interests|habits|goals|relationships|activities|status_change|conversation",
       "summary": "Tóm tắt ngắn gọn sự kiện/fact",
       "details": "Chi tiết cụ thể về sự kiện/fact",
       "timestamp": "Thời gian (nếu có thể xác định)",
@@ -158,7 +202,14 @@ Hãy trích xuất các thông tin sau theo định dạng JSON:
   "important_facts": ["các fact quan trọng cần nhớ"]
 }}
 
-Chỉ trả lời dưới dạng JSON, không giải thích thêm:
+QUAN TRỌNG:
+- Nếu không có thông tin cụ thể, hãy tạo ít nhất một sự kiện với type: "general_interaction", category: "conversation"
+- LUÔN TRẢ VỀ ĐỊNH DẠNG JSON HOÀN CHỈNH, không thêm văn bản giải thích nào khác
+- Nếu không thể xác định thông tin cụ thể, hãy gộp vào sự kiện chung về cuộc trò chuyện
+- Đảm bảo mảng "events" không bao giờ rỗng
+- CHỈ TRẢ VỀ JSON, KHÔNG THÊM BẤT KỲ VĂN BẢN NÀO KHÁC
+
+JSON OUTPUT (chỉ trả về JSON, không thêm văn bản nào khác):
 """
 
             # Gọi LLM để trích xuất facts
@@ -169,7 +220,26 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:
             # Parse kết quả từ LLM
             extracted_data = self._parse_llm_extraction_result(llm_response)
 
+            # Log chi tiết về kết quả trích xuất
+            logger.debug(f"🔍 Raw LLM response for {user_id}: {llm_response[:200]}...")
+            logger.debug(
+                f"📊 Parsed extraction data for {user_id}: {extracted_data is not None}"
+            )
+
             if extracted_data and "events" in extracted_data:
+                event_count = len(extracted_data["events"])
+                logger.info(
+                    f"✅ Episodic memory update for {user_id}: {event_count} events extracted"
+                )
+
+                # Log thông tin chi tiết về các sự kiện (chỉ lấy một số thông tin cơ bản để không quá dài)
+                for i, event in enumerate(
+                    extracted_data["events"][:3]
+                ):  # Chỉ log 3 sự kiện đầu tiên
+                    logger.debug(
+                        f"📋 Event {i + 1} for {user_id} - Type: {event.get('type', 'unknown')}, Category: {event.get('category', 'unknown')}, Summary: {event.get('summary', '')[:100]}"
+                    )
+
                 # Thêm facts vào episodic memory
                 await self._append_to_episodic_memory(user_id, extracted_data["events"])
 
@@ -181,38 +251,139 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:
                 )
             else:
                 logger.warning(f"⚠️ No valid events extracted for {user_id}")
+                logger.debug(
+                    f"🔍 Detailed extraction result for {user_id}: {extracted_data}"
+                )
 
         except Exception as e:
             logger.error(f"❌ Error updating episodic memory for {user_id}: {e}")
+            import traceback
+
+            logger.error(f"📋 Traceback: {traceback.format_exc()}")
 
     def _parse_llm_extraction_result(self, llm_response: str) -> Optional[Dict]:
         """Parse kết quả trích xuất từ LLM"""
         import json
         import re
 
-        try:
-            # Thử parse trực tiếp nếu là JSON hợp lệ
-            return json.loads(llm_response)
-        except json.JSONDecodeError:
-            # Nếu không phải JSON hợp lệ, tìm khối JSON trong chuỗi
-            try:
-                # Tìm khối JSON giữa dấu ngoặc nhọn
-                json_match = re.search(r"\{.*\}", llm_response, re.DOTALL)
-                if json_match:
-                    json_str = json_match.group()
-                    # Làm sạch chuỗi JSON (loại bỏ trailing commas)
-                    json_str = re.sub(r",(\s*[}\]])", r"\1", json_str)
-                    return json.loads(json_str)
-            except:
-                pass
+        # Loại bỏ các ký tự không cần thiết ở đầu và cuối
+        cleaned_response = llm_response.strip()
 
-        return None
+        # Thử parse trực tiếp nếu là JSON hợp lệ
+        try:
+            return json.loads(cleaned_response)
+        except json.JSONDecodeError:
+            pass
+
+        # Thử tìm và parse khối JSON trong chuỗi phản hồi
+        # Sử dụng biểu thức chính xác hơn để tìm khối JSON
+        try:
+            # Tìm tất cả các khối JSON có thể có trong phản hồi
+            # Bắt đầu từ dấu { và kết thúc bằng } tương ứng
+            brace_level = 0
+            start_pos = -1
+            json_candidate = ""
+
+            for i, char in enumerate(cleaned_response):
+                if char == "{":
+                    if brace_level == 0:
+                        start_pos = i
+                    brace_level += 1
+                elif char == "}":
+                    brace_level -= 1
+                    if brace_level == 0 and start_pos != -1:
+                        # Tìm thấy khối JSON hoàn chỉnh
+                        json_candidate = cleaned_response[start_pos : i + 1]
+
+                        # Thử parse khối JSON này
+                        try:
+                            parsed = json.loads(json_candidate)
+                            if isinstance(parsed, dict) and "events" in parsed:
+                                return parsed
+                        except json.JSONDecodeError:
+                            # Nếu không parse được, tiếp tục tìm khối khác
+                            continue
+
+            # Nếu không tìm được khối JSON hoàn chỉnh, thử tìm khối JSON đầu tiên
+            json_match = re.search(r"\{(?:[^{}]|(?R))*\}", cleaned_response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group()
+                try:
+                    parsed = json.loads(json_str)
+                    if isinstance(parsed, dict):
+                        return parsed
+                except json.JSONDecodeError:
+                    pass
+        except Exception:
+            # Nếu có lỗi trong quá trình tìm kiếm JSON nâng cao, trở lại phương pháp đơn giản
+            pass
+
+        # Nếu phương pháp nâng cao không thành công, thử phương pháp cũ
+        try:
+            # Tìm khối JSON giữa dấu ngoặc nhọn
+            json_match = re.search(r"\{.*\}", cleaned_response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group()
+                # Làm sạch chuỗi JSON (loại bỏ trailing commas)
+                json_str = re.sub(r",(\s*[}\]])", r"\1", json_str)
+
+                # Thử parse lại
+                try:
+                    parsed = json.loads(json_str)
+                    return parsed
+                except json.JSONDecodeError:
+                    # Nếu vẫn lỗi, thử thêm các ký tự bị thiếu
+                    if not json_str.endswith("}"):
+                        json_str += "}"
+                    if not json_str.startswith("{"):
+                        json_str = "{" + json_str
+
+                    try:
+                        parsed = json.loads(json_str)
+                        return parsed
+                    except json.JSONDecodeError:
+                        pass
+        except Exception:
+            pass
+
+        # Cơ chế fallback: tạo dữ liệu mặc định nếu không thể parse
+        logger.warning(
+            f"⚠️ Could not parse LLM response, using fallback structure: {cleaned_response[:200]}..."
+        )
+
+        # Trích xuất thông tin từ phản hồi văn bản nếu không có JSON
+        fallback_events = []
+
+        # Nếu có bất kỳ nội dung nào, tạo một sự kiện chung
+        if cleaned_response and len(cleaned_response.strip()) > 0:
+            fallback_events.append(
+                {
+                    "type": "general_interaction",
+                    "category": "conversation",
+                    "summary": "General conversation interaction",
+                    "details": cleaned_response[:500],  # Giới hạn độ dài
+                    "timestamp": datetime.now().isoformat(),
+                    "confidence": 0.5,
+                }
+            )
+
+        return {
+            "events": fallback_events,
+            "key_themes": ["general_interaction"],
+            "important_facts": [cleaned_response[:200]] if cleaned_response else [],
+        }
 
     def _get_user_history(self, user_id: str) -> List[Dict]:
         """Lấy lịch sử hội thoại của người dùng"""
         history_file = os.path.join(self.user_summaries_dir, f"{user_id}_history.json")
 
+        # Ensure the file exists
         if not os.path.exists(history_file):
+            # Create the file with an empty array
+            os.makedirs(self.user_summaries_dir, exist_ok=True)
+            with open(history_file, "w", encoding="utf-8") as f:
+                json.dump([], f, ensure_ascii=False, indent=2)
+            logger.debug(f"📄 Created default history file for user {user_id}")
             return []
 
         try:
@@ -230,6 +401,14 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:
             episodic_file = os.path.join(
                 self.user_summaries_dir, f"{user_id}_episodic.json"
             )
+
+            # Ensure the file exists
+            if not os.path.exists(episodic_file):
+                # Create the file with an empty array
+                os.makedirs(self.user_summaries_dir, exist_ok=True)
+                with open(episodic_file, "w", encoding="utf-8") as f:
+                    json.dump([], f, ensure_ascii=False, indent=2)
+                logger.debug(f"📄 Created default episodic file for user {user_id}")
 
             # Đọc dữ liệu hiện tại
             existing_events = []
@@ -265,7 +444,13 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:
                 self.user_summaries_dir, f"{user_id}_history.json"
             )
 
+            # Ensure the file exists
             if not os.path.exists(history_file):
+                # Create the file with an empty array
+                os.makedirs(self.user_summaries_dir, exist_ok=True)
+                with open(history_file, "w", encoding="utf-8") as f:
+                    json.dump([], f, ensure_ascii=False, indent=2)
+                logger.debug(f"📄 Created default history file for user {user_id}")
                 return
 
             # Đọc lịch sử hiện tại
@@ -364,6 +549,16 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:
             )
             if not os.path.exists(episodic_file):
                 logger.info(f"📝 No episodic memory to process for {user_id}")
+                # Ensure the file exists and create a basic summary if needed
+                self.ensure_user_files_exist(user_id)
+
+                # Check if we have a very basic summary that needs initialization
+                current_summary = self._get_current_summary(user_id)
+                if not current_summary or current_summary == "":
+                    # Create a basic summary for new users
+                    default_summary = self._get_empty_summary()
+                    self._save_summary(user_id, default_summary)
+                    logger.info(f"📝 Initialized basic summary for new user {user_id}")
                 return
 
             with open(episodic_file, "r", encoding="utf-8") as f:
@@ -381,6 +576,21 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:
                 events[-50:] if len(events) > 50 else events
             )  # Lấy 50 sự kiện gần nhất
 
+            # Lấy thông tin mối quan hệ từ RelationshipService nếu có
+            relationship_info = ""
+            if self.relationship_service:
+                try:
+                    user_relationships = (
+                        self.relationship_service.get_user_relationships(user_id)
+                    )
+                    if user_relationships:
+                        relationship_info = "THÔNG TIN MỐI QUAN HỆ GẦN ĐÂY:\n"
+                        for rel in user_relationships[:5]:  # Lấy 5 mối quan hệ gần đây
+                            relationship_info += f"- {rel['other_person']}: {rel['relationship_type']} (nói đến: {rel['context']})\n"
+                        relationship_info += "\n"
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not retrieve relationship info: {e}")
+
             # Tạo prompt để cập nhật hồ sơ
             update_prompt = f"""
 Bạn là chuyên gia cập nhật hồ sơ người dùng. Hãy cập nhật hồ sơ cốt lõi của người dùng dựa trên các sự kiện mới sau:
@@ -388,7 +598,7 @@ Bạn là chuyên gia cập nhật hồ sơ người dùng. Hãy cập nhật h�
 HỒ SƠ HIỆN TẠI:
 {current_summary or "[Chưa có hồ sơ]"}
 
-SỰ KIỆN MỚI (theo thứ tự thời gian):
+{relationship_info}SỰ KIỆN MỚI (theo thứ tự thời gian):
 {json.dumps(recent_events[-10:], indent=2, ensure_ascii=False)}  # Lấy 10 sự kiện gần nhất
 
 Hãy tạo lại hồ sơ người dùng theo định dạng chuẩn sau, cập nhật thông tin mới và giữ lại thông tin vẫn còn chính xác:
@@ -429,6 +639,7 @@ QUAN TRỌNG:
 - GIỮ lại thông tin vẫn còn chính xác
 - LOẠI BỎ thông tin lỗi thời hoặc không còn đúng
 - CHỈ ghi thông tin CÓ THẬT trong các sự kiện
+- CẬP NHẬT thông tin mối quan hệ nếu có thay đổi
 """
 
             # Gọi LLM để cập nhật hồ sơ
@@ -454,8 +665,15 @@ QUAN TRỌNG:
         """Lấy summary hiện tại của người dùng"""
         summary_file = os.path.join(self.user_summaries_dir, f"{user_id}_summary.txt")
 
+        # Ensure the file exists
         if not os.path.exists(summary_file):
-            return ""
+            # Create the file with default content
+            os.makedirs(self.user_summaries_dir, exist_ok=True)
+            default_summary = self._get_empty_summary()
+            with open(summary_file, "w", encoding="utf-8") as f:
+                f.write(default_summary)
+            logger.debug(f"📄 Created default summary file for user {user_id}")
+            return default_summary
 
         try:
             with open(summary_file, "r", encoding="utf-8") as f:
@@ -469,6 +687,8 @@ QUAN TRỌNG:
         summary_file = os.path.join(self.user_summaries_dir, f"{user_id}_summary.txt")
 
         try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(summary_file), exist_ok=True)
             with open(summary_file, "w", encoding="utf-8") as f:
                 f.write(summary)
             logger.info(f"📝 Summary saved for user {user_id}")
@@ -493,7 +713,42 @@ QUAN TRỌNG:
         metadata["last_persona_update"] = datetime.now().isoformat()
 
         try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(metadata_file), exist_ok=True)
             with open(metadata_file, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"❌ Error saving metadata for {user_id}: {e}")
+
+    def _get_empty_summary(self) -> str:
+        """Get empty summary template"""
+        return """=== THÔNG TIN CƠ BẢN ===
+Tên: [Không có]
+Tuổi: [Không có]
+Sinh nhật: [Không có]
+
+=== SỞ THÍCH & ĐAM MÊ ===
+• Công nghệ: [Không có]
+• Giải trí: [Không có]
+• Khác: [Không có]
+
+=== TÍNH CÁCH & PHONG CÁCH ===
+• Giao tiếp: [Không có]
+• Tâm trạng: [Không có]
+• Đặc điểm: [Không có]
+
+=== MỐI QUAN HỆ VỚI NGƯỜI KHÁC ===
+• Bạn bè: [Không có]
+• Gia đình: [Không có]
+• Đồng nghiệp: [Không có]
+• Người quan trọng: [Không có]
+• Ghi chú về tương tác: [Không có]
+
+=== LỊCH SỬ TƯƠNG TÁC ===
+• Chủ đề đã thảo luận: [Không có]
+• Mức độ thân thiết: [Không có]
+• Ghi chú đặc biệt: [Không có]
+
+=== DỰ ÁN & MỤC TIÊU ===
+• Hiện tại: [Không có]
+• Kế hoạch: [Không có]"""

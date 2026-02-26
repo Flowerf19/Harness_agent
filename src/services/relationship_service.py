@@ -349,25 +349,50 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
                     response_json = {"relationships": []}
 
             relationships_found = []
-            
+
             # Validate that response_json has the expected structure
             if not isinstance(response_json, dict):
                 logger.warning("LLM response is not a dictionary, using fallback")
-                return self._extract_relationship_info_fallback(message_content, author_id)
-            
+                return self._extract_relationship_info_fallback(
+                    message_content, author_id
+                )
+
             relationships_data = response_json.get("relationships", [])
-            
+
             # Validate that relationships_data is a list
             if not isinstance(relationships_data, list):
-                logger.warning("LLM response 'relationships' field is not a list, using fallback")
-                return self._extract_relationship_info_fallback(message_content, author_id)
-            
+                logger.warning(
+                    "LLM response 'relationships' field is not a list, using fallback"
+                )
+                return self._extract_relationship_info_fallback(
+                    message_content, author_id
+                )
+
+            # Additional validation: check if the list contains dictionaries
+            if relationships_data:  # Only check if the list is not empty
+                try:
+                    if not isinstance(relationships_data[0], dict):
+                        logger.warning(
+                            "LLM response 'relationships' list doesn't contain dictionaries, using fallback"
+                        )
+                        return self._extract_relationship_info_fallback(
+                            message_content, author_id
+                        )
+                except (IndexError, TypeError):
+                    # Handle case where relationships_data might not be a proper list
+                    logger.warning("Error accessing relationships data, using fallback")
+                    return self._extract_relationship_info_fallback(
+                        message_content, author_id
+                    )
+
             for rel_data in relationships_data:
                 # Validate that rel_data is a dictionary and has required fields
                 if not isinstance(rel_data, dict):
-                    logger.warning(f"Skipping non-dictionary relationship data: {rel_data}")
+                    logger.warning(
+                        f"Skipping non-dictionary relationship data: {rel_data}"
+                    )
                     continue
-                    
+
                 if (
                     "person1" in rel_data
                     and "person2" in rel_data
@@ -377,11 +402,16 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
                     person1 = rel_data.get("person1")
                     person2 = rel_data.get("person2")
                     relationship_type = rel_data.get("relationship_type")
-                    
-                    if not all(isinstance(field, str) for field in [person1, person2, relationship_type]):
-                        logger.warning(f"Skipping relationship with invalid field types: {rel_data}")
+
+                    if not all(
+                        isinstance(field, str)
+                        for field in [person1, person2, relationship_type]
+                    ):
+                        logger.warning(
+                            f"Skipping relationship with invalid field types: {rel_data}"
+                        )
                         continue
-                    
+
                     relationships_found.append(
                         {
                             "person1": person1.strip(),
@@ -396,7 +426,9 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
                         }
                     )
                 else:
-                    logger.debug(f"Skipping relationship data missing required fields: {rel_data}")
+                    logger.debug(
+                        f"Skipping relationship data missing required fields: {rel_data}"
+                    )
 
             return relationships_found
 
@@ -673,27 +705,39 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
         user_display_name = self.get_user_display_name(user_id).lower()
 
         for rel_key, rel_data in self.relationships.items():
-            person1 = rel_data["person1"].lower()
-            person2 = rel_data["person2"].lower()
+            # Validate that rel_data is a proper dictionary with required keys
+            if not isinstance(rel_data, dict):
+                logger.warning(f"Skipping invalid relationship data: {rel_data}")
+                continue
+
+            person1 = rel_data.get("person1", "").lower()
+            person2 = rel_data.get("person2", "").lower()
 
             if user_display_name == person1 or user_display_name == person2:
                 # Get the latest relationship status
-                if rel_data["relationship_history"]:
-                    latest_rel = rel_data["relationship_history"][-1]
+                relationship_history = rel_data.get("relationship_history", [])
+                if relationship_history and isinstance(relationship_history, list):
+                    latest_rel = relationship_history[-1]
+                    if not isinstance(latest_rel, dict):
+                        logger.warning(
+                            f"Skipping invalid relationship entry: {latest_rel}"
+                        )
+                        continue
+
                     other_person = (
-                        rel_data["person2"]
+                        rel_data.get("person2", "")
                         if user_display_name == person1
-                        else rel_data["person1"]
+                        else rel_data.get("person1", "")
                     )
 
                     relationships.append(
                         {
                             "other_person": other_person,
-                            "relationship_type": latest_rel["type"],
-                            "reported_by": latest_rel["reported_by"],
-                            "context": latest_rel["context"],
-                            "timestamp": latest_rel["timestamp"],
-                            "confidence": latest_rel["confidence"],
+                            "relationship_type": latest_rel.get("type", "unknown"),
+                            "reported_by": latest_rel.get("reported_by", ""),
+                            "context": latest_rel.get("context", ""),
+                            "timestamp": latest_rel.get("timestamp", ""),
+                            "confidence": latest_rel.get("confidence", 0.0),
                         }
                     )
 
@@ -711,13 +755,27 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
         frequent_contacts = Counter()
 
         for interaction_key, interaction_data in self.interactions.items():
-            if interaction_data["from_user"] == user_id:
-                mentions_sent += len(interaction_data["interactions"])
-                frequent_contacts[interaction_data["to_user"]] += len(
-                    interaction_data["interactions"]
+            # Validate that interaction_data is a proper dictionary with required keys
+            if not isinstance(interaction_data, dict):
+                logger.warning(f"Skipping invalid interaction data: {interaction_data}")
+                continue
+
+            from_user = interaction_data.get("from_user")
+            to_user = interaction_data.get("to_user")
+            interactions = interaction_data.get("interactions", [])
+
+            if not isinstance(interactions, list):
+                logger.warning(
+                    f"Interaction data has invalid interactions list: {interaction_data}"
                 )
-            elif interaction_data["to_user"] == user_id:
-                mentions_received += len(interaction_data["interactions"])
+                continue
+
+            if from_user == user_id:
+                mentions_sent += len(interactions)
+                if to_user:
+                    frequent_contacts[to_user] += len(interactions)
+            elif to_user == user_id:
+                mentions_received += len(interactions)
 
         # Get top contacts
         top_contacts = []
@@ -759,10 +817,24 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
         cutoff_date = datetime.now() - timedelta(days=days_back)
         recent_messages = []
 
-        for msg in self.conversation_history[conversation_key]["messages"]:
-            msg_date = datetime.fromisoformat(msg["timestamp"])
-            if msg_date >= cutoff_date:
-                recent_messages.append(msg)
+        conversation_data = self.conversation_history.get(conversation_key, {})
+        messages = conversation_data.get("messages", [])
+
+        for msg in messages:
+            # Validate that msg is a proper dictionary with required keys
+            if not isinstance(msg, dict):
+                logger.warning(f"Skipping invalid message data: {msg}")
+                continue
+
+            timestamp = msg.get("timestamp")
+            if timestamp:
+                try:
+                    msg_date = datetime.fromisoformat(timestamp)
+                    if msg_date >= cutoff_date:
+                        recent_messages.append(msg)
+                except ValueError:
+                    logger.warning(f"Invalid timestamp format: {timestamp}")
+                    continue
 
         if not recent_messages:
             return f"Không có cuộc trò chuyện nào trong {days_back} ngày qua giữa {self.get_user_display_name(user1_id)} và {self.get_user_display_name(user2_id)}."
@@ -882,17 +954,35 @@ Trả lời bằng tiếng Việt, ngắn gọn và dễ hiểu:"""
         keyword_lower = keyword.lower()
 
         for rel_key, rel_data in self.relationships.items():
-            for rel_entry in rel_data["relationship_history"]:
-                if keyword_lower in rel_entry["context"].lower():
+            # Validate that rel_data is a proper dictionary with required keys
+            if not isinstance(rel_data, dict):
+                logger.warning(
+                    f"Skipping invalid relationship data in search: {rel_data}"
+                )
+                continue
+
+            relationship_history = rel_data.get("relationship_history", [])
+            if not isinstance(relationship_history, list):
+                logger.warning(f"Invalid relationship history in search: {rel_data}")
+                continue
+
+            for rel_entry in relationship_history:
+                # Validate that rel_entry is a proper dictionary with required keys
+                if not isinstance(rel_entry, dict):
+                    logger.warning(f"Skipping invalid relationship entry: {rel_entry}")
+                    continue
+
+                context = rel_entry.get("context", "")
+                if keyword_lower in context.lower():
                     results.append(
                         {
-                            "person1": rel_data["person1"],
-                            "person2": rel_data["person2"],
-                            "relationship_type": rel_entry["type"],
-                            "context": rel_entry["context"],
-                            "timestamp": rel_entry["timestamp"],
+                            "person1": rel_data.get("person1", ""),
+                            "person2": rel_data.get("person2", ""),
+                            "relationship_type": rel_entry.get("type", "unknown"),
+                            "context": context,
+                            "timestamp": rel_entry.get("timestamp", ""),
                             "reported_by": self.get_user_display_name(
-                                rel_entry["reported_by"]
+                                rel_entry.get("reported_by", "")
                             ),
                         }
                     )
@@ -914,7 +1004,14 @@ Trả lời bằng tiếng Việt, ngắn gọn và dễ hiểu:"""
         interaction_key = f"{user_id}_{target_id}"
 
         if interaction_key in self.interactions:
-            return self.interactions[interaction_key]["interactions"]
+            interaction_data = self.interactions[interaction_key]
+            if isinstance(interaction_data, dict):
+                return interaction_data.get("interactions", [])
+            else:
+                logger.warning(
+                    f"Invalid interaction data for key {interaction_key}: {interaction_data}"
+                )
+                return []
 
         return []
 
@@ -924,7 +1021,11 @@ Trả lời bằng tiếng Việt, ngắn gọn và dễ hiểu:"""
             "total_users": len(self.user_names),
             "total_relationships": len(self.relationships),
             "total_interactions": sum(
-                len(data["interactions"]) for data in self.interactions.values()
+                len(data.get("interactions", []))
+                for data in self.interactions.values()
+                if isinstance(data, dict)
+                and "interactions" in data
+                and isinstance(data.get("interactions"), list)
             ),
             "users": [],
         }

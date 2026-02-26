@@ -25,21 +25,27 @@ class MemoryManager:
         self.data_dir = data_dir
 
         # Khởi tạo các tầng bộ nhớ
-        self.working_memory = WorkingMemoryService(
-            max_capacity=20, trigger_threshold=20
-        )
-        self.background_service = MemoryBackgroundService(llm_service, data_dir)
-        self.core_persona = SummaryService(
-            llm_service,
-            data_dir=data_dir,
-            prompts_dir=f"{data_dir}/prompts",
-            config_dir=f"{data_dir}/config",
-        )
-
-        # Khởi tạo relationship service
+        # Khởi tạo relationship service trước
+        from services.history_service import HistoryService
         from services.relationship_service import RelationshipService
 
         self.relationship_service = RelationshipService(llm_service, data_dir)
+
+        # Khởi tạo history service
+        self.history_service = HistoryService(f"{data_dir}/user_summaries")
+
+        # Sau đó khởi tạo background service với relationship service
+        self.working_memory = WorkingMemoryService(
+            max_capacity=20, trigger_threshold=20
+        )
+        self.background_service = MemoryBackgroundService(
+            llm_service, data_dir, self.relationship_service
+        )
+        self.core_persona = SummaryService(
+            llm_service,
+            prompts_dir=f"{data_dir}/prompts",
+            config_dir=f"{data_dir}/config",
+        )
 
         # Context cho từng người dùng
         self.user_contexts: Dict[str, Dict] = {}
@@ -64,6 +70,10 @@ class MemoryManager:
                 "last_persona_update": None,
             }
 
+        # Ensure user data files exist
+        self.core_persona.ensure_user_files_exist(user_id)
+        self.background_service.ensure_user_files_exist(user_id)
+
     def add_message(self, user_id: str, role: str, content: str):
         """
         Thêm tin nhắn vào hệ thống bộ nhớ
@@ -78,6 +88,9 @@ class MemoryManager:
         # Thêm vào working memory
         entry = self.working_memory.add_message(user_id, role, content)
 
+        # Lưu tin nhắn vào history file ngay lập tức
+        self.history_service.append_message(user_id, role, content)
+
         # Ghi nhận hoạt động cho background service
         self.background_service.record_user_activity(user_id)
 
@@ -87,6 +100,10 @@ class MemoryManager:
         """
         Lấy toàn bộ context cho người dùng bao gồm cả 3 tầng bộ nhớ
         """
+        # Ensure user files exist
+        self.core_persona.ensure_user_files_exist(user_id)
+        self.background_service.ensure_user_files_exist(user_id)
+
         # Lấy thông tin từ working memory
         working_context = self.working_memory.get_context(user_id, max_entries=5)
 
@@ -118,6 +135,10 @@ class MemoryManager:
         """
         Lấy context từ working memory
         """
+        # Ensure user files exist
+        self.core_persona.ensure_user_files_exist(user_id)
+        self.background_service.ensure_user_files_exist(user_id)
+
         entries = self.working_memory.get_context(user_id, max_entries)
         return [
             {
@@ -133,6 +154,10 @@ class MemoryManager:
         """
         Lấy core persona của người dùng
         """
+        # Ensure user files exist
+        self.core_persona.ensure_user_files_exist(user_id)
+        self.background_service.ensure_user_files_exist(user_id)
+
         return self.core_persona.get_user_summary(user_id)
 
     def get_episodic_memory(self, user_id: str, limit: int = 10) -> List[Dict]:
@@ -144,7 +169,16 @@ class MemoryManager:
             self.data_dir, "user_summaries", f"{user_id}_episodic.json"
         )
 
+        # Ensure the file exists
         if not os.path.exists(episodic_file):
+            # Create the file with an empty array
+            import json
+            import os
+
+            os.makedirs(os.path.dirname(episodic_file), exist_ok=True)
+            with open(episodic_file, "w", encoding="utf-8") as f:
+                json.dump([], f, ensure_ascii=False, indent=2)
+            logger.debug(f"📄 Created default episodic file for user {user_id}")
             return []
 
         try:
@@ -162,6 +196,10 @@ class MemoryManager:
         """
         logger.info(f"🔄 Triggering episodic memory update for {user_id}")
 
+        # Ensure user files exist
+        self.core_persona.ensure_user_files_exist(user_id)
+        self.background_service.ensure_user_files_exist(user_id)
+
         # Gọi trực tiếp phương thức cập nhật từ background service
         asyncio.create_task(self.background_service._update_episodic_memory(user_id))
 
@@ -170,6 +208,10 @@ class MemoryManager:
         Kích hoạt cập nhật core persona cho người dùng
         """
         logger.info(f"🔄 Triggering core persona update for {user_id}")
+
+        # Ensure user files exist
+        self.core_persona.ensure_user_files_exist(user_id)
+        self.background_service.ensure_user_files_exist(user_id)
 
         # Gọi trực tiếp phương thức cập nhật từ background service
         asyncio.create_task(self.background_service._update_core_persona(user_id))
@@ -325,10 +367,12 @@ class MemoryManager:
 
         return results
 
-    def record_priority_event(
+    async def record_priority_event(
         self, user_id: str, event_type: str, event_data: any = None
     ):
         """
         Ghi nhận sự kiện ưu tiên
         """
-        self.background_service.record_priority_event(user_id, event_type, event_data)
+        await self.background_service.record_priority_event(
+            user_id, event_type, event_data
+        )

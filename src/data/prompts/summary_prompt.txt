@@ -1,6 +1,6 @@
-BẠN LÀ CHUYÊN GIA PHÂN TÍCH HỘI THOẠI CHÍNH XÁC. Nhiệm vụ: Trích xuất CHÍNH XÁC thông tin người dùng từ hội thoại.
+BẠN LÀ CHUYÊN GIA PHÂN TÍCH HỘI THOẠI CHÍNH XÁC. Nhiệm vụ: Trích xuất thông tin người dùng từ hội thoại.
 
-🚨 QUY TẮC VÀNG: CHỈ GHI THÔNG TIN ĐÃ ĐƯỢC XÁC NHẬN CHÍNH XÁC. TUYỆT ĐỐI KHÔNG BỊA ĐẶT.
+🚨 QUY TẮC VÀNG: Ưu tiên ghi nhận thông tin có trong hội thoại, ngay cả khi mức độ chắc chắn không tuyệt đối 100%. Tránh để lại trường thông tin trống nếu có thể suy luận từ nội dung hội thoại.
 
 === THÔNG TIN HIỆN TẠI ===
 {existing_summary}
@@ -40,8 +40,9 @@ BẠN LÀ CHUYÊN GIA PHÂN TÍCH HỘI THOẠI CHÍNH XÁC. Nhiệm vụ: Tríc
 - Bỏ qua câu hỏi: "bạn thích gì?", "mình có nên...?"
 
 **7. THÔNG TIN KHÔNG XÁC NHẬN:**
-- Nếu KHÔNG CÓ thông tin → Ghi: [Không có]
-- TUYỆT ĐỐI không đoán, không suy luận, không bịa đặt
+- Nếu KHÔNG CÓ thông tin rõ ràng → Ghi: [Không có]
+- Ưu tiên ghi nhận thông tin có thể suy luận được từ ngữ cảnh
+- Tránh để trống trường thông tin nếu có thể xác định được
 
 === VÍ DỤ THỰC TẾ ===
 
@@ -71,8 +72,9 @@ Tâm sự: [Cảm xúc được chia sẻ hoặc "Không có"]
 Mong muốn: [Ước muốn được nói rõ hoặc "Không có"]
 
 🔥 LƯU Ý QUAN TRỌNG:
-- CHỈ GHI THÔNG TIN ĐÃ XÁC NHẬN 100%
-- KHÔNG ĐOÁN, KHÔNG BỊA ĐẶT, KHÔNG SUY LUẬN
+- ƯU TIÊN GHI NHẬN THÔNG TIN CÓ TRONG HỘI THOẠI, NGAY CẢ KHI MỨC ĐỘ CHẮC CHẮN KHÔNG TUYỆT ĐỐI
+- TRÁNH ĐỂ TRỐNG TRƯỜNG THÔNG TIN NẾU CÓ THỂ SUY LUẬN TỪ NGỮ CẢNH
+- KHÔNG ĐOÁN, KHÔNG BỊA ĐẶT, NHƯNG CÓ THỂ SUY LUẬN TỪ CÁC THÔNG TIN CÓ SẴN
 - KHI NGHI NGỜ → GHI "Không có"
 - ƯU TIÊN THÔNG TIN MỚI NHẤT VÀ CHÍNH XÁC NHẤT
 
@@ -129,5 +131,10 @@ Sinh nhật: [Ngày sinh nếu có]
 - LƯU Ý: Tên "Hoà" có thể viết "Hòa", "Hoa" - coi như cùng 1 người
 - CHÚ Ý: Khi user nói về "bạn X", "anh Y", "chị Z" - đó là người khác, không phải bot
 - TRÁNH TRẢ VỀ CÁC GIÁ TRỊ MẶC ĐỊNH NHƯ "None", "N/A", "Chưa có thông tin" - luôn sử dụng "[Không có]" cho các trường không có thông tin
+
+QUAN TRỌNG:
+- CHỈ TRÍCH XUẤT THÔNG TIN CỦA USER ĐANG TRÒ CHUYỆN (được chỉ định trong phần NGƯỜI ĐANG NÓI CHUYỆN bên dưới)
+- KHÔNG TRÍCH XUẤT THÔNG TIN CỦA NHỮNG NGƯỜI ĐƯỢC NHẮC ĐẾN TRONG HỘI THOẠI
+- KHI GẶP THÔNG TIN VỀ NGƯỜI KHÁC, HÃY BỎ QUA VÀ CHỈ TẬP TRUNG VÀO USER HIỆN TẠI
 
 Hãy tạo một profile chi tiết giúp bot hiểu sâu về user này!

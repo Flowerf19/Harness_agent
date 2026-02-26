@@ -1,5 +1,9 @@
+import asyncio
+import json
 import logging
 import os
+from datetime import datetime
+from typing import Optional
 
 import discord  # type: ignore
 from discord.ext import commands  # type: ignore
@@ -13,6 +17,15 @@ from services.message_processor import MessageProcessor
 from services.ollama_service import OllamaService
 from services.qwen_service import QwenService
 from services.relationship_service import RelationshipService
+from utils.debug_utils import (
+    debug_core_persona,
+    debug_episodic_memory,
+    debug_memory_status,
+    debug_relationships,
+    debug_triggers,
+    debug_working_memory,
+    get_all_debug_info,
+)
 
 logger = logging.getLogger("discord_bot.LLMMessageCog")
 
@@ -52,6 +65,9 @@ class LLMMessageCog(commands.Cog):
 
         # Thay thế conversation_manager bằng memory_manager
         # self.conversation_manager = ConversationManager()  # Bỏ cái này
+
+        # Initialize pending messages queue
+        self._pending_messages = {}
 
         logger.info(
             "🤖 LLMMessageCog initialized with MemoryManager and modular services"
@@ -93,7 +109,7 @@ class LLMMessageCog(commands.Cog):
         await self._process_relationship_data(message, content, user_id)
 
         # Anti-spam check
-        is_spam, cooldown_remaining = self.anti_spam.check_spam(user_id)
+        is_spam, cooldown_remaining = self.anti_spam.check_spam(user_id, content)
         if is_spam:
             spam_msg = f"🚫 **Anti-Spam**: Bạn đang gửi tin nhắn quá nhanh! Vui lòng đợi {cooldown_remaining}s."
             await message.reply(spam_msg)
@@ -113,7 +129,8 @@ class LLMMessageCog(commands.Cog):
         await self._process_ai_response(message, content, user_id)
 
     async def _process_ai_response(self, message, content: str, user_id: str):
-        """Process AI response using 3-tier memory system"""
+        """Process AI response using 3-tier memory system with safe locking"""
+        lock_released = False
         try:
             # Lock conversation (giữ lại cơ chế lock từ phiên bản hiện tại)
             self._set_conversation_lock(user_id)
@@ -165,13 +182,24 @@ class LLMMessageCog(commands.Cog):
                         "Xin lỗi, tôi không thể tạo phản hồi cho tin nhắn này."
                     )
 
+        except asyncio.CancelledError:
+            logger.warning(f"⚠️ AI response processing cancelled for user {user_id}")
+            raise  # Re-raise to properly handle cancellation
         except Exception as e:
             logger.error(f"❌ Error processing AI response: {e}")
-            await message.reply("Xin lỗi, đã có lỗi xảy ra khi tạo phản hồi.")
-
+            try:
+                await message.reply("Xin lỗi, đã có lỗi xảy ra khi tạo phản hồi.")
+            except:
+                # If we can't send a reply, still ensure lock is released
+                pass
         finally:
-            # Always release lock
-            self._release_conversation_lock()
+            # Always release lock in a safe way
+            if not lock_released:
+                try:
+                    self._release_conversation_lock()
+                    lock_released = True
+                except Exception as e:
+                    logger.error(f"❌ Error releasing conversation lock: {e}")
 
     def _should_respond_to_message(self, message) -> bool:
         """Determine if bot should respond to message"""
@@ -216,11 +244,15 @@ class LLMMessageCog(commands.Cog):
 
         # Add relationship information
         try:
-            user_display_name = self.relationship_service.get_user_display_name(user_id)
-            user_relationships = self.relationship_service.get_user_relationships(
-                user_id
+            user_display_name = (
+                self.memory_manager.relationship_service.get_user_display_name(user_id)
             )
-            interaction_stats = self.relationship_service.get_interaction_stats(user_id)
+            user_relationships = (
+                self.memory_manager.relationship_service.get_user_relationships(user_id)
+            )
+            interaction_stats = (
+                self.memory_manager.relationship_service.get_interaction_stats(user_id)
+            )
 
             if user_relationships or interaction_stats.get("total_interactions", 0) > 0:
                 enhanced_context += (
@@ -279,16 +311,18 @@ class LLMMessageCog(commands.Cog):
             # Try to get display name from message.mentions
             display_name = mention_name_map.get(mentioned_user_id)
             # If not found, try from relationship service
-            if not display_name and hasattr(self, "relationship_service"):
-                display_name = self.relationship_service.get_user_display_name(
-                    mentioned_user_id
+            if not display_name:
+                display_name = (
+                    self.memory_manager.relationship_service.get_user_display_name(
+                        mentioned_user_id
+                    )
                 )
             # Fallback to ID
             if not display_name:
                 display_name = mentioned_user_id
             try:
-                mentioned_user_summary = self.summary_service.get_user_summary(
-                    mentioned_user_id
+                mentioned_user_summary = (
+                    self.memory_manager.core_persona.get_user_summary(mentioned_user_id)
                 )
                 if mentioned_user_summary:
                     mentioned_info_parts.append(
@@ -475,7 +509,7 @@ class LLMMessageCog(commands.Cog):
 
             # Check if this message contains priority information that should trigger immediate updates
             if self._contains_priority_information(content):
-                self.memory_manager.record_priority_event(
+                await self.memory_manager.record_priority_event(
                     user_id,
                     "personal_info_update",
                     {"content": content, "type": "potential_personal_info"},
@@ -519,9 +553,10 @@ class LLMMessageCog(commands.Cog):
 
     def _is_conversation_locked(self, user_id: str) -> bool:
         """Check if conversation is locked using memory context"""
-        # Simple implementation - check if this user is currently being responded to
-        # In a real implementation, you might track this in memory_manager
-        return getattr(self, "_currently_responding_to", None) != user_id
+        # Check if this specific user is currently being responded to
+        # If the current responder is different from this user, then it's locked
+        current_responder = getattr(self, "_currently_responding_to", None)
+        return current_responder is not None and current_responder != user_id
 
     def _get_lock_duration(self) -> int:
         """Get conversation lock duration"""
@@ -533,15 +568,106 @@ class LLMMessageCog(commands.Cog):
         # In real implementation, this would add to a queue managed by memory_manager
         logger.info(f"⏳ User {message.author.id} added to pending queue")
 
+        # Add to a proper queue system to handle pending messages
+        if not hasattr(self, "_pending_messages"):
+            self._pending_messages = {}
+
+        user_id = str(message.author.id)
+        if user_id not in self._pending_messages:
+            self._pending_messages[user_id] = []
+
+        # Store message and content for later processing
+        self._pending_messages[user_id].append(
+            {"message": message, "content": content, "timestamp": datetime.now()}
+        )
+
+        # Process pending messages after a short delay
+        asyncio.create_task(self._process_pending_messages(user_id))
+
     def _set_conversation_lock(self, user_id: str):
-        """Set conversation lock (giữ lại từ phiên bản hiện tại)"""
-        # Simple implementation - store the user currently being responded to
+        """Set conversation lock with timeout to prevent permanent hanging"""
+        # Store the user currently being responded to and the time
         self._currently_responding_to = user_id
+        self._lock_acquired_time = datetime.now()
+
+        # Schedule automatic lock release after timeout period
+        asyncio.create_task(self._auto_release_lock_after_timeout(user_id))
 
     def _release_conversation_lock(self):
         """Release conversation lock (giữ lại từ phiên bản hiện tại)"""
         if hasattr(self, "_currently_responding_to"):
+            current_responder = getattr(self, "_currently_responding_to", None)
             self._currently_responding_to = None
+
+            # Clear the lock time
+            if hasattr(self, "_lock_acquired_time"):
+                delattr(self, "_lock_acquired_time")
+
+            logger.debug(f"🔓 Released conversation lock for user {current_responder}")
+
+            # Process any pending messages after releasing lock
+            asyncio.create_task(self._process_any_pending_messages())
+
+    async def _auto_release_lock_after_timeout(
+        self, user_id: str, timeout_seconds: int = 30
+    ):
+        """Automatically release the lock after a timeout to prevent hanging"""
+        await asyncio.sleep(timeout_seconds)
+
+        # Check if this is still the active user being responded to
+        current_responder = getattr(self, "_currently_responding_to", None)
+        if current_responder == user_id:
+            logger.warning(
+                f"⚠️ Auto-releasing lock for user {user_id} after {timeout_seconds}s timeout"
+            )
+
+            # Release the lock
+            self._currently_responding_to = None
+            if hasattr(self, "_lock_acquired_time"):
+                delattr(self, "_lock_acquired_time")
+
+            # Process any pending messages after releasing lock
+            await self._process_any_pending_messages()
+
+    async def _process_pending_messages(self, user_id: str):
+        """Process pending messages for a user after a short delay"""
+        await asyncio.sleep(2)  # Wait a bit before processing
+
+        if hasattr(self, "_pending_messages") and user_id in self._pending_messages:
+            pending_list = self._pending_messages[user_id]
+
+            # Process the oldest message first
+            if pending_list:
+                pending_item = pending_list.pop(0)  # Get oldest message
+
+                # Remove user from pending if no more messages
+                if not pending_list:
+                    del self._pending_messages[user_id]
+
+                # Process the pending message
+                await self._handle_message(pending_item["message"])
+
+    async def _process_any_pending_messages(self):
+        """Process any pending messages from any user"""
+        if not hasattr(self, "_pending_messages"):
+            return
+
+        # Get all users with pending messages
+        pending_users = list(self._pending_messages.keys())
+
+        for user_id in pending_users:
+            if user_id in self._pending_messages and self._pending_messages[user_id]:
+                # Check if this user is not already being processed
+                if getattr(self, "_currently_responding_to", None) != user_id:
+                    pending_item = self._pending_messages[user_id].pop(0)
+
+                    # Remove user from pending if no more messages
+                    if not self._pending_messages[user_id]:
+                        del self._pending_messages[user_id]
+
+                    # Process the pending message
+                    await self._handle_message(pending_item["message"])
+                    break  # Process one at a time
 
     def _build_enhanced_context_with_memory(
         self,
@@ -611,7 +737,418 @@ class LLMMessageCog(commands.Cog):
         """Clean up when cog is unloaded"""
         # Stop background services
         self.memory_manager.stop_background_services()
+
+        # Cancel any pending tasks
+        if hasattr(self, "_pending_messages"):
+            self._pending_messages.clear()
+
         logger.info("🔄 Memory background services stopped")
+
+    @commands.command(name="debug_memory_status")
+    async def debug_memory_status_cmd(self, ctx, user: discord.User = None):
+        """Hiển thị trạng thái của tất cả các tầng bộ nhớ cho người dùng"""
+        target_user = user or ctx.author
+        user_id = str(target_user.id)
+
+        try:
+            debug_info = debug_memory_status(self.memory_manager, user_id)
+
+            if "error" in debug_info:
+                await ctx.send(f"❌ Lỗi khi lấy thông tin debug: {debug_info['error']}")
+                return
+
+            # Tạo embed để hiển thị thông tin
+            embed = discord.Embed(
+                title=f"🧠 Trạng thái bộ nhớ cho {target_user.display_name}",
+                color=0x00FF00,
+                timestamp=datetime.fromisoformat(debug_info["timestamp"]),
+            )
+
+            # Thêm thông tin trạng thái bộ nhớ
+            mem_status = debug_info["memory_status"]
+            embed.add_field(
+                name="📊 Tổng quan",
+                value=f"""
+                Working Memory: {mem_status["working_memory"]["total_messages"]} tin nhắn
+                Core Persona: {"✅ Có" if mem_status["core_persona_exists"] else "❌ Chưa có"}
+                Episodic Memory: {"✅ Có" if mem_status["episodic_memory_exists"] else "❌ Chưa có"}
+                History: {"✅ Có" if mem_status["history_exists"] else "❌ Chưa có"}
+                """,
+                inline=False,
+            )
+
+            # Thêm thông tin thống kê working memory
+            wm_stats = mem_status["working_memory"]
+            if wm_stats["total_messages"] > 0:
+                categories = ", ".join(
+                    [f"{k}({v})" for k, v in wm_stats["categories"].items()]
+                )
+                embed.add_field(
+                    name="📋 Working Memory Stats",
+                    value=f"""
+                    Tổng: {wm_stats["total_messages"]} tin nhắn
+                    Mức độ quan trọng TB: {wm_stats["avg_importance"]}
+                    Danh mục: {categories or "Không có"}
+                    """,
+                    inline=True,
+                )
+
+            # Thêm thông tin relationship nếu có
+            rel_info = debug_info["relationship_info"]
+            if rel_info and rel_info.get("relationships"):
+                embed.add_field(
+                    name="👥 Mối quan hệ",
+                    value=f"{len(rel_info['relationships'])} mối quan hệ được ghi nhận",
+                    inline=True,
+                )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logger.error(f"Error in debug_memory_status command: {e}")
+            await ctx.send(f"❌ Lỗi khi thực hiện lệnh debug: {str(e)}")
+
+    @commands.command(name="debug_working_memory")
+    async def debug_working_memory_cmd(self, ctx, user: discord.User = None):
+        """Hiển thị nội dung working memory hiện tại"""
+        target_user = user or ctx.author
+        user_id = str(target_user.id)
+
+        try:
+            debug_info = debug_working_memory(self.memory_manager, user_id)
+
+            if "error" in debug_info:
+                await ctx.send(f"❌ Lỗi khi lấy thông tin debug: {debug_info['error']}")
+                return
+
+            embed = discord.Embed(
+                title=f"🧠 Working Memory cho {target_user.display_name}",
+                color=0xFFFF00,
+                timestamp=datetime.fromisoformat(debug_info["timestamp"]),
+            )
+
+            stats = debug_info["statistics"]
+            embed.add_field(
+                name="📊 Thống kê",
+                value=f"""
+                Tổng tin nhắn: {stats["total_messages"]}
+                Mức độ quan trọng TB: {stats["avg_importance"]}
+                Danh mục: {", ".join(stats["categories"].keys()) or "Không có"}
+                """,
+                inline=False,
+            )
+
+            # Hiển thị một số tin nhắn gần đây
+            entries = debug_info["entries"]
+            if entries:
+                recent_msgs = []
+                for entry in entries[:5]:  # Chỉ hiển thị 5 tin nhắn gần nhất
+                    content_preview = (
+                        entry["content"][:50] + "..."
+                        if len(entry["content"]) > 50
+                        else entry["content"]
+                    )
+                    recent_msgs.append(
+                        f"[{entry['category']}] {entry['role']}: {content_preview} (imp: {entry['importance']:.2f})"
+                    )
+
+                embed.add_field(
+                    name="📝 Tin nhắn gần đây",
+                    value="\n".join(recent_msgs),
+                    inline=False,
+                )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logger.error(f"Error in debug_working_memory command: {e}")
+            await ctx.send(f"❌ Lỗi khi thực hiện lệnh debug: {str(e)}")
+
+    @commands.command(name="debug_episodic_memory")
+    async def debug_episodic_memory_cmd(self, ctx, user: discord.User = None):
+        """Hiển thị các sự kiện trong episodic memory"""
+        target_user = user or ctx.author
+        user_id = str(target_user.id)
+
+        try:
+            debug_info = debug_episodic_memory(self.memory_manager, user_id)
+
+            if "error" in debug_info:
+                await ctx.send(f"❌ Lỗi khi lấy thông tin debug: {debug_info['error']}")
+                return
+
+            embed = discord.Embed(
+                title=f"🧠 Episodic Memory cho {target_user.display_name}",
+                color=0xFF00FF,
+                timestamp=datetime.fromisoformat(debug_info["timestamp"]),
+            )
+
+            embed.add_field(
+                name="📊 Tổng quan",
+                value=f"""
+                Tổng sự kiện: {debug_info["events_count"]}
+                Loại sự kiện: {len(debug_info["type_distribution"])}
+                Danh mục: {len(debug_info["category_distribution"])}
+                """,
+                inline=False,
+            )
+
+            # Hiển thị phân bố loại sự kiện
+            if debug_info["type_distribution"]:
+                type_dist = "\n".join(
+                    [
+                        f"{k}: {v}"
+                        for k, v in debug_info["type_distribution"].items()[:5]
+                    ]
+                )
+                embed.add_field(
+                    name="🏷️ Phân bố theo loại", value=type_dist, inline=True
+                )
+
+            # Hiển thị phân bố theo danh mục
+            if debug_info["category_distribution"]:
+                cat_dist = "\n".join(
+                    [
+                        f"{k}: {v}"
+                        for k, v in debug_info["category_distribution"].items()[:5]
+                    ]
+                )
+                embed.add_field(
+                    name="📂 Phân bố theo danh mục", value=cat_dist, inline=True
+                )
+
+            # Hiển thị một số sự kiện gần đây
+            recent_events = debug_info["recent_events"]
+            if recent_events:
+                event_previews = []
+                for event in recent_events[-3:]:  # 3 sự kiện gần nhất
+                    summary = event.get("summary", "Không có tóm tắt")
+                    event_previews.append(
+                        f"[{event.get('type', 'unknown')}] {summary[:30]}..."
+                    )
+
+                embed.add_field(
+                    name="أحداث gần đây", value="\n".join(event_previews), inline=False
+                )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logger.error(f"Error in debug_episodic_memory command: {e}")
+            await ctx.send(f"❌ Lỗi khi thực hiện lệnh debug: {str(e)}")
+
+    @commands.command(name="debug_core_persona")
+    async def debug_core_persona_cmd(self, ctx, user: discord.User = None):
+        """Hiển thị nội dung core persona hiện tại"""
+        target_user = user or ctx.author
+        user_id = str(target_user.id)
+
+        try:
+            debug_info = debug_core_persona(self.memory_manager, user_id)
+
+            if "error" in debug_info:
+                await ctx.send(f"❌ Lỗi khi lấy thông tin debug: {debug_info['error']}")
+                return
+
+            embed = discord.Embed(
+                title=f"🧠 Core Persona cho {target_user.display_name}",
+                color=0x00FFFF,
+                timestamp=datetime.fromisoformat(debug_info["timestamp"]),
+            )
+
+            embed.add_field(
+                name="📊 Trạng thái",
+                value=f"""
+                Có hồ sơ: {"✅ Có" if debug_info["has_persona"] else "❌ Chưa có"}
+                Độ dài: {debug_info["persona_length"]} ký tự
+                Số section: {len(debug_info["sections_found"])}
+                """,
+                inline=False,
+            )
+
+            if debug_info["sections_found"]:
+                embed.add_field(
+                    name="SectionsIn hồ sơ",
+                    value=", ".join(debug_info["sections_found"]),
+                    inline=False,
+                )
+
+            # Nếu nội dung không quá dài, hiển thị trực tiếp
+            if debug_info["has_persona"] and debug_info["persona_length"] <= 1000:
+                embed.add_field(
+                    name="📄 Nội dung hồ sơ",
+                    value=debug_info["persona_content"],
+                    inline=False,
+                )
+            elif debug_info["has_persona"]:
+                embed.add_field(
+                    name="📄 Nội dung hồ sơ",
+                    value=f"Nội dung quá dài để hiển thị trực tiếp ({debug_info['persona_length']} ký tự)",
+                    inline=False,
+                )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logger.error(f"Error in debug_core_persona command: {e}")
+            await ctx.send(f"❌ Lỗi khi thực hiện lệnh debug: {str(e)}")
+
+    @commands.command(name="debug_relationships")
+    async def debug_relationships_cmd(self, ctx, user: discord.User = None):
+        """Hiển thị các mối quan hệ của người dùng"""
+        target_user = user or ctx.author
+        user_id = str(target_user.id)
+
+        try:
+            debug_info = debug_relationships(self.memory_manager, user_id)
+
+            if "error" in debug_info:
+                await ctx.send(f"❌ Lỗi khi lấy thông tin debug: {debug_info['error']}")
+                return
+
+            embed = discord.Embed(
+                title=f"👥 Mối quan hệ cho {debug_info['display_name']}",
+                color=0xFF9900,
+                timestamp=datetime.fromisoformat(debug_info["timestamp"]),
+            )
+
+            embed.add_field(
+                name="📊 Tổng quan",
+                value=f"""
+                Tổng mối quan hệ: {debug_info["relationship_count"]}
+                Tên hiển thị: {debug_info["display_name"]}
+                """,
+                inline=False,
+            )
+
+            # Hiển thị các mối quan hệ
+            relationships = debug_info["relationships"]
+            if relationships:
+                rel_list = []
+                for rel in relationships[:5]:  # Chỉ hiển thị 5 mối quan hệ đầu tiên
+                    rel_list.append(
+                        f"{rel['other_person']}: {rel['relationship_type']}"
+                    )
+
+                embed.add_field(
+                    name="📋 Mối quan hệ", value="\n".join(rel_list), inline=False
+                )
+
+            # Hiển thị thống kê tương tác
+            interaction_stats = debug_info["interaction_stats"]
+            if interaction_stats:
+                embed.add_field(
+                    name="📈 Thống kê tương tác",
+                    value=f"""
+                    Tin nhắn gửi: {interaction_stats.get("mentions_sent", 0)}
+                    Tin nhắn nhận: {interaction_stats.get("mentions_received", 0)}
+                    Tổng tương tác: {interaction_stats.get("total_interactions", 0)}
+                    """,
+                    inline=True,
+                )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logger.error(f"Error in debug_relationships command: {e}")
+            await ctx.send(f"❌ Lỗi khi thực hiện lệnh debug: {str(e)}")
+
+    @commands.command(name="debug_triggers")
+    async def debug_triggers_cmd(self, ctx, user: discord.User = None):
+        """Hiển thị trạng thái trigger của người dùng"""
+        target_user = user or ctx.author
+        user_id = str(target_user.id)
+
+        try:
+            debug_info = debug_triggers(self.memory_manager, user_id)
+
+            if "error" in debug_info:
+                await ctx.send(f"❌ Lỗi khi lấy thông tin debug: {debug_info['error']}")
+                return
+
+            embed = discord.Embed(
+                title=f"⚡ Triggers cho {target_user.display_name}",
+                color=0x9900FF,
+                timestamp=datetime.fromisoformat(debug_info["timestamp"]),
+            )
+
+            trigger_status = debug_info["trigger_status"]
+            if isinstance(trigger_status, dict) and "error" not in trigger_status:
+                embed.add_field(
+                    name="📊 Trạng thái trigger",
+                    value=f"""
+                    Active: {trigger_status.get("active", "N/A")}
+                    Số tin nhắn: {trigger_status.get("message_count", "N/A")}
+                    Thời gian không hoạt động: {trigger_status.get("time_since_activity", "N/A")}s
+                    Trigger tiếp theo: {trigger_status.get("next_trigger", "N/A")}
+                    """,
+                    inline=False,
+                )
+            else:
+                embed.add_field(
+                    name="📊 Trạng thái trigger",
+                    value="Không thể truy cập Activity Monitor",
+                    inline=False,
+                )
+
+            # Thêm thông tin working memory stats
+            wm_stats = debug_info["working_memory_stats"]
+            embed.add_field(
+                name="📋 Working Memory Stats",
+                value=f"""
+                Tổng tin nhắn: {wm_stats["total_messages"]}
+                Mức độ quan trọng TB: {wm_stats["avg_importance"]}
+                """,
+                inline=True,
+            )
+
+            await ctx.send(embed=embed)
+
+        except Exception as e:
+            logger.error(f"Error in debug_triggers command: {e}")
+            await ctx.send(f"❌ Lỗi khi thực hiện lệnh debug: {str(e)}")
+
+    @commands.command(name="debug_all")
+    async def debug_all_cmd(self, ctx, user: discord.User = None):
+        """Lấy tất cả thông tin debug cho người dùng"""
+        target_user = user or ctx.author
+        user_id = str(target_user.id)
+
+        try:
+            await ctx.send("🔄 Đang thu thập tất cả thông tin debug...")
+
+            # Gọi hàm lấy tất cả thông tin debug
+            all_debug_info = get_all_debug_info(self.memory_manager, user_id)
+
+            if "error" in all_debug_info.get("memory_status", {}):
+                await ctx.send(
+                    f"❌ Lỗi khi lấy thông tin debug: {all_debug_info['memory_status']['error']}"
+                )
+                return
+
+            # Tạo một file JSON để gửi chi tiết
+            filename = f"debug_info_{user_id}_{int(datetime.now().timestamp())}.json"
+            filepath = os.path.join("data", "debug", filename)
+
+            # Tạo thư mục debug nếu chưa tồn tại
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+            # Ghi thông tin debug vào file
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(all_debug_info, f, ensure_ascii=False, indent=2)
+
+            # Gửi file cho người dùng
+            await ctx.send(
+                f"📄 Thông tin debug chi tiết cho {target_user.display_name}:",
+                file=discord.File(filepath),
+            )
+
+            # Xóa file sau khi gửi (tùy chọn)
+            # os.remove(filepath)
+
+        except Exception as e:
+            logger.error(f"Error in debug_all command: {e}")
+            await ctx.send(f"❌ Lỗi khi thực hiện lệnh debug: {str(e)}")
 
 
 async def setup(bot):
