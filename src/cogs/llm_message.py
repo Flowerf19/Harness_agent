@@ -99,14 +99,14 @@ class LLMMessageCog(commands.Cog):
             await message.reply(spam_msg)
             return
 
-        # Conversation lock check
-        if self.conversation_manager.is_conversation_locked(user_id):
-            duration = self.conversation_manager.get_lock_duration()
+        # Conversation lock check using memory manager context
+        if self._is_conversation_locked(user_id):
+            duration = self._get_lock_duration()
             busy_msg = (
                 f"⏳ Tôi đang trả lời người khác ({duration}s). Xin đợi một chút nhé!"
             )
             await message.reply(busy_msg)
-            self.conversation_manager.add_to_pending_queue(message, content)
+            self._add_to_pending_queue(message, content)
             return
 
         # Process AI response
@@ -517,15 +517,31 @@ class LLMMessageCog(commands.Cog):
         content_lower = content.lower()
         return any(indicator in content_lower for indicator in priority_indicators)
 
+    def _is_conversation_locked(self, user_id: str) -> bool:
+        """Check if conversation is locked using memory context"""
+        # Simple implementation - check if this user is currently being responded to
+        # In a real implementation, you might track this in memory_manager
+        return getattr(self, "_currently_responding_to", None) != user_id
+
+    def _get_lock_duration(self) -> int:
+        """Get conversation lock duration"""
+        # Return a fixed duration for now - in real implementation this would track actual time
+        return 10  # seconds
+
+    def _add_to_pending_queue(self, message, content: str):
+        """Add message to pending queue"""
+        # In real implementation, this would add to a queue managed by memory_manager
+        logger.info(f"⏳ User {message.author.id} added to pending queue")
+
     def _set_conversation_lock(self, user_id: str):
         """Set conversation lock (giữ lại từ phiên bản hiện tại)"""
-        # Implementation cần được chuyển từ ConversationManager sang
-        # hoặc giữ lại cơ chế lock đơn giản
-        pass
+        # Simple implementation - store the user currently being responded to
+        self._currently_responding_to = user_id
 
     def _release_conversation_lock(self):
         """Release conversation lock (giữ lại từ phiên bản hiện tại)"""
-        pass
+        if hasattr(self, "_currently_responding_to"):
+            self._currently_responding_to = None
 
     def _build_enhanced_context_with_memory(
         self,
