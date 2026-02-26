@@ -1,11 +1,10 @@
-import asyncio
 import json
 import logging
 import os
 import re
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional
 
 import aiofiles
 
@@ -290,38 +289,104 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
 
             # Parse the LLM response as JSON
             import json
+            import re
 
             # First, try to parse the entire response as JSON
             try:
                 response_json = json.loads(llm_response)
             except json.JSONDecodeError:
                 # If that fails, try to extract JSON from the response
-                # Look for JSON between curly braces
-                import re
+                # Look for JSON between curly braces, handling nested objects
+                # Using a more robust approach to find JSON objects
 
-                json_match = re.search(r"\{.*\}", llm_response, re.DOTALL)
-                if json_match:
-                    json_str = json_match.group()
-                    response_json = json.loads(json_str)
+                # Find the first complete JSON object by tracking braces
+                start_pos = llm_response.find("{")
+                if start_pos != -1:
+                    brace_count = 0
+                    for i, char in enumerate(llm_response[start_pos:], start=start_pos):
+                        if char == "{":
+                            brace_count += 1
+                        elif char == "}":
+                            brace_count -= 1
+                            if brace_count == 0:
+                                json_str = llm_response[start_pos : i + 1]
+                                try:
+                                    response_json = json.loads(json_str)
+                                    break
+                                except json.JSONDecodeError:
+                                    # If this JSON string fails, try to clean it up
+                                    # Remove potential trailing commas before closing braces/brackets
+                                    cleaned_json = re.sub(
+                                        r",(\s*[}\]])", r"\1", json_str
+                                    )
+                                    try:
+                                        response_json = json.loads(cleaned_json)
+                                        break
+                                    except json.JSONDecodeError:
+                                        # Try to find smaller JSON objects within the response
+                                        # Look for relationships array specifically
+                                        rel_pattern = r'"relationships"\s*:\s*\[(?:[^[\]]|\[(?:[^[\]]|\[[^[\]]*\])*\])*\]'
+                                        rel_match = re.search(
+                                            rel_pattern, llm_response, re.DOTALL
+                                        )
+                                        if rel_match:
+                                            # Extract the relationships part and wrap it in a basic object
+                                            rel_content = rel_match.group()
+                                            temp_json_str = "{" + rel_content + "}"
+                                            try:
+                                                response_json = json.loads(
+                                                    temp_json_str
+                                                )
+                                                break
+                                            except json.JSONDecodeError:
+                                                # If all parsing attempts fail, return empty result
+                                                response_json = {"relationships": []}
+                                        else:
+                                            # If still no JSON found, return empty result
+                                            response_json = {"relationships": []}
                 else:
-                    # If still no JSON found, raise the original exception
-                    raise json.JSONDecodeError(
-                        "No JSON found in response", llm_response, 0
-                    )
+                    # If no opening brace found, return empty result
+                    response_json = {"relationships": []}
 
             relationships_found = []
-            for rel_data in response_json.get("relationships", []):
-                # Validate that required fields exist
+            
+            # Validate that response_json has the expected structure
+            if not isinstance(response_json, dict):
+                logger.warning("LLM response is not a dictionary, using fallback")
+                return self._extract_relationship_info_fallback(message_content, author_id)
+            
+            relationships_data = response_json.get("relationships", [])
+            
+            # Validate that relationships_data is a list
+            if not isinstance(relationships_data, list):
+                logger.warning("LLM response 'relationships' field is not a list, using fallback")
+                return self._extract_relationship_info_fallback(message_content, author_id)
+            
+            for rel_data in relationships_data:
+                # Validate that rel_data is a dictionary and has required fields
+                if not isinstance(rel_data, dict):
+                    logger.warning(f"Skipping non-dictionary relationship data: {rel_data}")
+                    continue
+                    
                 if (
                     "person1" in rel_data
                     and "person2" in rel_data
                     and "relationship_type" in rel_data
                 ):
+                    # Validate that the required fields are strings
+                    person1 = rel_data.get("person1")
+                    person2 = rel_data.get("person2")
+                    relationship_type = rel_data.get("relationship_type")
+                    
+                    if not all(isinstance(field, str) for field in [person1, person2, relationship_type]):
+                        logger.warning(f"Skipping relationship with invalid field types: {rel_data}")
+                        continue
+                    
                     relationships_found.append(
                         {
-                            "person1": rel_data["person1"].strip(),
-                            "person2": rel_data["person2"].strip(),
-                            "relationship_type": rel_data["relationship_type"],
+                            "person1": person1.strip(),
+                            "person2": person2.strip(),
+                            "relationship_type": relationship_type,
                             "reported_by": author_id,
                             "timestamp": datetime.now().isoformat(),
                             "context": rel_data.get("context", ""),
@@ -330,6 +395,8 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
                             ),  # Default confidence if not provided
                         }
                     )
+                else:
+                    logger.debug(f"Skipping relationship data missing required fields: {rel_data}")
 
             return relationships_found
 
