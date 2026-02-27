@@ -406,7 +406,7 @@ class MemoryBackgroundService:
                         existing_events = json.load(f)
                         if not isinstance(existing_events, list):
                             existing_events = []
-                except:
+                except (IOError, json.JSONDecodeError):
                     existing_events = []
 
             # Thêm các sự kiện mới
@@ -673,7 +673,7 @@ class MemoryBackgroundService:
             try:
                 with open(metadata_file, "r", encoding="utf-8") as f:
                     metadata = json.load(f)
-            except:
+            except (IOError, json.JSONDecodeError):
                 metadata = {}
 
         metadata["last_persona_update"] = datetime.now().isoformat()

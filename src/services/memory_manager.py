@@ -3,7 +3,7 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List
 
 from services.memory_background_service import MemoryBackgroundService
 
@@ -83,7 +83,7 @@ class MemoryManager:
         self.user_contexts[user_id]["message_count"] += 1
 
         # Thêm vào working memory
-        entry = self.working_memory.add_message(user_id, role, content)
+        self.working_memory.add_message(user_id, role, content)
 
         # Lưu tin nhắn vào history file ngay lập tức
         self.history_service.append_message(user_id, role, content)
@@ -166,9 +166,6 @@ class MemoryManager:
         # Ensure the file exists
         if not os.path.exists(episodic_file):
             # Create the file with an empty array
-            import json
-            import os
-
             os.makedirs(os.path.dirname(episodic_file), exist_ok=True)
             with open(episodic_file, "w", encoding="utf-8") as f:
                 json.dump([], f, ensure_ascii=False, indent=2)
@@ -180,7 +177,7 @@ class MemoryManager:
                 events = json.load(f)
                 # Trả về các sự kiện gần nhất
                 return events[-limit:] if len(events) > limit else events
-        except Exception as e:
+        except (IOError, json.JSONDecodeError) as e:
             logger.error(f"Error loading episodic memory for {user_id}: {e}")
             return []
 
