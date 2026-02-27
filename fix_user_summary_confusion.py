@@ -4,10 +4,9 @@ Script để sửa lỗi nhầm lẫn user trong summary.
 Script này sẽ xóa các summary bị lỗi để hệ thống tạo lại từ đầu.
 """
 
-import json
 import os
 import re
-from typing import Dict, List
+from typing import List
 
 
 def find_potentially_confused_summaries(summaries_dir: str) -> List[str]:

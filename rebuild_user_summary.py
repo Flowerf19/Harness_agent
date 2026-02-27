@@ -13,8 +13,9 @@ from pathlib import Path
 
 sys.path.insert(0, ".")
 
+# from src.services.summary_service import SummaryService  # Đã loại bỏ
+from src.services.memory_manager import MemoryManager
 from src.services.qwen_service import QwenService  # hoặc service khác bạn đang dùng
-from src.services.summary_service import SummaryService
 
 
 async def rebuild_user_summary():
@@ -50,23 +51,21 @@ async def rebuild_user_summary():
     if len(history) > 5:
         print(f"   ... và {len(history) - 5} tin nhắn khác")
 
-    # Tạo instance của SummaryService
+    # Tạo instance của MemoryManager
     # Lưu ý: Bạn cần cung cấp LLM service phù hợp
     try:
         # Sử dụng QwenService hoặc service khác tùy theo hệ thống của bạn
         llm_service = QwenService()  # Thay bằng service bạn đang dùng
-        summary_service = SummaryService(
-            llm_service=llm_service,
-            prompts_dir="src/data/prompts",
-            config_dir="src/config",
-        )
+        data_dir = "src/data"
+        memory_manager = MemoryManager(llm_service, data_dir)
 
         user_id = "1378359549379084432"
 
         print(f"\n🚀 Bắt đầu cập nhật summary cho user {user_id}...")
 
-        # Gọi phương thức cập nhật summary
-        new_summary = await summary_service.update_summary_smart(user_id)
+        # Kích hoạt cập nhật core persona thông qua MemoryManager
+        await memory_manager.force_update_all_memories(user_id)
+        new_summary = memory_manager.get_core_persona(user_id)
 
         if new_summary:
             print("✅ Cập nhật summary thành công!")

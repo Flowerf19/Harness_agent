@@ -9,7 +9,8 @@ from .message_processor import MessageProcessor
 from .ollama_service import OllamaService
 from .qwen_service import QwenService
 from .relationship_service import RelationshipService
-from .summary_service import SummaryService
+
+# from .summary_service import SummaryService  # Đã loại bỏ
 from .working_memory_service import WorkingMemoryService
 
 __all__ = [
@@ -20,7 +21,7 @@ __all__ = [
     "OllamaService",
     "QwenService",
     "RelationshipService",
-    "SummaryService",
+    # "SummaryService",  # Đã loại bỏ
     "MemoryManager",
     "MemoryBackgroundService",
     "WorkingMemoryService",

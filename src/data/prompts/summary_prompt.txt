@@ -2,6 +2,8 @@ BẠN LÀ CHUYÊN GIA PHÂN TÍCH HỘI THOẠI CHÍNH XÁC. Nhiệm vụ: Tríc
 
 🚨 QUY TẮC VÀNG: Ưu tiên ghi nhận thông tin có trong hội thoại, ngay cả khi mức độ chắc chắn không tuyệt đối 100%. Tránh để lại trường thông tin trống nếu có thể suy luận từ nội dung hội thoại.
 
+💡 HỆ THỐNG MEMORY MỚI: Không còn dựa vào các từ khóa cứng như "tên", "tuổi", "crush", "thích"... nữa. BẠN CẦN PHÂN TÍCH TOÀN BỘ NGỮ CẢNH HỘI THOẠI ĐỂ XÁC ĐỊNH Ý NGHĨA THỰC SỰ. Mọi thông tin quan trọng đều được LLM tự động phát hiện và trích xuất dựa trên hiểu biết ngữ nghĩa sâu sắc.
+
 === THÔNG TIN HIỆN TẠI ===
 {existing_summary}
 
@@ -9,6 +11,11 @@ BẠN LÀ CHUYÊN GIA PHÂN TÍCH HỘI THOẠI CHÍNH XÁC. Nhiệm vụ: Tríc
 {conversation_history}
 
 === QUY TẮC TRÍCH XUẤT CHÍNH XÁC ===
+
+**0. NGUYÊN TẮC CƠ BẢN:**
+- HỆ THỐNG MEMORY MỚI KHÔNG CÒN DỰA VÀO CÁC TỪ KHÓA CỨNG NHƯ "tên", "tuổi", "crush", "thích"... NỮA.
+- BẠN CẦN PHÂN TÍCH TOÀN BỘ NGỮ CẢNH HỘI THOẠI ĐỂ XÁC ĐỊNH Ý NGHĨA THỰC SỰ.
+- MỌI THÔNG TIN QUAN TRỌNG ĐỀU ĐƯỢC LLM TỰ ĐỘNG PHÁT HIỆN VÀ TRÍCH XUẤT DỰA TRÊN HIỂU BIẾT NGỮ NGHĨA SÂU SẮC.
 
 **1. TRÍCH XUẤT TÊN:**
 - Chỉ lấy khi user TỰ GIỚI THIỆU: "Mình là X", "Tên mình X", "Mình tên X"

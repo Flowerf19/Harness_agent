@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from services.activity_monitor import ActivityMonitor
@@ -179,38 +179,26 @@ class MemoryBackgroundService:
                 ]
             )
 
-            # Prompt để LLM trích xuất các sự kiện/fact quan trọng
-            extraction_prompt = f"""
-Bạn là một chuyên gia phân tích hội thoại. Hãy trích xuất các sự kiện, fact quan trọng từ đoạn hội thoại sau:
+            # Load prompt từ file external để trích xuất episodic memory
+            episodic_prompt_file = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                "data",
+                "prompts",
+                "episodic_extraction_prompt.txt",
+            )
 
-HỘI THOẠI CẦN PHÂN TÍCH:
-{conversation_text}
+            if os.path.exists(episodic_prompt_file):
+                with open(episodic_prompt_file, "r", encoding="utf-8") as f:
+                    base_extraction_prompt = f.read().strip()
+            else:
+                # Fallback minimal prompt
+                base_extraction_prompt = (
+                    "Trích xuất sự kiện từ hội thoại và trả về JSON."
+                )
 
-Hãy trích xuất các thông tin sau theo định dạng JSON:
-{{
-  "events": [
-    {{
-      "type": "fact|event|behavior|preference|milestone|change|interaction",
-      "category": "personal_info|interests|habits|goals|relationships|activities|status_change|conversation",
-      "summary": "Tóm tắt ngắn gọn sự kiện/fact",
-      "details": "Chi tiết cụ thể về sự kiện/fact",
-      "timestamp": "Thời gian (nếu có thể xác định)",
-      "confidence": 0.0-1.0
-    }}
-  ],
-  "key_themes": ["chủ đề chính được thảo luận"],
-  "important_facts": ["các fact quan trọng cần nhớ"]
-}}
-
-QUAN TRỌNG:
-- Nếu không có thông tin cụ thể, hãy tạo ít nhất một sự kiện với type: "general_interaction", category: "conversation"
-- LUÔN TRẢ VỀ ĐỊNH DẠNG JSON HOÀN CHỈNH, không thêm văn bản giải thích nào khác
-- Nếu không thể xác định thông tin cụ thể, hãy gộp vào sự kiện chung về cuộc trò chuyện
-- Đảm bảo mảng "events" không bao giờ rỗng
-- CHỈ TRẢ VỀ JSON, KHÔNG THÊM BẤT KỲ VĂN BẢN NÀO KHÁC
-
-JSON OUTPUT (chỉ trả về JSON, không thêm văn bản nào khác):
-"""
+            extraction_prompt = base_extraction_prompt.replace(
+                "{conversation_text}", conversation_text
+            )
 
             # Gọi LLM để trích xuất facts
             llm_response = await self.llm_service.generate_response(
@@ -517,11 +505,11 @@ JSON OUTPUT (chỉ trả về JSON, không thêm văn bản nào khác):
             if not isinstance(events, list):
                 return False
 
-            # Điều kiện: có hơn 50 sự kiện kể từ lần cập nhật core persona cuối cùng
+            # Điều kiện: có hơn 10 sự kiện kể từ lần cập nhật core persona cuối cùng
             # (giả sử chúng ta theo dõi lần cập nhật cuối cùng trong metadata)
 
-            # Đơn giản hóa: cập nhật nếu có hơn 50 sự kiện
-            if len(events) > 50:
+            # Đơn giản hóa: cập nhật nếu có hơn 10 sự kiện
+            if len(events) > 10:
                 logger.info(
                     f"🔄 Core persona update triggered for {user_id}: {len(events)} events recorded"
                 )
@@ -591,56 +579,34 @@ JSON OUTPUT (chỉ trả về JSON, không thêm văn bản nào khác):
                 except Exception as e:
                     logger.warning(f"⚠️ Could not retrieve relationship info: {e}")
 
-            # Tạo prompt để cập nhật hồ sơ
-            update_prompt = f"""
-Bạn là chuyên gia cập nhật hồ sơ người dùng. Hãy cập nhật hồ sơ cốt lõi của người dùng dựa trên các sự kiện mới sau:
+            # Load prompt từ file external
+            prompt_file = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                "data",
+                "prompts",
+                "summary_prompt.txt",
+            )
 
-HỒ SƠ HIỆN TẠI:
+            if os.path.exists(prompt_file):
+                with open(prompt_file, "r", encoding="utf-8") as f:
+                    base_prompt = f.read().strip()
+            else:
+                # Fallback minimal prompt
+                base_prompt = "Cập nhật hồ sơ người dùng dựa trên thông tin hiện tại và sự kiện mới."
+
+            # Format prompt với dữ liệu thực tế
+            formatted_prompt = f"""
+{base_prompt}
+
+=== THÔNG TIN HIỆN TẠI ===
 {current_summary or "[Chưa có hồ sơ]"}
 
-{relationship_info}SỰ KIỆN MỚI (theo thứ tự thời gian):
-{json.dumps(recent_events[-10:], indent=2, ensure_ascii=False)}  # Lấy 10 sự kiện gần nhất
-
-Hãy tạo lại hồ sơ người dùng theo định dạng chuẩn sau, cập nhật thông tin mới và giữ lại thông tin vẫn còn chính xác:
-
-=== THÔNG TIN CƠ BẢN ===
-Tên: [Tên thật hoặc biệt danh]
-Tuổi: [Tuổi hiện tại]
-Sinh nhật: [Ngày sinh nếu có]
-
-=== SỞ THÍCH & ĐAM MÊ ===
-• Công nghệ: [Ngôn ngữ lập trình, dự án, level skill]
-• Giải trí: [Phim, nhạc, game, thể loại yêu thích]
-• Khác: [Các sở thích khác được đề cập]
-
-=== TÍNH CÁCH & PHONG CÁCH ===
-• Giao tiếp: [Cách user nói chuyện - hài hước, nghiêm túc, etc]
-• Tâm trạng: [Thường vui, hay lo lắng, tích cực, etc]
-• Đặc điểm: [Những điều đặc biệt về user]
-
-=== DỰ ÁN & MỤC TIÊU ===
-• Hiện tại: [Đang làm gì, học gì, quan tâm gì]
-• Kế hoạch: [Mục tiêu, ước mơ đã chia sẻ]
-
-=== LỊCH SỬ TƯƠNG TÁC ===
-• Chủ đề đã thảo luận: [Những gì đã nói chuyện]
-• Mức độ thân thiết: [Mới quen, đã quen, thân thiết]
-• Ghi chú đặc biệt: [Điều gì cần nhớ đặc biệt]
-
-=== MỐI QUAN HỆ VỚI NGƯỜI KHÁC ===
-• Bạn bè: [Tên các user khác mà user này đã nhắc đến, kèm thông tin về mối quan hệ]
-• Gia đình: [Thành viên gia đình được nhắc đến]
-• Đồng nghiệp: [Đồng nghiệp, đối tác làm việc được đề cập]
-• Người quan trọng: [Người yêu, crush, người đặc biệt được nhắc đến]
-• Ghi chú về tương tác: [Cách user nói về người khác, mức độ thân thiết]
-
-QUAN TRỌNG:
-- CẬP NHẬT thông tin nếu có thay đổi (ví dụ: tuổi mới, sở thích mới)
-- GIỮ lại thông tin vẫn còn chính xác
-- LOẠI BỎ thông tin lỗi thời hoặc không còn đúng
-- CHỈ ghi thông tin CÓ THẬT trong các sự kiện
-- CẬP NHẬT thông tin mối quan hệ nếu có thay đổi
+{relationship_info}
+=== SỰ KIỆN MỚI (10 sự kiện gần nhất) ===
+{json.dumps(recent_events[-10:], indent=2, ensure_ascii=False)}
 """
+
+            update_prompt = formatted_prompt
 
             # Gọi LLM để cập nhật hồ sơ
             new_summary = await self.llm_service.generate_response(

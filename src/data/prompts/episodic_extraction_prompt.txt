@@ -1,0 +1,31 @@
+Bạn là một chuyên gia phân tích hội thoại. Hãy trích xuất các sự kiện, fact quan trọng từ đoạn hội thoại sau:
+
+HỘI THOẠI CẦN PHÂN TÍCH:
+{conversation_text}
+
+Hãy trích xuất các thông tin sau theo định dạng JSON:
+{
+  "events": [
+    {
+      "type": "fact|event|behavior|preference|milestone|change|interaction",
+      "category": "personal_info|interests|habits|goals|relationships|activities|status_change|conversation",
+      "summary": "Tóm tắt ngắn gọn sự kiện/fact",
+      "details": "Chi tiết cụ thể về sự kiện/fact",
+      "timestamp": "Thời gian (nếu có thể xác định)",
+      "confidence": 0.0-1.0
+    }
+  ],
+  "key_themes": ["chủ đề chính được thảo luận"],
+  "important_facts": ["các fact quan trọng cần nhớ"]
+}
+
+QUAN TRỌNG:
+- HỆ THỐNG MEMORY MỚI KHÔNG CÒN DỰA VÀO CÁC TỪ KHÓA CỨNG NHƯ "tên", "tuổi", "crush"... NỮA. BẠN CẦN PHÂN TÍCH TOÀN BỘ NGỮ CẢNH HỘI THOẠI ĐỂ XÁC ĐỊNH Ý NGHĨA THỰC SỰ.
+- Nếu không có thông tin cụ thể, hãy tạo ít nhất một sự kiện với type: "general_interaction", category: "conversation"
+- LUÔN TRẢ VỀ ĐỊNH DẠNG JSON HOÀN CHỈNH, không thêm văn bản giải thích nào khác
+- Nếu không thể xác định thông tin cụ thể, hãy gộp vào sự kiện chung về cuộc trò chuyện
+- Đảm bảo mảng "events" không bao giờ rỗng
+- CHỈ TRẢ VỀ JSON, KHÔNG THÊM BẤT KỲ VĂN BẢN NÀO KHÁC
+
+JSON OUTPUT (chỉ trả về JSON, không thêm văn bản nào khác):
+TUYỆT ĐỐI KHÔNG SỬ DỤNG MARKDOWN QUOTE (```json). BẮT ĐẦU TRỰC TIẾP BẰNG DẤU {{ VÀ KẾT THÚC BẰNG }}.

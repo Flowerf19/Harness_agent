@@ -1,8 +1,8 @@
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +27,6 @@ class WorkingMemoryEntry:
     category: MessageCategory = MessageCategory.GENERAL
     access_count: int = 0
     is_sensitive: bool = False
-    entities: List[str] = field(default_factory=list)  # Các thực thể được trích xuất
-    keywords: List[str] = field(default_factory=list)  # Từ khóa quan trọng
 
 
 class WorkingMemoryService:
@@ -47,9 +45,7 @@ class WorkingMemoryService:
         Thêm tin nhắn vào working memory với đánh giá mức độ quan trọng
         """
         # Tính toán mức độ quan trọng
-        importance_score, category, entities, keywords = self._evaluate_importance(
-            content, role
-        )
+        importance_score, category = self._evaluate_importance(content, role)
 
         entry = WorkingMemoryEntry(
             role=role,
@@ -57,8 +53,6 @@ class WorkingMemoryService:
             timestamp=datetime.now(),
             importance_score=importance_score,
             category=category,
-            entities=entities,
-            keywords=keywords,
         )
 
         # Thêm vào danh sách của người dùng
@@ -78,121 +72,22 @@ class WorkingMemoryService:
 
     def _evaluate_importance(
         self, content: str, role: str
-    ) -> tuple[float, MessageCategory, List[str], List[str]]:
+    ) -> tuple[float, MessageCategory]:
         """
         Đánh giá mức độ quan trọng của tin nhắn
         """
         importance = 0.5  # Mức mặc định
         category = MessageCategory.GENERAL
-        entities = []
-        keywords = []
 
-        content_lower = content.lower()
-
-        # Các mẫu để nhận diện thông tin quan trọng
-        personal_info_patterns = [
-            (r"(tên|name).*?(là|is|:)\s*(\w+)", MessageCategory.FACT, ["name"]),
-            (r"(\d+)\s*(tuổi|age|năm)", MessageCategory.FACT, ["age"]),
-            (
-                r"(thích|like|love|yêu).*?(\w+)",
-                MessageCategory.PREFERENCE,
-                ["preference"],
-            ),
-            (
-                r"(bạn|anh|chị|em)\s*(\w+)",
-                MessageCategory.RELATIONSHIP,
-                ["relationship"],
-            ),
-            (
-                r"(muốn|mong|ước|plan|want|need).*?(đi|làm|có)",
-                MessageCategory.GOAL,
-                ["goal"],
-            ),
-        ]
-
-        # Kiểm tra các mẫu thông tin cá nhân
-        for pattern, cat, kw_list in personal_info_patterns:
-            import re
-
-            matches = re.finditer(pattern, content_lower)
-            for match in matches:
-                importance += 0.2  # Tăng mức độ quan trọng
-                if importance > 1.0:
-                    importance = 1.0
-                category = cat
-                keywords.extend(kw_list)
-                # Trích xuất thực thể nếu có
-                if len(match.groups()) > 2:
-                    entities.append(match.group(3))
-
-        # Tăng mức độ quan trọng nếu là tin nhắn của người dùng
+        # Tăng mức độ quan trọng nếu là tin nhắn của người dùng (+0.2)
         if role == "user":
+            importance += 0.2
+
+        # Tăng mức độ quan trọng nếu tin nhắn dài (nhiều text) (+0.1)
+        if len(content) > 50:  # Tin nhắn dài hơn 50 ký tự
             importance += 0.1
-            if importance > 1.0:
-                importance = 1.0
 
-        # Tăng mức độ quan trọng nếu có cảm xúc mạnh
-        emotional_words = [
-            "rất",
-            "cực kỳ",
-            "thật sự",
-            "đáng yêu",
-            "tuyệt vời",
-            "buồn",
-            "vui",
-            "giận",
-        ]
-        for word in emotional_words:
-            if word in content_lower:
-                importance += 0.05
-                if importance > 1.0:
-                    importance = 1.0
-
-        # Trích xuất từ khóa quan trọng
-        keywords.extend(self._extract_keywords(content))
-
-        return min(importance, 1.0), category, list(set(entities)), list(set(keywords))
-
-    def _extract_keywords(self, content: str) -> List[str]:
-        """
-        Trích xuất từ khóa từ nội dung
-        """
-        # Đơn giản hóa: tách từ và loại bỏ stop words cơ bản
-        import re
-
-        words = re.findall(r"\b\w+\b", content.lower())
-
-        # Stop words cơ bản trong tiếng Việt và Anh
-        stop_words = {
-            "và",
-            "hoặc",
-            "nhưng",
-            "rồi",
-            "với",
-            "của",
-            "trong",
-            "tại",
-            "về",
-            "qua",
-            "trên",
-            "dưới",
-            "the",
-            "a",
-            "an",
-            "and",
-            "or",
-            "but",
-            "with",
-            "of",
-            "in",
-            "at",
-            "to",
-            "for",
-            "on",
-        }
-
-        keywords = [word for word in words if len(word) > 2 and word not in stop_words]
-        return list(set(keywords))  # Trả về duy nhất
+        return min(importance, 1.0), category
 
     def get_context(
         self, user_id: str, max_entries: int = 5
@@ -203,18 +98,19 @@ class WorkingMemoryService:
         if user_id not in self.memories or not self.memories[user_id]:
             return []
 
-        # Lấy các entry và sắp xếp theo mức độ quan trọng và thời gian
+        # 1. Lấy ra các tin nhắn ưu tiên cao nhất
         user_memory = self.memories[user_id]
-
-        # Sắp xếp theo: (importance_score giảm dần, timestamp giảm dần)
-        sorted_entries = sorted(
+        important_entries = sorted(
             user_memory,
             key=lambda x: (x.importance_score, x.timestamp.timestamp()),
             reverse=True,
-        )
+        )[:max_entries]
 
-        # Trả về số lượng tối đa được yêu cầu
-        return sorted_entries[:max_entries]
+        # 2. FIX: Sort lại theo thời gian thực (từ cũ đến mới) để LLM đọc hiểu luồng nói chuyện
+        chronological_entries = sorted(
+            important_entries, key=lambda x: x.timestamp.timestamp()
+        )
+        return chronological_entries
 
     def get_recent_conversation(
         self, user_id: str, max_entries: int = 3
@@ -247,38 +143,6 @@ class WorkingMemoryService:
         matching_entries = [
             entry for entry in self.memories[user_id] if entry.category == category
         ]
-
-        # Sắp xếp theo mức độ quan trọng và thời gian
-        sorted_entries = sorted(
-            matching_entries,
-            key=lambda x: (x.importance_score, x.timestamp.timestamp()),
-            reverse=True,
-        )
-
-        return sorted_entries[:limit]
-
-    def search_by_keywords(
-        self, user_id: str, keywords: List[str], limit: int = 5
-    ) -> List[WorkingMemoryEntry]:
-        """
-        Tìm kiếm các entry theo từ khóa
-        """
-        if user_id not in self.memories:
-            return []
-
-        matching_entries = []
-        keywords_lower = [kw.lower() for kw in keywords]
-
-        for entry in self.memories[user_id]:
-            # Kiểm tra trong nội dung và từ khóa của entry
-            content_lower = entry.content.lower()
-            entry_keywords_lower = [k.lower() for k in entry.keywords]
-
-            if any(
-                keyword in content_lower or keyword in entry_keywords_lower
-                for keyword in keywords_lower
-            ):
-                matching_entries.append(entry)
 
         # Sắp xếp theo mức độ quan trọng và thời gian
         sorted_entries = sorted(
@@ -353,7 +217,6 @@ class WorkingMemoryService:
                 "total_messages": 0,
                 "categories": {},
                 "avg_importance": 0.0,
-                "most_common_keywords": [],
             }
 
         user_memory = self.memories[user_id]
@@ -361,7 +224,6 @@ class WorkingMemoryService:
         # Thống kê theo danh mục
         categories = {}
         total_importance = 0
-        all_keywords = []
 
         for entry in user_memory:
             # Thống kê danh mục
@@ -371,23 +233,13 @@ class WorkingMemoryService:
             # Tổng mức độ quan trọng
             total_importance += entry.importance_score
 
-            # Thu thập từ khóa
-            all_keywords.extend(entry.keywords)
-
         # Tính trung bình mức độ quan trọng
         avg_importance = total_importance / len(user_memory) if user_memory else 0.0
-
-        # Lấy từ khóa phổ biến nhất
-        from collections import Counter
-
-        keyword_counts = Counter(all_keywords)
-        most_common_keywords = [item[0] for item in keyword_counts.most_common(5)]
 
         return {
             "total_messages": len(user_memory),
             "categories": categories,
             "avg_importance": round(avg_importance, 2),
-            "most_common_keywords": most_common_keywords,
         }
 
     def clear_memory(self, user_id: str):

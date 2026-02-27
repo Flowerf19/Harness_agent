@@ -321,8 +321,8 @@ class LLMMessageCog(commands.Cog):
             if not display_name:
                 display_name = mentioned_user_id
             try:
-                mentioned_user_summary = (
-                    self.memory_manager.core_persona.get_user_summary(mentioned_user_id)
+                mentioned_user_summary = self.memory_manager.get_core_persona(
+                    mentioned_user_id
                 )
                 if mentioned_user_summary:
                     mentioned_info_parts.append(
@@ -507,49 +507,12 @@ class LLMMessageCog(commands.Cog):
                 str(message.channel.id) if message.channel else None,
             )
 
-            # Check if this message contains priority information that should trigger immediate updates
-            if self._contains_priority_information(content):
-                await self.memory_manager.record_priority_event(
-                    user_id,
-                    "personal_info_update",
-                    {"content": content, "type": "potential_personal_info"},
-                )
-
             logger.debug(
                 f"🔗 Processed relationship data for {author_username} (ID: {user_id})"
             )
 
         except Exception as e:
             logger.error(f"❌ Error processing relationship data: {e}")
-
-    def _contains_priority_information(self, content: str) -> bool:
-        """Kiểm tra xem tin nhắn có chứa thông tin ưu tiên không"""
-        priority_indicators = [
-            "tên",
-            "name",
-            "tuổi",
-            "age",
-            "sinh nhật",
-            "birthday",
-            "thích",
-            "like",
-            "yêu",
-            "love",
-            "gì",
-            "ơi",
-            "ơi",
-            "ơi",
-            "bạn",
-            "crush",
-            "người yêu",
-            "gf",
-            "bf",
-            "boyfriend",
-            "girlfriend",
-        ]
-
-        content_lower = content.lower()
-        return any(indicator in content_lower for indicator in priority_indicators)
 
     def _is_conversation_locked(self, user_id: str) -> bool:
         """Check if conversation is locked using memory context"""

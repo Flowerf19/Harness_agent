@@ -6,7 +6,8 @@ from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
 from services.memory_background_service import MemoryBackgroundService
-from services.summary_service import SummaryService
+
+# from services.summary_service import SummaryService  # Đã loại bỏ
 from services.working_memory_service import WorkingMemoryService
 
 logger = logging.getLogger(__name__)
@@ -41,11 +42,8 @@ class MemoryManager:
         self.background_service = MemoryBackgroundService(
             llm_service, data_dir, self.relationship_service
         )
-        self.core_persona = SummaryService(
-            llm_service,
-            prompts_dir=f"{data_dir}/prompts",
-            config_dir=f"{data_dir}/config",
-        )
+        # Loại bỏ SummaryService - sử dụng kiến trúc 3 tầng qua background_service
+        # self.core_persona = SummaryService(...)
 
         # Context cho từng người dùng
         self.user_contexts: Dict[str, Dict] = {}
@@ -70,8 +68,7 @@ class MemoryManager:
                 "last_persona_update": None,
             }
 
-        # Ensure user data files exist
-        self.core_persona.ensure_user_files_exist(user_id)
+        # Ensure user data files exist - chỉ sử dụng background_service
         self.background_service.ensure_user_files_exist(user_id)
 
     def add_message(self, user_id: str, role: str, content: str):
@@ -100,15 +97,14 @@ class MemoryManager:
         """
         Lấy toàn bộ context cho người dùng bao gồm cả 3 tầng bộ nhớ
         """
-        # Ensure user files exist
-        self.core_persona.ensure_user_files_exist(user_id)
+        # Ensure user files exist - chỉ sử dụng background_service
         self.background_service.ensure_user_files_exist(user_id)
 
         # Lấy thông tin từ working memory
         working_context = self.working_memory.get_context(user_id, max_entries=5)
 
-        # Lấy thông tin từ core persona
-        core_summary = self.core_persona.get_user_summary(user_id)
+        # Lấy thông tin từ core persona (từ background_service)
+        core_summary = self.background_service._get_current_summary(user_id)
 
         # Tạo context tổng hợp
         context = {
@@ -135,8 +131,7 @@ class MemoryManager:
         """
         Lấy context từ working memory
         """
-        # Ensure user files exist
-        self.core_persona.ensure_user_files_exist(user_id)
+        # Ensure user files exist - chỉ sử dụng background_service
         self.background_service.ensure_user_files_exist(user_id)
 
         entries = self.working_memory.get_context(user_id, max_entries)
@@ -152,13 +147,12 @@ class MemoryManager:
 
     def get_core_persona(self, user_id: str) -> str:
         """
-        Lấy core persona của người dùng
+        Lấy core persona của người dùng từ background_service
         """
-        # Ensure user files exist
-        self.core_persona.ensure_user_files_exist(user_id)
+        # Ensure user files exist - chỉ sử dụng background_service
         self.background_service.ensure_user_files_exist(user_id)
 
-        return self.core_persona.get_user_summary(user_id)
+        return self.background_service._get_current_summary(user_id)
 
     def get_episodic_memory(self, user_id: str, limit: int = 10) -> List[Dict]:
         """
@@ -196,8 +190,7 @@ class MemoryManager:
         """
         logger.info(f"🔄 Triggering episodic memory update for {user_id}")
 
-        # Ensure user files exist
-        self.core_persona.ensure_user_files_exist(user_id)
+        # Ensure user files exist - chỉ sử dụng background_service
         self.background_service.ensure_user_files_exist(user_id)
 
         # Gọi trực tiếp phương thức cập nhật từ background service
@@ -209,8 +202,7 @@ class MemoryManager:
         """
         logger.info(f"🔄 Triggering core persona update for {user_id}")
 
-        # Ensure user files exist
-        self.core_persona.ensure_user_files_exist(user_id)
+        # Ensure user files exist - chỉ sử dụng background_service
         self.background_service.ensure_user_files_exist(user_id)
 
         # Gọi trực tiếp phương thức cập nhật từ background service
@@ -227,6 +219,9 @@ class MemoryManager:
         if trigger_type == "MESSAGE_THRESHOLD_REACHED":
             # Kích hoạt cập nhật episodic memory khi đạt ngưỡng tin nhắn
             self.trigger_episodic_update(user_id)
+
+            # FIX MEMORY LEAK: Xóa bớt RAM, chỉ giữ lại khoảng 10 tin nhắn gần nhất làm context
+            self.working_memory.cleanup_old_entries(user_id, keep_count=10)
 
     def register_trigger_callback(self, callback: Callable):
         """
