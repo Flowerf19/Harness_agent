@@ -28,4 +28,4 @@ QUAN TRỌNG:
 - CHỈ TRẢ VỀ JSON, KHÔNG THÊM BẤT KỲ VĂN BẢN NÀO KHÁC
 
 JSON OUTPUT (chỉ trả về JSON, không thêm văn bản nào khác):
-TUYỆT ĐỐI KHÔNG SỬ DỤNG MARKDOWN QUOTE (```json). BẮT ĐẦU TRỰC TIẾP BẰNG DẤU {{ VÀ KẾT THÚC BẰNG }}.
+TUYỆT ĐỐI KHÔNG SỬ DỤNG MARKDOWN QUOTE (```json). BẮT ĐẦU TRỰC TIẾP BẰNG DẤU { VÀ KẾT THÚC BẰNG }.
