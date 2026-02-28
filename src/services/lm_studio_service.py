@@ -4,13 +4,13 @@ import os
 
 import aiohttp
 
-from config.settings import Config
+from src.config.settings import Config
 
 
 class LMStudioService:
     def __init__(self):
-        self.api_url = os.getenv("LM_STUDIO_API_URL", "http://localhost:1234")
-        self.model = os.getenv("LM_STUDIO_MODEL", "local-model")
+        self.api_url = Config.LM_STUDIO_API_URL
+        self.model = Config.LM_STUDIO_MODEL
         self.session = None
         self.logger = logging.getLogger("discord_bot.LMStudioService")
 

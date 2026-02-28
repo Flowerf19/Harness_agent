@@ -71,9 +71,9 @@ class OllamaService:
             ],
             "stream": False,
             "options": {
-                "temperature": 0.7,
-                "top_p": 0.9,
-                "top_k": 40,
+                "temperature": Config.LLM_TEMPERATURE,
+                "top_p": Config.LLM_TOP_P,
+                "top_k": Config.LLM_TOP_K,
             },
         }
 

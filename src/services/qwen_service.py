@@ -3,6 +3,8 @@ import os
 
 import aiohttp
 
+from config.settings import Config
+
 
 class QwenService:
     def __init__(self):
@@ -60,9 +62,9 @@ class QwenService:
         payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": full_prompt}],
-            "temperature": 0.5,  # Giảm nhiệt độ để phản hồi bớt sáng tạo, tập trung hơn
-            "max_tokens": 200,  # Giảm tiếp từ 300 xuống 200 để giới hạn độ dài phản hồi
-            "top_p": 0.8,  # Giảm top_p để tập trung vào các lựa chọn xác suất cao, bớt lan man
+            "temperature": Config.LLM_TEMPERATURE,
+            "max_tokens": Config.LLM_MAX_TOKENS,
+            "top_p": Config.LLM_TOP_P,
         }
 
         try:

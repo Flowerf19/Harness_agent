@@ -3,6 +3,8 @@ import os
 
 import aiohttp
 
+from config.settings import Config
+
 
 class GeminiService:
     def __init__(self):
@@ -60,10 +62,10 @@ class GeminiService:
         payload = {
             "contents": [{"parts": [{"text": full_prompt}]}],
             "generationConfig": {
-                "temperature": 0.7,
-                "maxOutputTokens": 1000,
-                "topP": 0.95,
-                "topK": 64,
+                "temperature": Config.LLM_TEMPERATURE,
+                "maxOutputTokens": Config.LLM_MAX_TOKENS,
+                "topP": Config.LLM_TOP_P,
+                "topK": Config.LLM_TOP_K,
             },
         }
 

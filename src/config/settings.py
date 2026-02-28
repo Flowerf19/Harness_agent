@@ -36,3 +36,19 @@ class Config:
     PART_BREAK_DELAY = float(
         os.getenv("PART_BREAK_DELAY", "0.6")
     )  # Delay between message parts
+
+    # LLM Generation parameters
+    LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.7"))
+    LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "100"))
+    LLM_TOP_P = float(os.getenv("LLM_TOP_P", "0.9"))
+    LLM_TOP_K = int(os.getenv("LLM_TOP_K", "40"))
+
+    # LM Studio settings
+    LM_STUDIO_API_URL = os.getenv("LM_STUDIO_API_URL", "http://localhost:1234")
+    LM_STUDIO_MODEL = os.getenv("LM_STUDIO_MODEL", "local-model")
+
+    # Logging configuration
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+
+    # Message limit configuration
+    MAX_MESSAGES = int(os.getenv("MAX_MESSAGES", "500"))

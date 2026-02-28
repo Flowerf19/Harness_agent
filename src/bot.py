@@ -7,6 +7,9 @@ import discord  # type: ignore
 from discord.ext import commands  # type: ignore
 from dotenv import load_dotenv
 
+# Import Config from settings
+from src.config.settings import Config
+
 # Add project root to path for importing services
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
@@ -15,7 +18,9 @@ load_dotenv()
 
 # Simplified logging configuration
 logging.basicConfig(
-    level=logging.INFO,  # Changed from DEBUG to INFO
+    level=getattr(
+        logging, Config.LOG_LEVEL.upper(), logging.INFO
+    ),  # Use Config.LOG_LEVEL with fallback to INFO
     format="%(asctime)s - %(levelname)s - %(message)s",  # Simplified format
     handlers=[
         logging.StreamHandler(),
@@ -37,7 +42,7 @@ bot = commands.Bot(
     help_command=None,
     case_insensitive=True,
     strip_after_prefix=True,
-    max_messages=500,
+    max_messages=Config.MAX_MESSAGES,
 )
 
 
