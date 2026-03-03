@@ -37,8 +37,10 @@ class UserCommandsCog(commands.Cog):
 
         # User stats
         user_id = str(ctx.author.id)
-        # Sử dụng memory_manager thay vì summary_service
-        history = llm_cog.memory_manager.history_service.get_user_history(user_id)
+        # Sử dụng memory_manager với conversation_manager thay vì history_service
+        history = llm_cog.memory_manager.conversation_manager.get_persistent_history(
+            user_id
+        )
         summary = llm_cog.memory_manager.get_core_persona(user_id)
 
         embed.add_field(name="Lịch sử", value=f"{len(history)} tin nhắn", inline=True)

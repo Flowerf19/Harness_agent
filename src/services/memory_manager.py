@@ -27,13 +27,13 @@ class MemoryManager:
 
         # Khởi tạo các tầng bộ nhớ
         # Khởi tạo relationship service trước
-        from services.history_service import HistoryService
+        from services.conversation_manager import ConversationManager
         from services.relationship_service import RelationshipService
 
         self.relationship_service = RelationshipService(llm_service, data_dir)
 
-        # Khởi tạo history service
-        self.history_service = HistoryService(f"{data_dir}/user_summaries")
+        # Khởi tạo conversation manager thay vì history service
+        self.conversation_manager = ConversationManager()
 
         # Sau đó khởi tạo background service với relationship service
         self.working_memory = WorkingMemoryService(
@@ -86,7 +86,9 @@ class MemoryManager:
         self.working_memory.add_message(user_id, role, content)
 
         # Lưu tin nhắn vào history file ngay lập tức
-        self.history_service.append_message(user_id, role, content)
+        self.conversation_manager.append_message_to_persistent_history(
+            user_id, role, content
+        )
 
         # Ghi nhận hoạt động cho background service
         self.background_service.record_user_activity(user_id)

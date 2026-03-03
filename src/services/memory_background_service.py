@@ -505,11 +505,11 @@ class MemoryBackgroundService:
             if not isinstance(events, list):
                 return False
 
-            # Điều kiện: có hơn 10 sự kiện kể từ lần cập nhật core persona cuối cùng
+            # Điều kiện: có hơn hoặc bằng 50 sự kiện kể từ lần cập nhật core persona cuối cùng
             # (giả sử chúng ta theo dõi lần cập nhật cuối cùng trong metadata)
 
-            # Đơn giản hóa: cập nhật nếu có hơn 10 sự kiện
-            if len(events) > 10:
+            # Đơn giản hóa: cập nhật nếu có hơn hoặc bằng 50 sự kiện
+            if len(events) >= 50:
                 logger.info(
                     f"🔄 Core persona update triggered for {user_id}: {len(events)} events recorded"
                 )

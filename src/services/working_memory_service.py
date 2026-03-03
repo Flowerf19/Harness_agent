@@ -74,10 +74,21 @@ class WorkingMemoryService:
         self, content: str, role: str
     ) -> tuple[float, MessageCategory]:
         """
-        Đánh giá mức độ quan trọng của tin nhắn
+        Đánh giá mức độ quan trọng của tin nhắn dựa trên:
+        - Vai trò (user/assistant)
+        - Độ dài tin nhắn
+        - Nội dung thực sự (phân tích từ khóa đơn giản)
+
+        Logic đơn giản nhưng hiệu quả:
+        1. Ưu tiên phát hiện thông tin nhạy cảm
+        2. Phát hiện câu hỏi (dấu ?)
+        3. Phân loại nội dung dựa trên từ khóa đặc trưng
         """
         importance = 0.5  # Mức mặc định
         category = MessageCategory.GENERAL
+
+        # Chuyển đổi nội dung sang lowercase để so sánh không phân biệt hoa thường
+        content_lower = content.lower()
 
         # Tăng mức độ quan trọng nếu là tin nhắn của người dùng (+0.2)
         if role == "user":
@@ -87,6 +98,52 @@ class WorkingMemoryService:
         if len(content) > 50:  # Tin nhắn dài hơn 50 ký tự
             importance += 0.1
 
+        # === PHÂN TÍCH NỘI DUNG ĐƠN GIẢN ===
+
+        # 1. Thông tin nhạy cảm (ưu tiên cao nhất) (+0.4)
+        sensitive_keywords = ["mật khẩu", "password", "token", "key", "secret"]
+        if any(keyword in content_lower for keyword in sensitive_keywords):
+            return min(importance + 0.4, 1.0), MessageCategory.FACT
+
+        # 2. Câu hỏi (+0.2)
+        if "?" in content:
+            return min(importance + 0.2, 1.0), MessageCategory.QUERY
+
+        # 3. Thông tin cá nhân (+0.3)
+        personal_keywords = [
+            "tôi tên",
+            "tên tôi",
+            "tuổi",
+            "sinh năm",
+            "sống ở",
+            "làm việc tại",
+            "nghề",
+        ]
+        if any(keyword in content_lower for keyword in personal_keywords):
+            return min(importance + 0.3, 1.0), MessageCategory.FACT
+
+        # 4. Sở thích (+0.25)
+        preference_keywords = ["thích", "yêu", "đam mê", "sở thích", "hobby", "ước mơ"]
+        if any(keyword in content_lower for keyword in preference_keywords):
+            return min(importance + 0.25, 1.0), MessageCategory.PREFERENCE
+
+        # 5. Mục tiêu (+0.25)
+        goal_keywords = ["mục tiêu", "kế hoạch", "dự định", "muốn", "hy vọng", "sẽ"]
+        if any(keyword in content_lower for keyword in goal_keywords):
+            return min(importance + 0.25, 1.0), MessageCategory.GOAL
+
+        # 6. Mối quan hệ (+0.2)
+        relationship_keywords = [
+            "gia đình",
+            "bạn bè",
+            "đồng nghiệp",
+            "sếp",
+            "người thân",
+        ]
+        if any(keyword in content_lower for keyword in relationship_keywords):
+            return min(importance + 0.2, 1.0), MessageCategory.RELATIONSHIP
+
+        # Trả về giá trị mặc định
         return min(importance, 1.0), category
 
     def get_context(

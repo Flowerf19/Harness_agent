@@ -71,7 +71,7 @@ flowchart TD
     subgraph DataFetch["Data Fetching"]
         FETCH --> SUM[SummaryService<br/>Get user profile]
         FETCH --> REL[RelationshipService<br/>Get relationships]
-        FETCH --> HIST[HistoryService<br/>Get conversation]
+        FETCH --> HIST[ConversationManager<br/>Get conversation]
     end
     
     SUM --> BUILD[Build enhanced prompt]
