@@ -53,14 +53,16 @@ class GeminiService:
 
         session = await self._get_session()
 
-        # Build full prompt with personality, conversation guidelines, and context
-        full_prompt = self._build_full_prompt(prompt, user_id, conversation_context)
+        # Build system prompt and user message separately
+        system_prompt = self._build_system_prompt()
+        user_message = self._build_user_message(prompt, user_id, conversation_context)
 
         # Construct the full API URL for generateContent
         full_url = f"{self.api_url}/{self.model}:generateContent?key={self.api_key}"
 
         payload = {
-            "contents": [{"parts": [{"text": full_prompt}]}],
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": user_message}]}],
             "generationConfig": {
                 "temperature": Config.LLM_TEMPERATURE,
                 "maxOutputTokens": Config.LLM_MAX_TOKENS,
@@ -71,7 +73,7 @@ class GeminiService:
 
         try:
             self.logger.debug(
-                f"Sending request to Gemini API with full prompt: {full_prompt[:100]}..."
+                f"Sending request to Gemini API with system prompt: {system_prompt[:100]}... and user message: {user_message[:100]}..."
             )
             async with session.post(
                 full_url, json=payload, headers={"Content-Type": "application/json"}
@@ -101,21 +103,23 @@ class GeminiService:
             self.logger.error(f"Error communicating with Gemini API: {e}")
             return "Error generating response."
 
-    def _build_full_prompt(
+    def _build_system_prompt(self) -> str:
+        """Build system prompt from personality and guidelines"""
+        parts = []
+
+        if self.personality_prompt:
+            parts.append(f"=== NHÂN CÁCH ===\n{self.personality_prompt}")
+
+        if self.conversation_prompt:
+            parts.append(f"=== HƯỚNG DẪN HỘI THOẠI ===\n{self.conversation_prompt}")
+
+        return "\n\n".join(parts)
+
+    def _build_user_message(
         self, user_message: str, user_id: str = None, conversation_context: str = ""
     ) -> str:
-        """Build complete prompt with personality, conversation guidelines, and context"""
+        """Build user message with context"""
         prompt_parts = []
-
-        # Add personality
-        if self.personality_prompt:
-            prompt_parts.append(f"=== NHÂN CÁCH ===\n{self.personality_prompt}")
-
-        # Add conversation guidelines
-        if self.conversation_prompt:
-            prompt_parts.append(
-                f"=== HƯỚNG DẪN HỘI THOẠI ===\n{self.conversation_prompt}"
-            )
 
         # Add conversation context if available
         if conversation_context:
@@ -131,9 +135,11 @@ class GeminiService:
             "=== NHIỆM VỤ ===\nHãy trả lời tin nhắn người dùng theo đúng nhân cách và hướng dẫn trên. Nếu có lịch sử hội thoại, hãy tham khảo để trả lời phù hợp với ngữ cảnh."
         )
 
-        full_prompt = "\n\n".join(prompt_parts)
-        self.logger.debug(f"Built full prompt with context: {len(full_prompt)} chars")
-        return full_prompt
+        user_message_content = "\n\n".join(prompt_parts)
+        self.logger.debug(
+            f"Built user message with context: {len(user_message_content)} chars"
+        )
+        return user_message_content
 
     async def close(self):
         if self.session:

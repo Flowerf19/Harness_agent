@@ -10,12 +10,13 @@ logger = logging.getLogger("discord_bot.ConversationManager")
 class ConversationManager:
     """Manages conversation locks, queuing, and history"""
 
-    def __init__(self):
+    def __init__(self, working_memory_service=None):
         self.currently_responding_to: Optional[str] = None
         self.response_start_time: Optional[datetime] = None
         self.pending_messages: List[Dict] = []
         self.conversation_history = {}
         self.max_history_length = 10
+        self.working_memory = working_memory_service  # Inject dependency
 
     def set_conversation_lock(self, user_id: str):
         """Lock conversation to specific user"""
@@ -90,119 +91,160 @@ class ConversationManager:
     def save_to_persistent_history(
         self, user_id: str, user_message: str, bot_response: str
     ):
-        """Save conversation to persistent file storage"""
-        try:
-            # Get data directory
-            current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            history_dir = os.path.join(current_dir, "data", "user_summaries")
-            os.makedirs(history_dir, exist_ok=True)
-
-            history_file = os.path.join(history_dir, f"{user_id}_history.json")
+        """Delegate to WorkingMemoryService."""
+        if self.working_memory is not None:
             timestamp = datetime.utcnow().isoformat()
+            messages = [
+                {"role": "user", "content": user_message, "timestamp": timestamp},
+                {"role": "assistant", "content": bot_response, "timestamp": timestamp},
+            ]
+            # Use sync version
+            self.working_memory.save_to_persistent_history_sync(user_id, messages)
+        else:
+            # Fallback to old implementation if working_memory is not available
+            try:
+                # Get data directory
+                current_dir = os.path.dirname(
+                    os.path.dirname(os.path.abspath(__file__))
+                )
+                history_dir = os.path.join(current_dir, "data", "user_summaries")
+                os.makedirs(history_dir, exist_ok=True)
 
-            # Load existing history
-            history = []
-            if os.path.exists(history_file):
-                try:
-                    with open(history_file, "r", encoding="utf-8") as f:
-                        history = json.load(f)
-                except:  # noqa: E722
-                    history = []
+                history_file = os.path.join(history_dir, f"{user_id}_history.json")
+                timestamp = datetime.utcnow().isoformat()
 
-            # Add new messages
-            history.extend(
-                [
-                    {"role": "user", "content": user_message, "timestamp": timestamp},
-                    {
-                        "role": "assistant",
-                        "content": bot_response,
-                        "timestamp": timestamp,
-                    },
-                ]
-            )
+                # Load existing history
+                history = []
+                if os.path.exists(history_file):
+                    try:
+                        with open(history_file, "r", encoding="utf-8") as f:
+                            history = json.load(f)
+                    except:  # noqa: E722
+                        history = []
 
-            # Keep only recent history
-            if len(history) > 100:
-                history = history[-100:]
+                # Add new messages
+                history.extend(
+                    [
+                        {
+                            "role": "user",
+                            "content": user_message,
+                            "timestamp": timestamp,
+                        },
+                        {
+                            "role": "assistant",
+                            "content": bot_response,
+                            "timestamp": timestamp,
+                        },
+                    ]
+                )
 
-            # Save back to file
-            with open(history_file, "w", encoding="utf-8") as f:
-                json.dump(history, f, ensure_ascii=False, indent=2)
+                # Keep only recent history
+                if len(history) > 100:
+                    history = history[-100:]
 
-            logger.info(f"💾 Saved conversation history for user {user_id}")
+                # Save back to file
+                with open(history_file, "w", encoding="utf-8") as f:
+                    json.dump(history, f, ensure_ascii=False, indent=2)
 
-        except Exception as e:
-            logger.error(f"❌ Error saving persistent history for {user_id}: {e}")
+                logger.info(f"💾 Saved conversation history for user {user_id}")
+
+            except Exception as e:
+                logger.error(f"❌ Error saving persistent history for {user_id}: {e}")
 
     def append_message_to_persistent_history(
         self, user_id: str, role: str, content: str
     ):
         """
-        Append a single message to persistent history file.
+        Delegate to WorkingMemoryService.
         This method is compatible with the old HistoryService interface.
         """
-        try:
-            # Get data directory
-            current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            history_dir = os.path.join(current_dir, "data", "user_summaries")
-            os.makedirs(history_dir, exist_ok=True)
-
-            history_file = os.path.join(history_dir, f"{user_id}_history.json")
+        if self.working_memory is not None:
             timestamp = datetime.utcnow().isoformat()
-
             # Standardize role
             if role == "bot":
                 role = "assistant"
+            message = {"role": role, "content": content, "timestamp": timestamp}
+            # Use sync version
+            self.working_memory.append_message_to_persistent_history_sync(
+                user_id, message
+            )
+        else:
+            # Fallback to old implementation if working_memory is not available
+            try:
+                # Get data directory
+                current_dir = os.path.dirname(
+                    os.path.dirname(os.path.abspath(__file__))
+                )
+                history_dir = os.path.join(current_dir, "data", "user_summaries")
+                os.makedirs(history_dir, exist_ok=True)
 
-            # Load existing history
-            history = []
-            if os.path.exists(history_file):
-                try:
-                    with open(history_file, "r", encoding="utf-8") as f:
-                        history = json.load(f)
-                except:  # noqa: E722
-                    history = []
+                history_file = os.path.join(history_dir, f"{user_id}_history.json")
+                timestamp = datetime.utcnow().isoformat()
 
-            # Add new message
-            history.append({"role": role, "content": content, "timestamp": timestamp})
+                # Standardize role
+                if role == "bot":
+                    role = "assistant"
 
-            # Keep only recent history (100 messages)
-            if len(history) > 100:
-                history = history[-100:]
+                # Load existing history
+                history = []
+                if os.path.exists(history_file):
+                    try:
+                        with open(history_file, "r", encoding="utf-8") as f:
+                            history = json.load(f)
+                    except:  # noqa: E722
+                        history = []
 
-            # Save back to file
-            with open(history_file, "w", encoding="utf-8") as f:
-                json.dump(history, f, ensure_ascii=False, indent=2)
+                # Add new message
+                history.append(
+                    {"role": role, "content": content, "timestamp": timestamp}
+                )
 
-            logger.info(f"💾 Appended message to history for user {user_id}")
+                # Keep only recent history (100 messages)
+                if len(history) > 100:
+                    history = history[-100:]
 
-        except Exception as e:
-            logger.error(f"❌ Error appending to persistent history for {user_id}: {e}")
+                # Save back to file
+                with open(history_file, "w", encoding="utf-8") as f:
+                    json.dump(history, f, ensure_ascii=False, indent=2)
+
+                logger.info(f"💾 Appended message to history for user {user_id}")
+
+            except Exception as e:
+                logger.error(
+                    f"❌ Error appending to persistent history for {user_id}: {e}"
+                )
 
     def get_persistent_history(
         self, user_id: str, max_messages: int = 100
     ) -> List[Dict]:
         """
-        Get persistent history from file storage.
+        Get persistent history from WorkingMemoryService.
         Returns list of messages in chronological order.
         """
-        try:
-            current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            history_dir = os.path.join(current_dir, "data", "user_summaries")
-            history_file = os.path.join(history_dir, f"{user_id}_history.json")
-
-            if not os.path.exists(history_file):
-                return []
-
-            with open(history_file, "r", encoding="utf-8") as f:
-                history = json.load(f)
-
-            # Return last N messages
+        if self.working_memory is not None:
+            # Use sync version
+            history = self.working_memory.get_persistent_history_sync(user_id)
             return history[-max_messages:] if history else []
+        else:
+            # Fallback to old implementation if working_memory is not available
+            try:
+                current_dir = os.path.dirname(
+                    os.path.dirname(os.path.abspath(__file__))
+                )
+                history_dir = os.path.join(current_dir, "data", "user_summaries")
+                history_file = os.path.join(history_dir, f"{user_id}_history.json")
 
-        except Exception as e:
-            logger.error(f"❌ Error loading persistent history for {user_id}: {e}")
-            return []
+                if not os.path.exists(history_file):
+                    return []
+
+                with open(history_file, "r", encoding="utf-8") as f:
+                    history = json.load(f)
+
+                # Return last N messages
+                return history[-max_messages:] if history else []
+            except Exception as e:
+                logger.error(f"❌ Error loading persistent history for {user_id}: {e}")
+                return []
 
     def get_queue_status(self) -> dict:
         """Get queue status information"""

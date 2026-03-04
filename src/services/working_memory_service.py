@@ -1,7 +1,10 @@
+import asyncio
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Dict, List
 
 logger = logging.getLogger(__name__)
@@ -39,6 +42,11 @@ class WorkingMemoryService:
         self.trigger_threshold = trigger_threshold  # Ngưỡng kích hoạt cập nhật
         self.memories: Dict[str, List[WorkingMemoryEntry]] = {}  # Lưu theo user_id
         self.trigger_callbacks = []  # Danh sách callback khi đạt ngưỡng
+
+        # Thêm persistent storage configuration
+        self.data_dir = Path("data/user_summaries")
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.history_lock = asyncio.Lock()  # Lock cho file I/O
 
     def add_message(self, user_id: str, role: str, content: str) -> WorkingMemoryEntry:
         """
@@ -150,23 +158,24 @@ class WorkingMemoryService:
         self, user_id: str, max_entries: int = 5
     ) -> List[WorkingMemoryEntry]:
         """
-        Lấy ngữ cảnh gần đây từ working memory, ưu tiên thông tin quan trọng
+        Lấy ngữ cảnh gần đây từ working memory theo thứ tự thời gian.
+        Trả về các tin nhắn mới nhất theo thứ tự thời gian (cũ → mới).
         """
         if user_id not in self.memories or not self.memories[user_id]:
             return []
 
-        # 1. Lấy ra các tin nhắn ưu tiên cao nhất
+        # Lấy các entry mới nhất theo thứ tự thời gian
         user_memory = self.memories[user_id]
-        important_entries = sorted(
-            user_memory,
-            key=lambda x: (x.importance_score, x.timestamp.timestamp()),
-            reverse=True,
-        )[:max_entries]
 
-        # 2. FIX: Sort lại theo thời gian thực (từ cũ đến mới) để LLM đọc hiểu luồng nói chuyện
-        chronological_entries = sorted(
-            important_entries, key=lambda x: x.timestamp.timestamp()
-        )
+        # Sắp xếp theo timestamp để đảm bảo thứ tự thời gian
+        sorted_entries = sorted(user_memory, key=lambda x: x.timestamp.timestamp())
+
+        # Lấy N entries mới nhất (ở cuối danh sách sau khi sắp xếp)
+        if len(sorted_entries) > max_entries:
+            chronological_entries = sorted_entries[-max_entries:]
+        else:
+            chronological_entries = sorted_entries
+
         return chronological_entries
 
     def get_recent_conversation(
@@ -239,31 +248,42 @@ class WorkingMemoryService:
             except Exception as e:
                 logger.error(f"Error in trigger callback: {e}")
 
-    def cleanup_old_entries(self, user_id: str, keep_count: int = 10):
+    def cleanup_old_entries(self, user_id: str, max_entries: int = 50) -> int:
         """
-        Dọn dẹp các entry cũ, giữ lại số lượng nhất định
+        Dọn dẹp entries cũ theo thuật toán FIFO.
+        Chỉ giữ lại N tin nhắn mới nhất theo thời gian.
+
+        Args:
+            user_id: ID người dùng
+            max_entries: Số lượng entries tối đa giữ lại
+
+        Returns:
+            Số lượng entries đã bị xóa
         """
         if user_id not in self.memories:
-            return
+            return 0
 
         user_memory = self.memories[user_id]
 
-        if len(user_memory) <= keep_count:
-            return  # Không cần dọn dẹp
+        if len(user_memory) <= max_entries:
+            return 0
 
-        # Ưu tiên giữ lại các entry quan trọng
-        sorted_entries = sorted(
-            user_memory,
-            key=lambda x: (x.importance_score, x.timestamp.timestamp()),
-            reverse=True,
-        )
+        # Sắp xếp theo timestamp, mới nhất ở cuối
+        sorted_entries = sorted(user_memory, key=lambda x: x.timestamp.timestamp())
 
-        # Giữ lại số lượng mong muốn
-        self.memories[user_id] = sorted_entries[:keep_count]
+        # Giữ lại N entries mới nhất (ở cuối)
+        entries_to_keep = sorted_entries[-max_entries:]
+
+        # Cập nhật working memory
+        self.memories[user_id] = entries_to_keep
+
+        deleted_count = len(user_memory) - max_entries
 
         logger.debug(
-            f"🧹 Cleaned up working memory for {user_id}, kept {len(self.memories[user_id])} entries"
+            f"🧹 Cleaned up working memory for {user_id}, kept {len(self.memories[user_id])} entries, deleted {deleted_count} entries"
         )
+
+        return deleted_count
 
     def get_statistics(self, user_id: str) -> Dict:
         """
@@ -306,3 +326,117 @@ class WorkingMemoryService:
         if user_id in self.memories:
             del self.memories[user_id]
             logger.info(f"🗑️ Cleared working memory for {user_id}")
+
+    async def _get_history_path(self, user_id: str) -> Path:
+        """Lấy đường dẫn file history của user."""
+        return self.data_dir / f"{user_id}_history.json"
+
+    async def save_to_persistent_history(self, user_id: str, messages: list):
+        """
+        Lưu tin nhắn vào history file với Lock để tránh conflict.
+
+        Args:
+            user_id: ID người dùng
+            messages: Danh sách tin nhắn cần lưu
+        """
+        async with self.history_lock:
+            history = await self.get_persistent_history(user_id)
+            history.extend(messages)
+
+            # Giới hạn số lượng tin nhắn (FIFO)
+            max_history = 1000  # Config được
+            if len(history) > max_history:
+                history = history[-max_history:]
+
+            file_path = await self._get_history_path(user_id)
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(history, f, ensure_ascii=False, indent=2)
+
+    async def append_message_to_persistent_history(self, user_id: str, message: dict):
+        """
+        Thêm một tin nhắn vào history.
+        """
+        await self.save_to_persistent_history(user_id, [message])
+
+    async def get_persistent_history(self, user_id: str) -> list:
+        """
+        Đọc history từ file.
+
+        Returns:
+            Danh sách tin nhắn đã lưu, hoặc [] nếu file không tồn tại
+        """
+        async with self.history_lock:
+            file_path = await self._get_history_path(user_id)
+            if not file_path.exists():
+                return []
+
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                return []
+
+    def get_persistent_history_sync(self, user_id: str) -> list:
+        """
+        Đọc history từ file (sync version).
+
+        Returns:
+            Danh sách tin nhắn đã lưu, hoặc [] nếu file không tồn tại
+        """
+        import asyncio
+
+        # Try to get existing event loop
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If loop is running, create a new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                result = loop.run_until_complete(self.get_persistent_history(user_id))
+                loop.close()
+                return result
+            else:
+                return asyncio.run(self.get_persistent_history(user_id))
+        except RuntimeError:
+            # No event loop exists
+            return asyncio.run(self.get_persistent_history(user_id))
+
+    def save_to_persistent_history_sync(self, user_id: str, messages: list):
+        """
+        Lưu tin nhắn vào history file (sync version).
+        """
+        import asyncio
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(
+                    self.save_to_persistent_history(user_id, messages)
+                )
+                loop.close()
+            else:
+                asyncio.run(self.save_to_persistent_history(user_id, messages))
+        except RuntimeError:
+            asyncio.run(self.save_to_persistent_history(user_id, messages))
+
+    def append_message_to_persistent_history_sync(self, user_id: str, message: dict):
+        """
+        Thêm một tin nhắn vào history (sync version).
+        """
+        import asyncio
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(
+                    self.append_message_to_persistent_history(user_id, message)
+                )
+                loop.close()
+            else:
+                asyncio.run(self.append_message_to_persistent_history(user_id, message))
+        except RuntimeError:
+            asyncio.run(self.append_message_to_persistent_history(user_id, message))

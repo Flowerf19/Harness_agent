@@ -1,6 +1,7 @@
 import logging
 import os
 
+import aiofiles
 import discord  # type: ignore
 from discord.ext import commands  # type: ignore
 
@@ -13,7 +14,6 @@ from services.message_processor import MessageProcessor
 from services.ollama_service import OllamaService
 from services.qwen_service import QwenService
 from services.relationship_service import RelationshipService
-from services.summary_service import SummaryService
 
 logger = logging.getLogger("discord_bot.LLMMessageCog")
 
@@ -36,12 +36,9 @@ class LLMMessageCog(commands.Cog):
             self.llm_service = GeminiService()
             logger.info("🤖 initialized with Gemini")
 
-        # Initialize SummaryService
+        # Initialize data directory for user summaries
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        prompts_dir = os.path.join(base_dir, "data", "prompts")
-        config_dir = os.path.join(base_dir, "data", "config")
         data_dir = os.path.join(base_dir, "data")
-        self.summary_service = SummaryService(self.llm_service, prompts_dir, config_dir)
 
         # Initialize RelationshipService
         self.relationship_service = RelationshipService(self.llm_service, data_dir)
@@ -118,7 +115,7 @@ class LLMMessageCog(commands.Cog):
 
             # Build context
             context = self.conversation_manager.get_conversation_context(user_id)
-            user_summary = self.summary_service.get_user_summary(user_id)
+            user_summary = await self._get_user_summary(user_id)
             mentioned_users_info = self.get_mentioned_users_info(content, message)
 
             enhanced_context = self._build_enhanced_context(
@@ -139,16 +136,8 @@ class LLMMessageCog(commands.Cog):
                         user_id, content, response
                     )
 
-                    # Update summary if needed
-                    if self.summary_service.should_update_summary(
-                        user_id, content, user_summary
-                    ):
-                        try:
-                            await self.summary_service.update_summary_smart(user_id)
-                        except Exception as e:
-                            logger.error(
-                                f"❌ Error updating summary for {user_id}: {e}"
-                            )
+                    # Summary updates are handled automatically by MemoryBackgroundService in the background
+                    # No manual update needed here
                 else:
                     await message.reply(
                         "Xin lỗi, tôi không thể tạo phản hồi cho tin nhắn này."
@@ -276,9 +265,7 @@ class LLMMessageCog(commands.Cog):
             if not display_name:
                 display_name = mentioned_user_id
             try:
-                mentioned_user_summary = self.summary_service.get_user_summary(
-                    mentioned_user_id
-                )
+                mentioned_user_summary = self._get_user_summary_sync(mentioned_user_id)
                 if mentioned_user_summary:
                     mentioned_info_parts.append(
                         f"{display_name} (ID: {mentioned_user_id}):\n{mentioned_user_summary}"
@@ -296,25 +283,38 @@ class LLMMessageCog(commands.Cog):
     async def send_response_in_parts(self, message, response: str, user_id: str):
         """Send response with realistic typing simulation"""
         import asyncio
-        import random
 
         # Xoá các khoảng trắng và dấu xuống dòng thừa
         clean_response = response.strip()
         if not clean_response:
             return
 
-        # Nếu không bật giả lập gõ chữ, gửi luôn 1 lần
+        # Tách response thành các phần sử dụng LLM service
+        parts = self.llm_service.split_response_into_parts(clean_response)
+
+        # Nếu không bật giả lập gõ chữ, gửi tất cả các phần
         if not Config.ENABLE_TYPING_SIMULATION:
-            await message.reply(clean_response)
+            for i, part in enumerate(parts):
+                if i == 0:
+                    await message.reply(part)
+                else:
+                    await message.channel.send(part)
             return
 
-        # Giả lập gõ chữ và gửi 1 lần duy nhất thay vì tách dòng
-        async with message.channel.typing():
-            # Tính thời gian gõ chữ cho toàn bộ đoạn text
-            typing_delay = self._calculate_typing_delay(clean_response)
-            await asyncio.sleep(typing_delay)
+        # Giả lập gõ chữ và gửi từng phần
+        for i, part in enumerate(parts):
+            if not part.strip():
+                continue
 
-            await message.reply(clean_response)
+            async with message.channel.typing():
+                # Tính thời gian gõ chữ cho từng phần
+                typing_delay = self._calculate_typing_delay(part)
+                await asyncio.sleep(typing_delay)
+
+                if i == 0:
+                    await message.reply(part)
+                else:
+                    await message.channel.send(part)
 
     def _split_response_naturally(self, response: str) -> list:
         """
@@ -447,6 +447,44 @@ class LLMMessageCog(commands.Cog):
 
         except Exception as e:
             logger.error(f"❌ Error processing relationship data: {e}")
+
+    async def _get_user_summary(self, user_id: str) -> str:
+        """Get user summary from file asynchronously"""
+        import os
+
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        summary_file = os.path.join(
+            base_dir, "data", "user_summaries", f"{user_id}_summary.txt"
+        )
+
+        try:
+            async with aiofiles.open(summary_file, "r", encoding="utf-8") as f:
+                return await f.read()
+        except FileNotFoundError:
+            # Return empty string if file doesn't exist
+            return ""
+        except Exception as e:
+            logger.error(f"Error reading user summary for {user_id}: {e}")
+            return ""
+
+    def _get_user_summary_sync(self, user_id: str) -> str:
+        """Get user summary from file synchronously"""
+        import os
+
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        summary_file = os.path.join(
+            base_dir, "data", "user_summaries", f"{user_id}_summary.txt"
+        )
+
+        try:
+            with open(summary_file, "r", encoding="utf-8") as f:
+                return f.read()
+        except FileNotFoundError:
+            # Return empty string if file doesn't exist
+            return ""
+        except Exception as e:
+            logger.error(f"Error reading user summary for {user_id}: {e}")
+            return ""
 
 
 async def setup(bot):

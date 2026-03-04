@@ -7,12 +7,12 @@ import discord  # type: ignore
 from discord.ext import commands  # type: ignore
 from dotenv import load_dotenv
 
-# Import Config from settings
-from src.config.settings import Config
-
 # Add project root to path for importing services
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
+
+# Import Config from settings
+from src.config.settings import Config  # noqa: E402
 
 load_dotenv()
 

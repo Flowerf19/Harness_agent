@@ -32,15 +32,17 @@ class MemoryManager:
 
         self.relationship_service = RelationshipService(llm_service, data_dir)
 
-        # Khởi tạo conversation manager thay vì history service
-        self.conversation_manager = ConversationManager()
-
-        # Sau đó khởi tạo background service với relationship service
+        # Khởi tạo working memory service trước
         self.working_memory = WorkingMemoryService(
             max_capacity=20, trigger_threshold=20
         )
+
+        # Khởi tạo conversation manager với working memory service
+        self.conversation_manager = ConversationManager(self.working_memory)
+
+        # Sau đó khởi tạo background service với relationship service và working memory service
         self.background_service = MemoryBackgroundService(
-            llm_service, data_dir, self.relationship_service
+            llm_service, data_dir, self.relationship_service, self.working_memory
         )
         # Loại bỏ SummaryService - sử dụng kiến trúc 3 tầng qua background_service
         # self.core_persona = SummaryService(...)
