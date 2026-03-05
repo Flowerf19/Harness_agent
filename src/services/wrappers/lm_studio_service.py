@@ -6,8 +6,10 @@ import aiohttp
 
 from src.config.settings import Config
 
+from .base_llm_service import BaseLLMService
 
-class LMStudioService:
+
+class LMStudioService(BaseLLMService):
     def __init__(self):
         self.api_url = Config.LM_STUDIO_API_URL
         self.model = Config.LM_STUDIO_MODEL
@@ -24,25 +26,6 @@ class LMStudioService:
         self.logger.info(
             f"🎨 LMStudioService initialized with model: {self.model} at {self.api_url}"
         )
-
-    def _load_prompt(self, filename):
-        """Load prompt from file"""
-        try:
-            prompts_dir = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)), "data", "prompts"
-            )
-            filepath = os.path.join(prompts_dir, filename)
-            if os.path.exists(filepath):
-                with open(filepath, "r", encoding="utf-8") as f:
-                    content = f.read().strip()
-                    self.logger.info(f"✅ Loaded prompt: {filename}")
-                    return content
-            else:
-                self.logger.warning(f"⚠️ Prompt file not found: {filepath}")
-                return ""
-        except Exception as e:
-            self.logger.error(f"❌ Error loading prompt {filename}: {e}")
-            return ""
 
     async def _get_session(self):
         if self.session is None:
@@ -186,35 +169,6 @@ class LMStudioService:
         )
         return "Lỗi: Không thể kết nối đến LM Studio. Vui lòng kiểm tra cấu hình API."
 
-    def _build_system_prompt(self) -> str:
-        """Build system prompt from personality and guidelines"""
-        parts = []
-
-        if self.personality_prompt:
-            parts.append(f"=== NHÂN CÁCH ===\n{self.personality_prompt}")
-
-        if self.conversation_prompt:
-            parts.append(f"=== HƯỚNG DẪN ===\n{self.conversation_prompt}")
-
-        return "\n\n".join(parts)
-
     async def close(self):
         if self.session:
             await self.session.close()
-
-    def split_response_into_parts(self, response: str) -> list:
-        """Split response into natural parts for sequential sending"""
-        import re
-
-        response = response.strip()
-        if not response:
-            return []
-
-        sentence_end_re = re.compile(r"([^.!?…~]+[.!?…~]+[\s\n]*)", re.UNICODE)
-        parts = sentence_end_re.findall(response)
-
-        consumed = "".join(parts)
-        if len(consumed) < len(response):
-            parts.append(response[len(consumed) :].strip())
-
-        return [p.strip() for p in parts if p.strip()]

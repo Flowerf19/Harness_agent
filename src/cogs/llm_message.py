@@ -5,15 +5,14 @@ import aiofiles
 import discord  # type: ignore
 from discord.ext import commands  # type: ignore
 
-from config.settings import Config
-from services.anti_spam_service import AntiSpamService
-from services.conversation_manager import ConversationManager
-from services.gemini_service import GeminiService
-from services.lm_studio_service import LMStudioService
-from services.message_processor import MessageProcessor
-from services.ollama_service import OllamaService
-from services.qwen_service import QwenService
-from services.relationship_service import RelationshipService
+from src.config.settings import Config
+from src.services.core import AntiSpamService, MessageProcessor
+from src.services.relationship import RelationshipService
+from src.services.working_memory import ConversationManager
+from src.services.wrappers.gemini_service import GeminiService
+from src.services.wrappers.lm_studio_service import LMStudioService
+from src.services.wrappers.ollama_service import OllamaService
+from src.services.wrappers.qwen_service import QwenService
 
 logger = logging.getLogger("discord_bot.LLMMessageCog")
 

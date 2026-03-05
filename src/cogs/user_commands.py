@@ -37,11 +37,10 @@ class UserCommandsCog(commands.Cog):
 
         # User stats
         user_id = str(ctx.author.id)
-        # Sử dụng memory_manager với conversation_manager thay vì history_service
-        history = llm_cog.memory_manager.conversation_manager.get_persistent_history(
-            user_id
-        )
-        summary = llm_cog.memory_manager.get_core_persona(user_id)
+        # Sử dụng conversation_manager trực tiếp (không qua memory_manager)
+        history = llm_cog.conversation_manager.get_persistent_history(user_id)
+        # Đọc summary từ file trực tiếp
+        summary = await self._get_user_summary(llm_cog, user_id)
 
         embed.add_field(name="Lịch sử", value=f"{len(history)} tin nhắn", inline=True)
         embed.add_field(
@@ -295,6 +294,27 @@ class UserCommandsCog(commands.Cog):
             await ctx.reply(f"❌ Lỗi khi lấy dữ liệu: {str(e)}")
 
     # ...existing code...
+
+    async def _get_user_summary(self, llm_cog, user_id: str) -> str:
+        """Get user summary from file asynchronously"""
+        import os
+
+        import aiofiles
+
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        summary_file = os.path.join(
+            base_dir, "data", "user_summaries", f"{user_id}_summary.txt"
+        )
+
+        try:
+            async with aiofiles.open(summary_file, "r", encoding="utf-8") as f:
+                return await f.read()
+        except FileNotFoundError:
+            # Return empty string if file doesn't exist
+            return ""
+        except Exception as e:
+            print(f"Error reading user summary for {user_id}: {e}")
+            return ""
 
 
 async def setup(bot):

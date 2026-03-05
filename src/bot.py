@@ -11,10 +11,21 @@ from dotenv import load_dotenv
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
+# Load environment variables before importing Config
+load_dotenv()
+
 # Import Config from settings
 from src.config.settings import Config  # noqa: E402
 
-load_dotenv()
+# Phoenix tracing setup
+sys.path.insert(0, "/home/flowerf/Projects/Arize_Phoenix_tool_kit")
+from phoenix_core import setup_tracking
+
+# Setup Phoenix tracing
+setup_tracking(
+    project_name="Be_Bay_Bot",
+    frameworks=["langchain"],  # Bật LangChain auto-instrumentation
+)
 
 # Simplified logging configuration
 logging.basicConfig(
