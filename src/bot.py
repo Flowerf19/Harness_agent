@@ -18,13 +18,13 @@ load_dotenv()
 from src.config.settings import Config  # noqa: E402
 
 # Phoenix tracing setup
-sys.path.insert(0, "/home/flowerf/Projects/Arize_Phoenix_tool_kit")
-from phoenix_core import setup_tracking
 
-# Setup Phoenix tracing
-setup_tracking(
+from Arize_Phoenix_tool_kit import init_toolkit
+
+# Khởi tạo Tool: Tự động kết nối Phoenix và bắt các request
+init_toolkit(
     project_name="Be_Bay_Bot",
-    frameworks=["langchain"],  # Bật LangChain auto-instrumentation
+    frameworks=["aiohttp", "langchain"],  # Bật thêm aiohttp để bắt LLM API
 )
 
 # Simplified logging configuration

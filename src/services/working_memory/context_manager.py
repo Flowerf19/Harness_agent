@@ -10,7 +10,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List
 
-from phoenix_core import track_rag_step
+from Arize_Phoenix_tool_kit import track_general_step
 
 logger = logging.getLogger(__name__)
 
@@ -54,14 +54,6 @@ class ContextManager:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.history_lock = asyncio.Lock()
 
-    @track_rag_step(
-        name="working_memory.context_manager.add_message",
-        metadata={
-            "service": "working_memory",
-            "component": "context_manager",
-            "operation": "add_message",
-        },
-    )
     def add_message(self, user_id: str, role: str, content: str) -> WorkingMemoryEntry:
         """
         Add a message to working memory with importance evaluation.

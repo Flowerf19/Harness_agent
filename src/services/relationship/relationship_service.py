@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 import aiofiles
-from phoenix_core import track_rag_step
+from Arize_Phoenix_tool_kit import track_general_step
 
 from .bond_service import BondService
 from .interaction_tracker import InteractionTracker
@@ -73,13 +73,7 @@ class RelationshipService:
         """Extract mentioned user IDs from message content"""
         return self.bond_service.extract_mentioned_users(message_content)
 
-    @track_rag_step(
-        name="relationship_service.extract_relationship_info",
-        metadata={
-            "service": "relationship_service",
-            "operation": "extract_relationship_info",
-        },
-    )
+    @track_general_step(step_name="Relationship: Extract Info")
     async def extract_relationship_info(
         self, message_content: str, author_id: str
     ) -> List[Dict]:
@@ -88,10 +82,7 @@ class RelationshipService:
             message_content, author_id, self.llm_service
         )
 
-    @track_rag_step(
-        name="relationship_service.process_message",
-        metadata={"service": "relationship_service", "operation": "process_message"},
-    )
+    @track_general_step(step_name="Relationship: Process Message")
     async def process_message(
         self,
         author_id: str,
@@ -177,13 +168,7 @@ class RelationshipService:
             user1_id, user2_id, self.user_names, days_back
         )
 
-    @track_rag_step(
-        name="relationship_service.generate_relationship_analysis",
-        metadata={
-            "service": "relationship_service",
-            "operation": "generate_relationship_analysis",
-        },
-    )
+    @track_general_step(step_name="Relationship: Generate Analysis")
     async def generate_relationship_analysis(self, user_identifier: str) -> str:
         """Generate AI analysis of user's relationships"""
         user_id = self.bond_service._resolve_user_identifier(

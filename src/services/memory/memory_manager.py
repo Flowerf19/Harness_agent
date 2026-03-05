@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Callable, Dict, List
 
 sys.path.insert(0, "/home/flowerf/Projects/Arize_Phoenix_tool_kit")
-from phoenix_core import track_rag_step
+from Arize_Phoenix_tool_kit import track_general_step
 
 from ..background import MemoryBackgroundService
 from ..working_memory import WorkingMemoryService
@@ -85,10 +85,6 @@ class MemoryManager:
         # Ensure user data files exist - sử dụng memory storage service
         self.memory_storage.ensure_user_files_exist(user_id)
 
-    @track_rag_step(
-        name="memory_manager.add_message",
-        metadata={"service": "memory_manager", "operation": "add_message"},
-    )
     def add_message(self, user_id: str, role: str, content: str):
         """
         Thêm tin nhắn vào hệ thống bộ nhớ
@@ -113,10 +109,6 @@ class MemoryManager:
 
         logger.debug(f"🧠 Added message to memory for {user_id}: {content[:50]}...")
 
-    @track_rag_step(
-        name="memory_manager.get_context",
-        metadata={"service": "memory_manager", "operation": "get_context"},
-    )
     def get_context(self, user_id: str) -> Dict:
         """
         Lấy toàn bộ context cho người dùng bao gồm cả 3 tầng bộ nhớ
@@ -149,13 +141,6 @@ class MemoryManager:
 
         return context
 
-    @track_rag_step(
-        name="memory_manager.get_working_memory_context",
-        metadata={
-            "service": "memory_manager",
-            "operation": "get_working_memory_context",
-        },
-    )
     def get_working_memory_context(
         self, user_id: str, max_entries: int = 5
     ) -> List[Dict]:
@@ -176,10 +161,6 @@ class MemoryManager:
             for entry in entries
         ]
 
-    @track_rag_step(
-        name="memory_manager.get_core_persona",
-        metadata={"service": "memory_manager", "operation": "get_core_persona"},
-    )
     def get_core_persona(self, user_id: str) -> str:
         """
         Lấy core persona của người dùng từ background_service
@@ -196,10 +177,6 @@ class MemoryManager:
         # Đọc từ episodic service
         return self.episodic_service.get_episodic_memory(user_id, limit)
 
-    @track_rag_step(
-        name="memory_manager.trigger_episodic_update",
-        metadata={"service": "memory_manager", "operation": "episodic_update"},
-    )
     def trigger_episodic_update(self, user_id: str):
         """
         Kích hoạt cập nhật episodic memory cho người dùng
@@ -214,10 +191,6 @@ class MemoryManager:
         # để giữ backward compatibility, nhưng nên chuyển sang episodic_service trong tương lai
         asyncio.create_task(self.background_service._update_episodic_memory(user_id))
 
-    @track_rag_step(
-        name="memory_manager.trigger_persona_update",
-        metadata={"service": "memory_manager", "operation": "persona_update"},
-    )
     def trigger_persona_update(self, user_id: str):
         """
         Kích hoạt cập nhật core persona cho người dùng

@@ -1,5 +1,9 @@
 import logging
 import os
+import sys
+
+sys.path.insert(0, "/home/flowerf/Projects/Arize_Phoenix_tool_kit")
+from Arize_Phoenix_tool_kit import track_llm_call
 
 import aiohttp
 
@@ -13,7 +17,7 @@ class GeminiService(BaseLLMService):
         self.api_url = os.getenv(
             "GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/models"
         )
-        self.model = os.getenv("LLM_MODEL", "gemini-1.5-flash")
+        self.model = Config.LLM_MODEL
         self.session = None
         self.logger = logging.getLogger("discord_bot.GeminiService")
 
@@ -26,6 +30,7 @@ class GeminiService(BaseLLMService):
             self.session = aiohttp.ClientSession()
         return self.session
 
+    @track_llm_call(model_name=Config.LLM_MODEL, prompt_arg="prompt")
     async def generate_response(
         self, prompt: str, user_id: str = None, conversation_context: str = ""
     ) -> str:

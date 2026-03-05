@@ -1,0 +1,15 @@
+services:
+  be_bay_bot:
+    build: .
+    container_name: be_bay_bot
+    restart: unless-stopped
+    environment:
+      - PHOENIX_COLLECTOR_ENDPOINT=http://host.docker.internal:4317
+      - PHOENIX_PROJECT_NAME=Be_Bay_Bot
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    # CHÚ Ý: Chữ "volumes:" phải thụt lề ngang bằng với chữ "environment:" và "extra_hosts:"
+    volumes:
+      - ./src/data:/app/src/data
+      - /home/flowerf/Projects/Arize_Phoenix_tool_kit:/app/Arize_Phoenix_tool_kit
