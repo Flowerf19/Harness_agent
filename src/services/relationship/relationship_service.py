@@ -2,9 +2,6 @@ import json
 import logging
 import os
 import re
-import sys
-
-sys.path.insert(0, "/home/flowerf/Projects/Arize_Phoenix_tool_kit")
 from collections import Counter
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional

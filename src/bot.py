@@ -1,25 +1,19 @@
 import asyncio
 import logging
 import os
-import sys
 
 import discord  # type: ignore
 from discord.ext import commands  # type: ignore
 from dotenv import load_dotenv
 
-# Add project root to path for importing services
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, project_root)
-
 # Load environment variables before importing Config
 load_dotenv()
 
 # Import Config from settings
-from src.config.settings import Config  # noqa: E402
-
 # Phoenix tracing setup
-
 from Arize_Phoenix_tool_kit import init_toolkit
+
+from src.config.settings import Config  # noqa: E402
 
 # Khởi tạo Tool: Tự động kết nối Phoenix và bắt các request
 init_toolkit(

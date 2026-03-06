@@ -1,12 +1,9 @@
 import json
 import logging
 import os
-import sys
-
-sys.path.insert(0, "/home/flowerf/Projects/Arize_Phoenix_tool_kit")
-from Arize_Phoenix_tool_kit import track_llm_call
 
 import aiohttp
+from Arize_Phoenix_tool_kit import track_llm_call
 
 from src.config.settings import Config
 

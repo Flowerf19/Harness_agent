@@ -1,6 +1,3 @@
-import sys
-
-sys.path.insert(0, "/home/flowerf/Projects/Arize_Phoenix_tool_kit")
 import logging
 from datetime import datetime
 from enum import Enum
