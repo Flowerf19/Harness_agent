@@ -5,6 +5,8 @@ import os
 from datetime import datetime
 from typing import Optional
 
+from Arize_Phoenix_tool_kit.decorators import track_general_step
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,6 +50,11 @@ class SummaryService:
             logger.error(f"Error reading summary file for {user_id}: {e}")
             return ""
 
+    @track_general_step(
+        step_name="Memory: generate_summary",
+        metadata={"version": "1.0.2", "environment": "local_dev", "service": "memory"},
+        tags=["memory", "summary", "llm"],
+    )
     async def _update_core_persona(self, user_id: str, new_summary: str = ""):
         """
         Cập nhật core persona (summary) cho người dùng.
@@ -106,6 +113,11 @@ class SummaryService:
         combined = " ".join(summaries)
         return f"Core persona summary for user {user_id} based on recent interactions: {combined[:500]}"
 
+    @track_general_step(
+        step_name="Memory: get_user_summary",
+        metadata={"version": "1.0.2", "environment": "local_dev", "service": "memory"},
+        tags=["memory", "summary", "query"],
+    )
     def get_core_persona(self, user_id: str) -> str:
         """Lấy core persona của người dùng"""
         return self._get_current_summary(user_id)

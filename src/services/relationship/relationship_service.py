@@ -70,7 +70,15 @@ class RelationshipService:
         """Extract mentioned user IDs from message content"""
         return self.bond_service.extract_mentioned_users(message_content)
 
-    @track_general_step(step_name="Relationship: Extract Info")
+    @track_general_step(
+        step_name="Relationship: Extract Info",
+        metadata={
+            "version": "1.0.2",
+            "environment": "local_dev",
+            "service": "relationship",
+        },
+        tags=["relationship", "extraction", "llm"],
+    )
     async def extract_relationship_info(
         self, message_content: str, author_id: str
     ) -> List[Dict]:
@@ -79,7 +87,15 @@ class RelationshipService:
             message_content, author_id, self.llm_service
         )
 
-    @track_general_step(step_name="Relationship: Process Message")
+    @track_general_step(
+        step_name="Relationship: Process Message",
+        metadata={
+            "version": "1.0.2",
+            "environment": "local_dev",
+            "service": "relationship",
+        },
+        tags=["relationship", "message_processing", "user_interaction"],
+    )
     async def process_message(
         self,
         author_id: str,
@@ -87,11 +103,15 @@ class RelationshipService:
         message_content: str,
         mentioned_user_ids: Optional[List[str]] = None,
         channel_id: Optional[str] = None,
+        author_display_name: Optional[str] = None,
+        author_real_name: Optional[str] = None,
     ):
         """Process a message to extract and update relationship information"""
 
-        # Update author's name info
-        self.update_user_name(author_id, author_username)
+        # Update author's name info with full details
+        self.update_user_name(
+            author_id, author_username, author_display_name, author_real_name
+        )
 
         # Extract mentions from message if not provided
         if mentioned_user_ids is None:
@@ -136,6 +156,10 @@ class RelationshipService:
             f"🔗 Processed message from {author_username}: {len(relationships_found)} relationships, {len(mentioned_user_ids)} mentions"
         )
 
+        # Log details about found relationships
+        for i, rel in enumerate(relationships_found):
+            logger.debug(f"Relationship {i + 1}: {rel}")
+
     def get_user_relationships(self, user_identifier: str) -> List[Dict]:
         """Get all relationships for a user (by ID, username, or real name)"""
         return self.bond_service.get_user_relationships(
@@ -165,7 +189,15 @@ class RelationshipService:
             user1_id, user2_id, self.user_names, days_back
         )
 
-    @track_general_step(step_name="Relationship: Generate Analysis")
+    @track_general_step(
+        step_name="Relationship: Generate Analysis",
+        metadata={
+            "version": "1.0.2",
+            "environment": "local_dev",
+            "service": "relationship",
+        },
+        tags=["relationship", "analysis", "llm"],
+    )
     async def generate_relationship_analysis(self, user_identifier: str) -> str:
         """Generate AI analysis of user's relationships"""
         user_id = self.bond_service._resolve_user_identifier(

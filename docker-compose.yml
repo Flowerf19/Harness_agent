@@ -6,6 +6,9 @@ services:
     environment:
       - PHOENIX_COLLECTOR_ENDPOINT=http://host.docker.internal:4317
       - PHOENIX_PROJECT_NAME=Be_Bay_Bot
+      # LM Studio endpoint - dùng host.docker.internal để kết nối từ Docker
+      - TOOL_LLM_ENDPOINT=http://host.docker.internal:1234/v1
+      - TOOL_LLM_MODEL=qwen3-coder-30b-a3b-instruct
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

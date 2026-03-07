@@ -4,6 +4,9 @@ import re
 from datetime import datetime
 from typing import Dict, List, Optional
 
+# Phoenix Tracking decorator
+from Arize_Phoenix_tool_kit.decorators import track_general_step
+
 logger = logging.getLogger(__name__)
 
 
@@ -54,6 +57,66 @@ class BondService:
         mentions = re.findall(mention_pattern, message_content)
         return mentions
 
+    # Valid relationship types with their common aliases/mappings
+    VALID_RELATIONSHIP_TYPES = {
+        "friend": ["friend", "bạn", "bạn bè", "buddy", "buddies", "friends"],
+        "family": [
+            "family",
+            "gia đình",
+            "anh em",
+            "chị em",
+            "anh chị em",
+            "sibling",
+            "siblings",
+        ],
+        "crush": ["crush", "thích", "thầm thích", "like", "likes", "fancy"],
+        "romantic": [
+            "romantic",
+            "người yêu",
+            "yêu",
+            "love",
+            "loves",
+            "boyfriend",
+            "girlfriend",
+            "partner",
+        ],
+        "dating": ["dating", "hẹn hò", "đang hẹn hò"],
+        "ex": ["ex", "chia tay", "broke up", "người yêu cũ", "bỏ nhau"],
+        "dislike": ["dislike", "ghét", "hate", "không thích", "thù"],
+        "acquaintance": ["acquaintance", "quen", "biết", "know", "knows"],
+        "colleague": ["colleague", "đồng nghiệp", "coworker"],
+        "classmate": ["classmate", "bạn cùng lớp", "schoolmate"],
+    }
+
+    def _normalize_relationship_type(self, rel_type: str) -> str:
+        """Normalize relationship type to standard format"""
+        if not rel_type:
+            return "acquaintance"
+
+        rel_type_lower = rel_type.lower().strip()
+
+        # Check each valid type and its aliases
+        for standard_type, aliases in self.VALID_RELATIONSHIP_TYPES.items():
+            if rel_type_lower in aliases or rel_type_lower == standard_type:
+                return standard_type
+
+        # If not found, try partial matching
+        for standard_type, aliases in self.VALID_RELATIONSHIP_TYPES.items():
+            for alias in aliases:
+                if alias in rel_type_lower or rel_type_lower in alias:
+                    return standard_type
+
+        # Default to acquaintance if unknown
+        logger.warning(
+            f"Unknown relationship type '{rel_type}', defaulting to 'acquaintance'"
+        )
+        return "acquaintance"
+
+    @track_general_step(
+        step_name="Bond: Extract Relationship Info",
+        metadata={"version": "1.0.2", "environment": "local_dev", "service": "bond"},
+        tags=["bond", "extraction", "llm"]
+    )
     async def extract_relationship_info(
         self, message_content: str, author_id: str, llm_service
     ) -> List[Dict]:
@@ -69,13 +132,18 @@ Hãy xác định các cặp người dùng và mối quan hệ giữa họ. Tr�
   "relationships": [
     {{
       "person1": "tên người 1",
-      "person2": "tên người 2", 
-      "relationship_type": "friend|crush|dislike|romantic|dating|ex|unknown",
+      "person2": "tên người 2",
+      "relationship_type": "friend|family|crush|romantic|dating|ex|dislike|acquaintance|colleague|classmate",
       "confidence": 0.0-1.0,
       "context": "ngữ cảnh xác định mối quan hệ"
     }}
   ]
 }}
+
+QUAN TRỌNG:
+- relationship_type PHẢI là một trong: friend, family, crush, romantic, dating, ex, dislike, acquaintance, colleague, classmate
+- KHÔNG sử dụng "unknown" - hãy chọn loại phù hợp nhất dựa trên ngữ cảnh
+- Nếu không chắc chắn, hãy dùng "acquaintance" (người quen)
 
 Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
 
@@ -212,11 +280,16 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
                         )
                         continue
 
+                    # Normalize the relationship type
+                    normalized_type = self._normalize_relationship_type(
+                        relationship_type
+                    )
+
                     relationships_found.append(
                         {
                             "person1": person1.strip(),
                             "person2": person2.strip(),
-                            "relationship_type": relationship_type,
+                            "relationship_type": normalized_type,
                             "reported_by": author_id,
                             "timestamp": datetime.now().isoformat(),
                             "context": rel_data.get("context", ""),
@@ -250,68 +323,145 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
         relationships_found = []
         content_lower = message_content.lower()
 
-        # Patterns để detect relationship statements
+        # Enhanced patterns with relationship type mapping
+        # Format: (pattern, relationship_type, confidence)
         relationship_patterns = [
-            # X và Y là bạn
-            r"(\w+)\s+(?:và|với)\s+(\w+)\s+(?:là|are)\s+(?:bạn|friends?|buddies?)",
-            # X bạn với Y
-            r"(\w+)\s+(?:bạn|friend)\s+(?:với|with)\s+(\w+)",
-            # X và Y quen nhau
-            r"(\w+)\s+(?:và|với)\s+(\w+)\s+(?:quen\s+nhau|know\s+each\s+other)",
-            # X thích Y
-            r"(\w+)\s+(?:thích|likes?|has\s+a\s+crush\s+on)\s+(\w+)",
-            # X ghét Y
-            r"(\w+)\s+(?:ghét|hates?|dislikes?)\s+(\w+)",
-            # X là người yêu của Y
-            r"(\w+)\s+(?:là\s+)?(?:người\s+yêu|boyfriend|girlfriend|partner)\s+(?:của\s+)?(\w+)",
-            # X đang hẹn hò với Y
-            r"(\w+)\s+(?:đang\s+)?(?:hẹn\s+hò|dating)\s+(?:với\s+)?(\w+)",
-            # X chia tay với Y
-            r"(\w+)\s+(?:chia\s+tay|broke\s+up)\s+(?:với\s+)?(\w+)",
+            # Friend patterns
+            (
+                r"(\w+)\s+(?:và|với)\s+(\w+)\s+(?:là|are)\s+(?:bạn|friends?|buddies?)",
+                "friend",
+                0.7,
+            ),
+            (r"(\w+)\s+(?:bạn|friend)\s+(?:với|with)\s+(\w+)", "friend", 0.7),
+            (r"(\w+)\s+(?:và|với)\s+(\w+)\s+lhớ?n\s+nhau", "friend", 0.6),
+            (r"(\w+)\s+(?:chơi|play)\s+(?:với|with)\s+(\w+)", "friend", 0.5),
+            # Family patterns
+            (
+                r"(\w+)\s+(?:là|is)\s+(?:anh|chị|em|cô|chú|bác|cậu)\s+(\w+)",
+                "family",
+                0.8,
+            ),
+            (
+                r"(\w+)\s+(?:và|and)\s+(\w+)\s+(?:là|are)\s+(?:anh chị em|anh em|chị em|siblings?)",
+                "family",
+                0.8,
+            ),
+            # Crush/romantic interest patterns
+            (r"(\w+)\s+(?:thích|likes?|has\s+a\s+crush\s+on)\s+(\w+)", "crush", 0.7),
+            (r"(\w+)\s+(?:crush)\s+(\w+)", "crush", 0.7),
+            (r"(\w+)\s+(?:thầm\s+thích|secretly\s+likes?)\s+(\w+)", "crush", 0.7),
+            # Romantic/dating patterns
+            (
+                r"(\w+)\s+(?:là\s+)?(?:người\s+yêu|boyfriend|girlfriend|partner)\s+(?:của\s+)?(\w+)",
+                "romantic",
+                0.8,
+            ),
+            (
+                r"(\w+)\s+(?:đang\s+)?(?:hẹn\s+hò|dating)\s+(?:với\s+)?(\w+)",
+                "dating",
+                0.8,
+            ),
+            (r"(\w+)\s+(?:yêu|loves?|in\s+love\s+with)\s+(\w+)", "romantic", 0.8),
+            # Ex patterns
+            (r"(\w+)\s+(?:chia\s+tay|broke\s+up)\s+(?:với\s+)?(\w+)", "ex", 0.8),
+            (
+                r"(\w+)\s+(?:là|is)\s+(?:ex|người\s+yêu\s+cũ)\s+(?:của\s+)?(\w+)",
+                "ex",
+                0.8,
+            ),
+            # Dislike patterns
+            (
+                r"(\w+)\s+(?:ghét|hates?|dislikes?|không\s+thích)\s+(\w+)",
+                "dislike",
+                0.7,
+            ),
+            # Acquaintance patterns
+            (
+                r"(\w+)\s+(?:và|với)\s+(\w+)\s+(?:quen\s+nhau|know\s+each\s+other)",
+                "acquaintance",
+                0.6,
+            ),
+            (r"(\w+)\s+(?:quen|knows?)\s+(\w+)", "acquaintance", 0.5),
+            # Colleague/classmate patterns
+            (
+                r"(\w+)\s+(?:và|and)\s+(\w+)\s+(?:là|are)\s+(?:đồng\s+nghiệp|colleagues?)",
+                "colleague",
+                0.7,
+            ),
+            (
+                r"(\w+)\s+(?:và|and)\s+(\w+)\s+(?:là|are)\s+(?:bạn\s+cùng\s+lớp|classmates?)",
+                "classmate",
+                0.7,
+            ),
         ]
 
-        for pattern in relationship_patterns:
+        for pattern, rel_type, confidence in relationship_patterns:
             matches = re.finditer(pattern, content_lower)
             for match in matches:
                 person1, person2 = match.groups()
 
-                # Determine relationship type based on pattern
-                relationship_type = "unknown"
-                if "bạn" in match.group() or "friend" in match.group():
-                    relationship_type = "friend"
-                elif (
-                    "thích" in match.group()
-                    or "likes" in match.group()
-                    or "crush" in match.group()
-                ):
-                    relationship_type = "crush"
-                elif "ghét" in match.group() or "hate" in match.group():
-                    relationship_type = "dislike"
-                elif (
-                    "người yêu" in match.group()
-                    or "boyfriend" in match.group()
-                    or "girlfriend" in match.group()
-                ):
-                    relationship_type = "romantic"
-                elif "hẹn hò" in match.group() or "dating" in match.group():
-                    relationship_type = "dating"
-                elif "chia tay" in match.group() or "broke up" in match.group():
-                    relationship_type = "ex"
+                # Skip if persons are the same
+                if person1.lower().strip() == person2.lower().strip():
+                    continue
 
                 relationships_found.append(
                     {
                         "person1": person1.strip(),
                         "person2": person2.strip(),
-                        "relationship_type": relationship_type,
+                        "relationship_type": rel_type,
                         "reported_by": author_id,
                         "timestamp": datetime.now().isoformat(),
                         "context": match.group(),
-                        "confidence": 0.5,  # Lower confidence for regex-based detection
+                        "confidence": confidence,
                     }
                 )
 
+                logger.debug(
+                    f"Fallback regex detected relationship: {person1} - {rel_type} - {person2}"
+                )
+
+        # If no relationships found with specific patterns, try generic patterns
+        if not relationships_found:
+            generic_patterns = [
+                # Generic relationship mention
+                (
+                    r"(\w+)\s+(?:và|with)\s+(\w+)\s+(?:có\s+)?quan\s+hệ",
+                    "acquaintance",
+                    0.3,
+                ),
+                (r"(\w+)\s+(?:biết|knows?)\s+(\w+)", "acquaintance", 0.3),
+            ]
+
+            for pattern, rel_type, confidence in generic_patterns:
+                matches = re.finditer(pattern, content_lower)
+                for match in matches:
+                    person1, person2 = match.groups()
+
+                    if person1.lower().strip() == person2.lower().strip():
+                        continue
+
+                    logger.warning(
+                        f"Fallback regex detected generic relationship (low confidence). Message: {match.group()}"
+                    )
+                    relationships_found.append(
+                        {
+                            "person1": person1.strip(),
+                            "person2": person2.strip(),
+                            "relationship_type": rel_type,
+                            "reported_by": author_id,
+                            "timestamp": datetime.now().isoformat(),
+                            "context": match.group(),
+                            "confidence": confidence,
+                        }
+                    )
+
         return relationships_found
 
+    @track_general_step(
+        step_name="Bond: Add Relationship",
+        metadata={"version": "1.0.2", "environment": "local_dev", "service": "bond"},
+        tags=["bond", "add", "relationship"]
+    )
     def _add_relationship(
         self,
         person1: str,
@@ -322,10 +472,42 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
         confidence: float,
         relationships: Dict,
     ) -> Dict:
-        """Add or update a relationship"""
+        """Add or update a relationship with validation"""
+
+        # Validate and sanitize inputs
+        if not person1 or not isinstance(person1, str):
+            logger.warning(f"Invalid person1: {person1}")
+            return relationships
+        if not person2 or not isinstance(person2, str):
+            logger.warning(f"Invalid person2: {person2}")
+            return relationships
+        if not reported_by or not isinstance(reported_by, str):
+            logger.warning(f"Invalid reported_by: {reported_by}")
+            return relationships
+
+        # Normalize names
+        person1 = person1.strip()
+        person2 = person2.strip()
+
+        # Skip if persons are the same
+        if person1.lower() == person2.lower():
+            logger.debug(f"Skipping self-relationship: {person1}")
+            return relationships
+
+        # Normalize relationship type
+        normalized_type = self._normalize_relationship_type(relationship_type)
+
+        # Validate confidence (0.0 to 1.0)
+        try:
+            confidence = float(confidence)
+            confidence = max(0.0, min(1.0, confidence))
+        except (TypeError, ValueError):
+            confidence = 0.5
+            logger.warning(f"Invalid confidence value, defaulting to 0.5")
+
         # Normalize names and create a consistent key
-        person1_lower = person1.lower().strip()
-        person2_lower = person2.lower().strip()
+        person1_lower = person1.lower()
+        person2_lower = person2.lower()
 
         # Create sorted key to avoid duplicates (A->B vs B->A)
         if person1_lower < person2_lower:
@@ -346,14 +528,18 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
 
         # Add relationship entry
         relationship_entry = {
-            "type": relationship_type,
+            "type": normalized_type,
             "reported_by": reported_by,
-            "context": context,
+            "context": context if isinstance(context, str) else "",
             "confidence": confidence,
             "timestamp": timestamp,
         }
 
         relationships[rel_key]["relationship_history"].append(relationship_entry)
+
+        logger.debug(
+            f"Added relationship: {persons[0]} - {normalized_type} - {persons[1]} (confidence: {confidence})"
+        )
 
         # Keep only recent relationship updates (last 20)
         if len(relationships[rel_key]["relationship_history"]) > 20:
@@ -363,6 +549,11 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
 
         return relationships
 
+    @track_general_step(
+        step_name="Bond: Get User Relationships",
+        metadata={"version": "1.0.2", "environment": "local_dev", "service": "bond"},
+        tags=["bond", "query", "relationships"]
+    )
     def get_user_relationships(
         self, user_identifier: str, user_names: Dict, relationships: Dict
     ) -> List[Dict]:
@@ -413,8 +604,19 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
                         }
                     )
 
+                    # Log when relationship type is unknown
+                    if latest_rel.get("type", "unknown") == "unknown":
+                        logger.warning(
+                            f"Relationship type is 'unknown' for {rel_key}. Latest rel data: {latest_rel}"
+                        )
+
         return relationships_list
 
+    @track_general_step(
+        step_name="Bond: Search Relationships",
+        metadata={"version": "1.0.2", "environment": "local_dev", "service": "bond"},
+        tags=["bond", "search", "relationships"]
+    )
     def search_relationships_by_keyword(
         self, keyword: str, user_names: Dict, relationships: Dict
     ) -> List[Dict]:
@@ -511,12 +713,17 @@ Chỉ trả lời dưới dạng JSON, không giải thích thêm:"""
         """Get the best display name for a user (real name > display name > username)"""
         # Handle None case
         if user_id is None:
+            logger.warning("User ID is None, returning 'Unknown User'")
             return "Unknown User"
 
         if user_id not in user_names:
+            logger.warning(
+                f"User ID {user_id} not found in user_names, returning fallback"
+            )
             return f"User_{user_id[-4:]}"  # Fallback với 4 số cuối của ID
 
         user_info = user_names[user_id]
+        logger.debug(f"User info for {user_id}: {user_info}")
 
         # Ưu tiên: tên thật > display name > username
         if user_info.get("real_name"):

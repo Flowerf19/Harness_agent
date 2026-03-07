@@ -15,12 +15,6 @@ from Arize_Phoenix_tool_kit import init_toolkit
 
 from src.config.settings import Config  # noqa: E402
 
-# Khởi tạo Tool: Tự động kết nối Phoenix và bắt các request
-init_toolkit(
-    project_name="Be_Bay_Bot",
-    frameworks=["aiohttp", "langchain"],  # Bật thêm aiohttp để bắt LLM API
-)
-
 # Simplified logging configuration
 logging.basicConfig(
     level=getattr(
@@ -35,6 +29,16 @@ logging.basicConfig(
 logger = logging.getLogger("discord_bot")
 
 logger.info("🚀 Starting Discord Bot...")
+
+# Khởi tạo Phoenix Toolkit với error handling
+try:
+    tracer, success = init_toolkit(project_name="Be_Bay_Bot", frameworks=["aiohttp"])
+    if success:
+        logger.info("✅ Phoenix Toolkit initialized successfully")
+    else:
+        logger.warning("⚠️ Phoenix Toolkit initialization partially failed")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize Phoenix Toolkit: {e}")
 
 intents = discord.Intents.default()
 intents.messages = True

@@ -1,9 +1,10 @@
 import json
 import logging
 import os
+import time
 
 import aiohttp
-from Arize_Phoenix_tool_kit import track_llm_call
+from Arize_Phoenix_tool_kit import LMStudioResponse, track_llm_call
 
 from src.config.settings import Config
 
@@ -61,10 +62,19 @@ class LMStudioService(BaseLLMService):
             self.logger.error(f"❌ Unexpected error testing LM Studio connection: {e}")
             return False
 
-    @track_llm_call(model_name=Config.LM_STUDIO_MODEL, prompt_arg="prompt")
+    @track_llm_call(
+        model_name=Config.LM_STUDIO_MODEL,
+        prompt_arg="prompt",
+        metadata={
+            "version": "1.0.2",
+            "environment": "local_dev",
+            "provider": "lm_studio",
+        },
+        tags=["llm", "lm_studio", "response_generation"],
+    )
     async def generate_response(
         self, prompt: str, user_id: str = None, conversation_context: str = ""
-    ) -> str:
+    ) -> LMStudioResponse:
         session = await self._get_session()
 
         # Build system prompt with personality and conversation guidelines
@@ -109,14 +119,26 @@ class LMStudioService(BaseLLMService):
                         "top_p": 0.9,
                     }
 
+                # Start timing
+                start_time = time.perf_counter()
+
                 async with session.post(
                     url, json=payload, timeout=aiohttp.ClientTimeout(total=60)
                 ) as response:
                     response_text = await response.text()
 
+                    # Calculate latency
+                    latency_ms = (time.perf_counter() - start_time) * 1000
+
                     if response.status == 200:
                         try:
                             response_data = json.loads(response_text)
+
+                            # Parse usage from response
+                            usage = response_data.get("usage", {})
+                            prompt_tokens = usage.get("prompt_tokens", 0)
+                            completion_tokens = usage.get("completion_tokens", 0)
+                            total_tokens = usage.get("total_tokens", 0)
 
                             # Handle different response formats
                             if (
@@ -128,16 +150,58 @@ class LMStudioService(BaseLLMService):
                                     "message" in choice
                                     and "content" in choice["message"]
                                 ):
-                                    return choice["message"]["content"]
+                                    content = choice["message"]["content"]
+                                    finish_reason = choice.get("finish_reason", "stop")
+                                    return LMStudioResponse(
+                                        content=content,
+                                        model=self.model,
+                                        prompt_tokens=prompt_tokens,
+                                        completion_tokens=completion_tokens,
+                                        total_tokens=total_tokens,
+                                        latency_ms=latency_ms,
+                                        finish_reason=finish_reason,
+                                    )
                             elif "response" in response_data:
                                 # LM Studio /api/generate format
-                                return response_data["response"]
+                                content = response_data["response"]
+                                # Try to get token counts from eval_count if available
+                                eval_count = response_data.get("eval_count", 0)
+                                prompt_eval_count = response_data.get(
+                                    "prompt_eval_count", 0
+                                )
+                                return LMStudioResponse(
+                                    content=content,
+                                    model=self.model,
+                                    prompt_tokens=prompt_eval_count,
+                                    completion_tokens=eval_count,
+                                    total_tokens=prompt_eval_count + eval_count,
+                                    latency_ms=latency_ms,
+                                    finish_reason="stop",
+                                )
                             elif "content" in response_data:
                                 # Direct content field
-                                return response_data["content"]
+                                content = response_data["content"]
+                                return LMStudioResponse(
+                                    content=content,
+                                    model=self.model,
+                                    prompt_tokens=prompt_tokens,
+                                    completion_tokens=completion_tokens,
+                                    total_tokens=total_tokens,
+                                    latency_ms=latency_ms,
+                                    finish_reason="stop",
+                                )
                             elif "text" in response_data:
                                 # Text field
-                                return response_data["text"]
+                                content = response_data["text"]
+                                return LMStudioResponse(
+                                    content=content,
+                                    model=self.model,
+                                    prompt_tokens=prompt_tokens,
+                                    completion_tokens=completion_tokens,
+                                    total_tokens=total_tokens,
+                                    latency_ms=latency_ms,
+                                    finish_reason="stop",
+                                )
                             else:
                                 self.logger.error(
                                     f"Unexpected response format from {url}: {response_data}"
@@ -169,7 +233,16 @@ class LMStudioService(BaseLLMService):
             f"\n  3. The model '{self.model}' is loaded"
             f"\n  4. Check LM Studio logs for more details"
         )
-        return "Lỗi: Không thể kết nối đến LM Studio. Vui lòng kiểm tra cấu hình API."
+        # Return error as LMStudioResponse
+        return LMStudioResponse(
+            content="Lỗi: Không thể kết nối đến LM Studio. Vui lòng kiểm tra cấu hình API.",
+            model=self.model,
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=0,
+            latency_ms=0.0,
+            finish_reason="error",
+        )
 
     async def close(self):
         if self.session:

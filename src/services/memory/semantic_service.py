@@ -2,6 +2,8 @@ import logging
 import os
 from typing import Dict, List, Optional
 
+from Arize_Phoenix_tool_kit.decorators import track_general_step
+
 from src.services.wrappers.base_llm_service import BaseLLMService
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,11 @@ class SemanticService:
             "contextual_knowledge": "",
         }
 
+    @track_general_step(
+        step_name="Memory: add_semantic_memory",
+        metadata={"version": "1.0.2", "environment": "local_dev", "service": "memory"},
+        tags=["memory", "semantic", "add"],
+    )
     def update_semantic_knowledge(self, user_id: str, new_knowledge: Dict):
         """
         Cập nhật kiến thức ngữ nghĩa cho người dùng.
@@ -56,6 +63,11 @@ class SemanticService:
         logger.info(f"🔄 Updating semantic knowledge for user {user_id}")
         pass
 
+    @track_general_step(
+        step_name="Memory: search_semantic_memories",
+        metadata={"version": "1.0.2", "environment": "local_dev", "service": "memory"},
+        tags=["memory", "semantic", "search"],
+    )
     def search_semantic_memory(self, user_id: str, query: str) -> List[Dict]:
         """
         Tìm kiếm trong bộ nhớ ngữ nghĩa.

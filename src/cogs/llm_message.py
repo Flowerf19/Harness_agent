@@ -126,13 +126,31 @@ class LLMMessageCog(commands.Cog):
                 response = await self.llm_service.generate_response(
                     content, user_id, enhanced_context
                 )
-                if response and len(response.strip()) > 0:
-                    await self.send_response_in_parts(message, response, user_id)
+
+                # Handle both LMStudioResponse object and string response (backward compatibility)
+                if hasattr(response, "content"):
+                    response_content = response.content
+                    # Log tokens and latency if available
+                    if hasattr(response, "total_tokens") and hasattr(
+                        response, "latency_ms"
+                    ):
+                        logger.debug(
+                            f"📊 Tokens: {response.total_tokens}, Latency: {response.latency_ms:.2f}ms"
+                        )
+                else:
+                    response_content = response
+
+                if response and len(response_content.strip()) > 0:
+                    await self.send_response_in_parts(
+                        message, response_content, user_id
+                    )
 
                     # Save to history (both in-memory and persistent)
-                    self.conversation_manager.add_to_history(user_id, content, response)
+                    self.conversation_manager.add_to_history(
+                        user_id, content, response_content
+                    )
                     self.conversation_manager.save_to_persistent_history(
-                        user_id, content, response
+                        user_id, content, response_content
                     )
 
                     # Summary updates are handled automatically by MemoryBackgroundService in the background
@@ -413,8 +431,18 @@ class LLMMessageCog(commands.Cog):
     async def _process_relationship_data(self, message, content: str, user_id: str):
         """Process relationship data from message"""
         try:
-            # Get author info
+            # Get author info with full details
             author_username = message.author.display_name or message.author.name
+            author_display_name = (
+                message.author.display_name
+                if message.author.display_name != message.author.name
+                else None
+            )
+            author_global_name = (
+                message.author.global_name
+                if hasattr(message.author, "global_name")
+                else None
+            )
 
             # Extract mentioned users
             mentioned_user_ids = []
@@ -438,6 +466,8 @@ class LLMMessageCog(commands.Cog):
                 content,
                 mentioned_user_ids,
                 str(message.channel.id) if message.channel else None,
+                author_display_name,
+                author_global_name,
             )
 
             logger.debug(

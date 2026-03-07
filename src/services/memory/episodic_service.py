@@ -1,9 +1,10 @@
-import asyncio
 import json
 import logging
 import os
 from datetime import datetime
 from typing import Dict, List, Optional
+
+from Arize_Phoenix_tool_kit.decorators import track_general_step
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,11 @@ class EpisodicService:
         """Lấy đường dẫn file episodic memory cho user"""
         return os.path.join(self.user_summaries_dir, f"{user_id}_episodic.json")
 
+    @track_general_step(
+        step_name="Memory: get_episodic_memories",
+        metadata={"version": "1.0.2", "environment": "local_dev", "service": "memory"},
+        tags=["memory", "episodic", "query"],
+    )
     def get_episodic_memory(self, user_id: str, limit: int = 10) -> List[Dict]:
         """
         Lấy episodic memory của người dùng từ file.
@@ -127,6 +133,11 @@ class EpisodicService:
                 json.dump([], f, ensure_ascii=False, indent=2)
             logger.debug(f"📄 Created default episodic file for user {user_id}")
 
+    @track_general_step(
+        step_name="Memory: add_episodic_memory",
+        metadata={"version": "1.0.2", "environment": "local_dev", "service": "memory"},
+        tags=["memory", "episodic", "add"],
+    )
     def add_priority_event(self, user_id: str, event_type: str, event_data: any = None):
         """
         Thêm sự kiện ưu tiên vào episodic memory.
