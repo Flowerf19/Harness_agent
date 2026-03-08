@@ -7,8 +7,6 @@ from discord.ext import commands  # type: ignore
 
 from src.config.settings import Config
 from src.services.core import AntiSpamService, MessageProcessor
-from src.services.relationship import RelationshipService
-from src.services.working_memory import ConversationManager
 from src.services.wrappers.gemini_service import GeminiService
 from src.services.wrappers.lm_studio_service import LMStudioService
 from src.services.wrappers.ollama_service import OllamaService
@@ -39,17 +37,15 @@ class LLMMessageCog(commands.Cog):
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         data_dir = os.path.join(base_dir, "data")
 
-        # Initialize RelationshipService
-        self.relationship_service = RelationshipService(self.llm_service, data_dir)
+        # TODO: Initialize ActivateMemoryService instead of old services
+        # self.relationship_service = RelationshipService(self.llm_service, data_dir)
+        # self.conversation_manager = ConversationManager()
 
         # Initialize modular services
         self.message_processor = MessageProcessor()
         self.anti_spam = AntiSpamService()
-        self.conversation_manager = ConversationManager()
 
-        logger.info(
-            "🤖 LLMMessageCog initialized with modular services including RelationshipService"
-        )
+        logger.info("🤖 LLMMessageCog initialized with modular services")
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -93,15 +89,16 @@ class LLMMessageCog(commands.Cog):
             await message.reply(spam_msg)
             return
 
-        # Conversation lock check
-        if self.conversation_manager.is_conversation_locked(user_id):
-            duration = self.conversation_manager.get_lock_duration()
-            busy_msg = (
-                f"⏳ Tôi đang trả lời người khác ({duration}s). Xin đợi một chút nhé!"
-            )
-            await message.reply(busy_msg)
-            self.conversation_manager.add_to_pending_queue(message, content)
-            return
+        # TODO: Re-enable conversation lock when ActivateMemoryService is integrated
+        # # Conversation lock check
+        # if self.conversation_manager.is_conversation_locked(user_id):
+        #     duration = self.conversation_manager.get_lock_duration()
+        #     busy_msg = (
+        #         f"⏳ Tôi đang trả lời người khác ({duration}s). Xin đợi một chút nhé!"
+        #     )
+        #     await message.reply(busy_msg)
+        #     self.conversation_manager.add_to_pending_queue(message, content)
+        #     return
 
         # Process AI response
         await self._process_ai_response(message, content, user_id)
@@ -109,11 +106,13 @@ class LLMMessageCog(commands.Cog):
     async def _process_ai_response(self, message, content: str, user_id: str):
         """Process AI response"""
         try:
-            # Lock conversation
-            self.conversation_manager.set_conversation_lock(user_id)
+            # TODO: Re-enable conversation lock when ActivateMemoryService is integrated
+            # # Lock conversation
+            # self.conversation_manager.set_conversation_lock(user_id)
 
             # Build context
-            context = self.conversation_manager.get_conversation_context(user_id)
+            # TODO: Get context from ActivateMemoryService
+            context = ""  # self.conversation_manager.get_conversation_context(user_id)
             user_summary = await self._get_user_summary(user_id)
             mentioned_users_info = self.get_mentioned_users_info(content, message)
 
@@ -145,13 +144,14 @@ class LLMMessageCog(commands.Cog):
                         message, response_content, user_id
                     )
 
-                    # Save to history (both in-memory and persistent)
-                    self.conversation_manager.add_to_history(
-                        user_id, content, response_content
-                    )
-                    self.conversation_manager.save_to_persistent_history(
-                        user_id, content, response_content
-                    )
+                    # TODO: Save to history via ActivateMemoryService
+                    # # Save to history (both in-memory and persistent)
+                    # self.conversation_manager.add_to_history(
+                    #     user_id, content, response_content
+                    # )
+                    # self.conversation_manager.save_to_persistent_history(
+                    #     user_id, content, response_content
+                    # )
 
                     # Summary updates are handled automatically by MemoryBackgroundService in the background
                     # No manual update needed here
@@ -165,8 +165,8 @@ class LLMMessageCog(commands.Cog):
             await message.reply("Xin lỗi, đã có lỗi xảy ra khi tạo phản hồi.")
 
         finally:
-            # Always release lock
-            self.conversation_manager.release_conversation_lock()
+            # TODO: Re-enable when ActivateMemoryService is integrated
+            pass  # self.conversation_manager.release_conversation_lock()
 
     def _should_respond_to_message(self, message) -> bool:
         """Determine if bot should respond to message"""
@@ -207,36 +207,37 @@ class LLMMessageCog(commands.Cog):
         if user_summary:
             enhanced_context += f"=== NGƯỜI ĐANG NÓI CHUYỆN (USER ID: {user_id}) ===\n{user_summary}\n\n"
 
-        # Add relationship information
-        try:
-            user_display_name = self.relationship_service.get_user_display_name(user_id)
-            user_relationships = self.relationship_service.get_user_relationships(
-                user_id
-            )
-            interaction_stats = self.relationship_service.get_interaction_stats(user_id)
+        # TODO: Re-enable relationship information when ActivateMemoryService is integrated
+        # # Add relationship information
+        # try:
+        #     user_display_name = self.relationship_service.get_user_display_name(user_id)
+        #     user_relationships = self.relationship_service.get_user_relationships(
+        #         user_id
+        #     )
+        #     interaction_stats = self.relationship_service.get_interaction_stats(user_id)
 
-            if user_relationships or interaction_stats.get("total_interactions", 0) > 0:
-                enhanced_context += (
-                    f"=== MỐI QUAN HỆ VÀ TƯƠNG TÁC CỦA {user_display_name} ===\n"
-                )
+        #     if user_relationships or interaction_stats.get("total_interactions", 0) > 0:
+        #         enhanced_context += (
+        #             f"=== MỐI QUAN HỆ VÀ TƯƠNG TÁC CỦA {user_display_name} ===\n"
+        #         )
 
-                if user_relationships:
-                    enhanced_context += "Mối quan hệ:\n"
-                    for rel in user_relationships[:5]:  # Top 5 relationships
-                        enhanced_context += (
-                            f"- {rel['other_person']}: {rel['relationship_type']}\n"
-                        )
+        #         if user_relationships:
+        #             enhanced_context += "Mối quan hệ:\n"
+        #             for rel in user_relationships[:5]:  # Top 5 relationships
+        #                 enhanced_context += (
+        #                     f"- {rel['other_person']}: {rel['relationship_type']}\n"
+        #                 )
 
-                if interaction_stats.get("top_contacts"):
-                    enhanced_context += "\nNgười liên lạc thường xuyên:\n"
-                    for contact in interaction_stats["top_contacts"][
-                        :3
-                    ]:  # Top 3 contacts
-                        enhanced_context += f"- {contact['name']}: {contact['interaction_count']} lần tương tác\n"
+        #         if interaction_stats.get("top_contacts"):
+        #             enhanced_context += "\nNgười liên lạc thường xuyên:\n"
+        #             for contact in interaction_stats["top_contacts"][
+        #                 :3
+        #             ]:  # Top 3 contacts
+        #                 enhanced_context += f"- {contact['name']}: {contact['interaction_count']} lần tương tác\n"
 
-                enhanced_context += "\n"
-        except Exception as e:
-            logger.error(f"Error getting relationship context: {e}")
+        #         enhanced_context += "\n"
+        # except Exception as e:
+        #     logger.error(f"Error getting relationship context: {e}")
 
         if mentioned_users_info:
             enhanced_context += (
@@ -273,11 +274,12 @@ class LLMMessageCog(commands.Cog):
         for mentioned_user_id in user_mentions:
             # Try to get display name from message.mentions
             display_name = mention_name_map.get(mentioned_user_id)
-            # If not found, try from relationship service
-            if not display_name and hasattr(self, "relationship_service"):
-                display_name = self.relationship_service.get_user_display_name(
-                    mentioned_user_id
-                )
+            # TODO: Re-enable when ActivateMemoryService is integrated
+            # # If not found, try from relationship service
+            # if not display_name and hasattr(self, "relationship_service"):
+            #     display_name = self.relationship_service.get_user_display_name(
+            #         mentioned_user_id
+            #     )
             # Fallback to ID
             if not display_name:
                 display_name = mentioned_user_id
@@ -430,52 +432,54 @@ class LLMMessageCog(commands.Cog):
 
     async def _process_relationship_data(self, message, content: str, user_id: str):
         """Process relationship data from message"""
-        try:
-            # Get author info with full details
-            author_username = message.author.display_name or message.author.name
-            author_display_name = (
-                message.author.display_name
-                if message.author.display_name != message.author.name
-                else None
-            )
-            author_global_name = (
-                message.author.global_name
-                if hasattr(message.author, "global_name")
-                else None
-            )
+        # TODO: Re-enable when ActivateMemoryService is integrated
+        pass
+        # try:
+        #     # Get author info with full details
+        #     author_username = message.author.display_name or message.author.name
+        #     author_display_name = (
+        #         message.author.display_name
+        #         if message.author.display_name != message.author.name
+        #         else None
+        #     )
+        #     author_global_name = (
+        #         message.author.global_name
+        #         if hasattr(message.author, "global_name")
+        #         else None
+        #     )
 
-            # Extract mentioned users
-            mentioned_user_ids = []
-            for mention in message.mentions:
-                mentioned_user_ids.append(str(mention.id))
-                # Update mentioned user's name info too
-                self.relationship_service.update_user_name(
-                    str(mention.id),
-                    mention.display_name or mention.name,
-                    mention.display_name
-                    if mention.display_name != mention.name
-                    else None,
-                    mention.global_name if hasattr(mention, "global_name") else None,
-                )
+        #     # Extract mentioned users
+        #     mentioned_user_ids = []
+        #     for mention in message.mentions:
+        #         mentioned_user_ids.append(str(mention.id))
+        #         # Update mentioned user's name info too
+        #         self.relationship_service.update_user_name(
+        #             str(mention.id),
+        #             mention.display_name or mention.name,
+        #             mention.display_name
+        #             if mention.display_name != mention.name
+        #             else None,
+        #             mention.global_name if hasattr(mention, "global_name") else None,
+        #         )
 
-            # Process the message through relationship service
-            # Note: Real name extraction and other semantic understanding is handled by LLM
-            await self.relationship_service.process_message(
-                user_id,
-                author_username,
-                content,
-                mentioned_user_ids,
-                str(message.channel.id) if message.channel else None,
-                author_display_name,
-                author_global_name,
-            )
+        #     # Process the message through relationship service
+        #     # Note: Real name extraction and other semantic understanding is handled by LLM
+        #     await self.relationship_service.process_message(
+        #         user_id,
+        #         author_username,
+        #         content,
+        #         mentioned_user_ids,
+        #         str(message.channel.id) if message.channel else None,
+        #         author_display_name,
+        #         author_global_name,
+        #     )
 
-            logger.debug(
-                f"🔗 Processed relationship data for {author_username} (ID: {user_id})"
-            )
+        #     logger.debug(
+        #         f"🔗 Processed relationship data for {author_username} (ID: {user_id})"
+        #     )
 
-        except Exception as e:
-            logger.error(f"❌ Error processing relationship data: {e}")
+        # except Exception as e:
+        #     logger.error(f"❌ Error processing relationship data: {e}")
 
     async def _get_user_summary(self, user_id: str) -> str:
         """Get user summary from file asynchronously"""

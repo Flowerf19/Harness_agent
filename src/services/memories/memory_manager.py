@@ -1,0 +1,117 @@
+import asyncio
+import logging
+from typing import Dict, List, Tuple
+
+from Arize_Phoenix_tool_kit import track_general_step
+
+# --- IMPORTS TẦNG 1 (Active Memory) ---
+from .active_memory.active_memory_service import ActiveMemoryService
+from .active_memory.events.event_dispatcher import ActiveMemoryEvent, EventDispatcher
+from .active_memory.models import MessageCategory
+
+# --- IMPORTS TẦNG 3 (Core Memory) ---
+from .core_memory.core_manager import CoreManager
+
+# --- IMPORTS TẦNG 2 (Episodic Memory) ---
+# Giả định bạn đã gói các class T2 vào EpisodicManager
+from .episodic_memory.episodic_manager import EpisodicManager
+
+logger = logging.getLogger(__name__)
+
+
+class MemoryManager:
+    """
+    Trái tim của toàn bộ Hệ thống Trí nhớ 3 Tầng.
+    Nơi kết nối RAM (T1), RAG Ổ cứng (T2) và Tiềm thức (T3).
+    """
+
+    def __init__(
+        self,
+        active_memory: ActiveMemoryService,
+        episodic_memory: EpisodicManager,
+        core_memory: CoreManager,
+        event_dispatcher: EventDispatcher,
+    ):
+        self.t1 = active_memory
+        self.t2 = episodic_memory
+        self.t3 = core_memory
+        self.events = event_dispatcher
+
+        # BƯỚC WIRING QUAN TRỌNG NHẤT: Đăng ký sự kiện (Pub/Sub)
+        self._wire_events()
+        logger.info(
+            "🧠 MemoryManager: Đã khởi tạo và nối dây thành công 3 Tầng Trí Nhớ!"
+        )
+
+    def _wire_events(self):
+        """
+        Cắm dây thần kinh: Khi T1 la lên, T2 và T3 sẽ lắng nghe và tự động làm việc.
+        """
+        # 1. Tầng 1 báo có thông tin quan trọng -> Tầng 3 (Thư ký) cập nhật Profile
+        self.events.subscribe(
+            ActiveMemoryEvent.CRITICAL_INFO_DETECTED, self.t3.handle_critical_info
+        )
+
+        # 2. Tầng 1 báo tràn RAM -> Tầng 2 tóm tắt RAG, sau đó Tầng 1 tự dọn dẹp
+        self.events.subscribe(
+            ActiveMemoryEvent.TOKEN_LIMIT_REACHED, self._handle_memory_overflow
+        )
+
+    async def _handle_memory_overflow(self, event_type: str, user_id: str, data: dict):
+        """Hàm trung gian xử lý luồng khi RAM đầy."""
+        snapshot = data.get("snapshot", [])
+
+        # Bước A: Tầng 2 tóm tắt và nhúng Vector vào Qdrant/FAISS
+        success = await self.t2.ingest_snapshot(user_id, snapshot)
+
+        if success:
+            # Bước B: Gọi Tầng 1 xóa bớt các tin nhắn cũ rác (Smart Cleanup)
+            await self.t1.force_cleanup(user_id)
+
+    # ==========================================
+    # CÁC HÀM API PUBLIC CHO DISCORD BOT GỌI VÀO
+    # ==========================================
+
+    @track_general_step(
+        step_name="Master_Add_Message", tags=["memory_manager", "write"]
+    )
+    async def add_message(self, user_id: str, role: str, content: str) -> None:
+        """
+        Hàm ghi: Bot chỉ cần gọi hàm này khi có tin nhắn mới (Của User hoặc của Bot).
+        Mọi logic đánh giá, đếm token, bắn sự kiện đã có T1 lo ngầm.
+        """
+        await self.t1.add_message(user_id, role, content)
+
+    @track_general_step(
+        step_name="Master_Get_Context",
+        tags=["memory_manager", "read", "context_assembly"],
+    )
+    async def get_context(
+        self, user_id: str, current_query: str
+    ) -> Tuple[str, List[Dict]]:
+        """
+        Hàm đọc tối thượng: Chế biến thức ăn cho LLM trước khi trả lời User.
+        Trả về: (System_Prompt_Từ_T3, Danh_sách_Lịch_sử_Từ_T1_và_T2)
+        """
+        # 1. Lấy Tiềm thức (System Prompt) từ Tầng 3 (Chạy cực nhanh, mất < 1ms)
+        system_prompt = await self.t3.get_system_prompt_context(user_id)
+
+        # 2. Lấy Ngữ cảnh hiện tại từ Tầng 1 (RAM)
+        # Đã được mix trộn thông minh giữa tin nhắn mới nhất và quan trọng nhất
+        context_messages = await self.t1.get_context_for_llm(user_id)
+
+        # 3. Phân tích truy vấn xem có cần lục lọi quá khứ (Tầng 2) không?
+        # Nếu bot nhận diện user đang hỏi chuyện cũ (Ví dụ query có dấu hiệu "QUERY")
+        # Hoặc dùng LLM judge nhẹ, ở đây ta giả định T2 có hàm tìm kiếm RAG
+        past_events_text = await self.t2.retrieve_past_context(user_id, current_query)
+
+        if past_events_text:
+            # Nếu tìm thấy ký ức RAG, nhét nó vào đầu danh sách RAM để LLM đọc
+            # Lưu ý: role "system" để AI hiểu đây là ký ức được cung cấp thêm
+            context_messages.insert(0, {"role": "system", "content": past_events_text})
+
+        return system_prompt, context_messages
+
+    async def clear_session(self, user_id: str):
+        """Xóa trắng Tầng 1 khi user im lặng quá lâu (Session Timeout)."""
+        await self.t1.reset_session(user_id)
