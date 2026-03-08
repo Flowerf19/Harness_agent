@@ -106,16 +106,54 @@ class CoreManager:
             f"⚡ T3 CoreManager: Đã bắt được sự kiện {event_type} cho user {user_id}"
         )
 
-        # Trích xuất nội dung tin nhắn (new_fact) từ data (MemoryEntry) do T1 gửi sang
-        new_fact = (
-            data.get("content", "")
-            if isinstance(data, dict)
-            else getattr(data, "content", "")
-        )
+        # Trích xuất nội dung từ data (có thể là dict với entry + context, hoặc chỉ entry)
+        if isinstance(data, dict) and "entry" in data:
+            # Format mới: có entry và context
+            entry = data.get("entry")
+            context_entries = data.get("context", [])
+
+            # Lấy content từ entry
+            new_fact = (
+                entry.get("content", "")
+                if isinstance(entry, dict)
+                else getattr(entry, "content", "")
+            )
+
+            # Build context string từ các tin nhắn trước đó
+            context_str = ""
+            if context_entries:
+                context_lines = []
+                for e in context_entries:
+                    role = (
+                        e.get("role", "")
+                        if isinstance(e, dict)
+                        else getattr(e, "role", "")
+                    )
+                    content = (
+                        e.get("content", "")
+                        if isinstance(e, dict)
+                        else getattr(e, "content", "")
+                    )
+                    if role and content:
+                        role_label = "User" if role == "user" else "Bot"
+                        context_lines.append(f"[{role_label}]: {content}")
+                context_str = "\n".join(context_lines)
+
+        else:
+            # Format cũ: chỉ có entry (backward compatible)
+            new_fact = (
+                data.get("content", "")
+                if isinstance(data, dict)
+                else getattr(data, "content", "")
+            )
+            context_str = ""
 
         if not new_fact:
             return False
 
         # Giao việc cho Thư ký (Smart Updater) để gọi LLM hợp nhất dữ liệu
-        success = await self.smart_updater.update_profile_with_fact(user_id, new_fact)
+        # Truyền cả context để LLM hiểu ngữ cảnh đầy đủ
+        success = await self.smart_updater.update_profile_with_fact(
+            user_id, new_fact, context_str
+        )
         return success

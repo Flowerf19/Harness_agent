@@ -76,9 +76,18 @@ class ActiveMemoryService:
             or category == MessageCategory.FACT
             or category == MessageCategory.EXPLICIT_COMMAND
         ):
-            # Gửi toàn bộ object entry cho Tầng 3 tự bóc tách
+            # Lấy context (các tin nhắn trước đó) để LLM hiểu ngữ cảnh đầy đủ
+            recent_entries = await self.storage.get_entries(user_id)
+            # Lấy tối đa 5 tin nhắn gần nhất (bao gồm tin nhắn hiện tại)
+            context_entries = (
+                recent_entries[-5:] if len(recent_entries) >= 5 else recent_entries
+            )
+
+            # Gửi entry kèm context cho Tầng 3
             self.events.emit(
-                ActiveMemoryEvent.CRITICAL_INFO_DETECTED, user_id, data=entry
+                ActiveMemoryEvent.CRITICAL_INFO_DETECTED,
+                user_id,
+                data={"entry": entry, "context": context_entries},
             )
 
         # B. Bắt sự kiện Token (Token Trigger)

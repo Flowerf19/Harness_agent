@@ -34,28 +34,37 @@ class SmartUpdater:
         run_type="chain",
         tags=["tier_3", "core_memory", "llm_update"],
     )
-    async def update_profile_with_fact(self, user_id: str, new_fact: str) -> bool:
+    async def update_profile_with_fact(
+        self, user_id: str, new_fact: str, context: str = ""
+    ) -> bool:
         """
         Luồng chạy chính khi có CRITICAL_INFO từ Tầng 1.
         Trả về True nếu cập nhật thành công, False nếu LLM lỗi.
+
+        Args:
+            user_id: ID của user
+            new_fact: Thông tin mới cần cập nhật
+            context: Ngữ cảnh hội thoại (các tin nhắn trước đó) giúp LLM hiểu rõ hơn
         """
         # 1. Kéo Hồ sơ cũ lên
         current_profile = await self.storage.get_profile(user_id)
         current_profile_json = current_profile.model_dump_json(indent=2)
 
-        # 2. Chuẩn bị Prompt
+        # 2. Chuẩn bị Prompt (có thể có hoặc không có context)
         prompt = CORE_UPDATE_PROMPT.format(
-            current_profile=current_profile_json, new_fact=new_fact
+            current_profile=current_profile_json,
+            new_fact=new_fact,
+            context=context if context else "(Không có ngữ cảnh bổ sung)",
         )
 
         try:
             # 3. Gọi LLM làm việc (Temperature thấp để đảm bảo logic)
-            response_text = await self.llm_client.generate_response(
+            response = await self.llm_client.generate_response(
                 messages=[{"role": "user", "content": prompt}],
             )
 
             # 4. Gọt rửa và Parse JSON
-            json_str = self._clean_json_output(response_text)
+            json_str = self._clean_json_output(response.content)
             data_dict = json.loads(json_str)
 
             # 5. Ép kiểu bằng Pydantic (Hàng rào thép bảo vệ cấu trúc)
