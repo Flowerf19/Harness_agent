@@ -83,4 +83,5 @@ class LocalEmbeddingService:
         """Hàm đồng bộ thực thi việc nhúng qua CPU/GPU."""
         self._ensure_initialized()
         # Trả về một mảng Python List chuẩn (thay vì Numpy Array) để dễ lưu JSON
-        return self.model.encode(text).tolist()
+        # Tắt thanh tiến trình (progress bar) để tránh log quá nhiều
+        return self.model.encode(text, show_progress_bar=False).tolist()

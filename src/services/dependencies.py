@@ -85,6 +85,11 @@ class AppContainer:
         )
         # -------------------
 
+        # --- 🔴 SỬA LỖI KHỞI TẠO MODEL EMBEDDING ---
+        # Gọi initialize() để tải model embedding trước khi sử dụng
+        await self.embedding_service.initialize()
+        # -----------------------------------------
+
         # 2. LẮP RÁP BỘ NHỚ TẦNG 1 (Active Memory)
         event_bus = EventDispatcher()
         t1_storage = LocalMemoryDB()

@@ -1,9 +1,11 @@
 # src/services/chat_coordinator.py
 import logging
+from typing import Union
 
 from langsmith import traceable
 
 from src.services.llm.base_llm_service import BaseLLMService
+from src.services.llm.llm_response import LLMResponse
 from src.services.memories.memory_manager import MemoryManager
 
 logger = logging.getLogger(__name__)
@@ -36,11 +38,26 @@ class ChatCoordinator:
             )
 
             # 3. Giao cho LLM sinh câu trả lời
-            bot_response = await self.llm.generate_response(
+            llm_response = await self.llm.generate_response(
                 messages=context_msgs, system_prompt=sys_prompt
             )
 
-            # 4. Ghi nhận câu trả lời của Bot vào Bộ nhớ
+            # 4. Xử lý response và extract token usage
+            bot_response: str
+            if isinstance(llm_response, LLMResponse):
+                bot_response = llm_response.content
+                # Log token usage for monitoring
+                logger.info(
+                    f"📊 Token Usage for user {user_id}: "
+                    f"Input={llm_response.input_tokens}, "
+                    f"Output={llm_response.output_tokens}, "
+                    f"Total={llm_response.total_tokens}"
+                )
+            else:
+                # Backwards compatibility for string responses (errors)
+                bot_response = llm_response
+
+            # 5. Ghi nhận câu trả lời của Bot vào Bộ nhớ
             if bot_response and not bot_response.startswith("Error:"):
                 await self.memory.add_message(
                     user_id=user_id, role="assistant", content=bot_response

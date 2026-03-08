@@ -4,9 +4,11 @@ import abc
 import logging
 import os
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from langsmith import traceable
+
+from .llm_response import LLMResponse
 
 
 class BaseLLMService(abc.ABC):
@@ -71,7 +73,7 @@ class BaseLLMService(abc.ABC):
     )
     async def generate_response(
         self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None
-    ) -> str:
+    ) -> Union[str, LLMResponse]:
         """
         Generate a response from the LLM based on structured messages.
 
@@ -81,7 +83,8 @@ class BaseLLMService(abc.ABC):
             system_prompt: Dữ liệu Tiềm thức từ Tầng 3 (Dynamic Core Memory).
 
         Returns:
-            Generated response text from the LLM
+            LLMResponse object with content and token metadata.
+            Falls back to string for backwards compatibility on errors.
         """
         pass
 

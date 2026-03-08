@@ -1,12 +1,13 @@
 import logging
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import aiohttp
 from langsmith import traceable
 
 from ...config.settings import Config
 from .base_llm_service import BaseLLMService
+from .llm_response import LLMResponse
 
 
 class GeminiService(BaseLLMService):
@@ -30,7 +31,14 @@ class GeminiService(BaseLLMService):
     @traceable(name="Gemini_Generate", run_type="llm", tags=["gemini", "generation"])
     async def generate_response(
         self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None
-    ) -> str:
+    ) -> Union[str, LLMResponse]:
+        """
+        Generate response from Gemini API.
+
+        Returns:
+            LLMResponse object with content and token metadata.
+            Falls back to string for backwards compatibility on errors.
+        """
         if not self.api_key:
             self.logger.error("Gemini API key not found")
             return "Error: API key not configured."
@@ -72,6 +80,15 @@ class GeminiService(BaseLLMService):
 
                 response_data = await response.json()
 
+                # Extract token usage metadata from Gemini response
+                # Gemini returns usageMetadata with promptTokenCount and candidatesTokenCount
+                usage_metadata = response_data.get("usageMetadata", {})
+                input_tokens = usage_metadata.get("promptTokenCount", 0)
+                output_tokens = usage_metadata.get("candidatesTokenCount", 0)
+                total_tokens = usage_metadata.get(
+                    "totalTokenCount", input_tokens + output_tokens
+                )
+
                 if (
                     "candidates" in response_data
                     and len(response_data["candidates"]) > 0
@@ -80,7 +97,23 @@ class GeminiService(BaseLLMService):
                     if "content" in candidate and "parts" in candidate["content"]:
                         parts = candidate["content"]["parts"]
                         if len(parts) > 0 and "text" in parts[0]:
-                            return parts[0]["text"]
+                            content = parts[0]["text"]
+
+                            # Log token usage for debugging
+                            self.logger.info(
+                                f"Gemini API - Input tokens: {input_tokens}, "
+                                f"Output tokens: {output_tokens}, Total: {total_tokens}"
+                            )
+
+                            return LLMResponse(
+                                content=content,
+                                input_tokens=input_tokens,
+                                output_tokens=output_tokens,
+                                total_tokens=total_tokens,
+                                model=self.model,
+                                finish_reason=candidate.get("finishReason"),
+                                raw_response=response_data,
+                            )
 
                 return "Error: Unexpected response format."
 

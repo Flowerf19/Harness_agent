@@ -6,9 +6,6 @@ requests
 aiofiles
 google-generativeai
 
-# Phoenix tracing dependencies
-# Các thư viện hiện có của bot...
-
 # Thư viện Phoenix và Tracing
 arize-phoenix
 opentelemetry-api
@@ -28,7 +25,6 @@ openinference-instrumentation-langchain
 pytest
 pytest-asyncio
 sentence-transformers
-# PyTorch with ROCm support - cần cài riêng, không qua pip index thông thường
-# Chạy: pip install torch --index-url https://download.pytorch.org/whl/rocm6.2
 torch
 tiktoken
+langsmith

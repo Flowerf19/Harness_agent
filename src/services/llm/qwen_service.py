@@ -1,13 +1,13 @@
 import logging
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import aiohttp
 from langsmith import traceable
 
-# Chú ý: Đổi đường dẫn import tùy theo kiến trúc thư mục mới của bạn
 from ...config.settings import Config
 from .base_llm_service import BaseLLMService
+from .llm_response import LLMResponse
 
 
 class QwenService(BaseLLMService):
@@ -32,7 +32,14 @@ class QwenService(BaseLLMService):
     @traceable(name="Qwen_Generate", run_type="llm", tags=["qwen", "generation"])
     async def generate_response(
         self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None
-    ) -> str:
+    ) -> Union[str, LLMResponse]:
+        """
+        Generate response from Qwen API (OpenAI-compatible).
+
+        Returns:
+            LLMResponse object with content and token metadata.
+            Falls back to string for backwards compatibility on errors.
+        """
         if not self.api_key:
             self.logger.error("Qwen API key not found")
             return "Error: Qwen API key not configured."
@@ -71,10 +78,33 @@ class QwenService(BaseLLMService):
 
                 response_data = await response.json()
 
+                # Extract token usage metadata from OpenAI-compatible response
+                # Qwen returns usage object with prompt_tokens and completion_tokens
+                usage = response_data.get("usage", {})
+                input_tokens = usage.get("prompt_tokens", 0)
+                output_tokens = usage.get("completion_tokens", 0)
+                total_tokens = usage.get("total_tokens", input_tokens + output_tokens)
+
                 if "choices" in response_data and len(response_data["choices"]) > 0:
                     choice = response_data["choices"][0]
                     if "message" in choice and "content" in choice["message"]:
-                        return choice["message"]["content"]
+                        content = choice["message"]["content"]
+
+                        # Log token usage for debugging
+                        self.logger.info(
+                            f"Qwen API - Input tokens: {input_tokens}, "
+                            f"Output tokens: {output_tokens}, Total: {total_tokens}"
+                        )
+
+                        return LLMResponse(
+                            content=content,
+                            input_tokens=input_tokens,
+                            output_tokens=output_tokens,
+                            total_tokens=total_tokens,
+                            model=response_data.get("model", self.model),
+                            finish_reason=choice.get("finish_reason"),
+                            raw_response=response_data,
+                        )
 
                 return "Error: Unexpected response format."
 

@@ -15,7 +15,9 @@ class AdminChannels(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.data_file = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "data", "bot_channels.json"
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "data",
+            "bot_channels.json",
         )
         self.bot_channels = self.load_bot_channels()
 
