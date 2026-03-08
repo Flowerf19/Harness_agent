@@ -12,7 +12,12 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-    # CHÚ Ý: Chữ "volumes:" phải thụt lề ngang bằng với chữ "environment:" và "extra_hosts:"
     volumes:
       - ./src/data:/app/src/data
       - /home/flowerf/Projects/Arize_Phoenix_tool_kit:/app/Arize_Phoenix_tool_kit
+      # THÊM DÒNG NÀY: Ánh xạ thư mục cache của Hugging Face
+      - hf_cache:/root/.cache/huggingface
+
+# THÊM KHỐI NÀY Ở CUỐI FILE: Khai báo volume do Docker quản lý
+volumes:
+  hf_cache:
