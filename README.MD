@@ -165,6 +165,57 @@ cp .env.example .env
 python src/bot.py
 ```
 
+## 🎮 GPU Setup (AMD ROCm)
+
+Bot hỗ trợ tăng tốc GPU với AMD ROCm để chạy mô hình embedding nhanh hơn.
+
+### Kiểm tra GPU
+
+```bash
+# Chạy script test GPU
+python test_gpu.py
+```
+
+### Cài đặt ROCm for PyTorch
+
+```bash
+# 1. Cài đặt ROCm driver (Ubuntu)
+sudo apt-get update
+sudo apt-get install rocm-dev rocm-libs rocm-utils
+
+# 2. Thêm user vào render group
+sudo usermod -aG render,video $USER
+
+# 3. Reboot để áp dụng
+sudo reboot
+
+# 4. Cài đặt PyTorch với ROCm support
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm5.7
+
+# Hoặc bản nightly (mới nhất)
+pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/rocm5.7
+```
+
+### Verifying ROCm Installation
+
+```bash
+# Kiểm tra ROCm
+rocminfo
+rocm-smi
+
+# Kiểm tra trong Python
+python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+python -c "import torch; print(f'GPU: {torch.cuda.get_device_name(0)}')"
+```
+
+## 📁 Model Caching
+
+Models được cache trong thư mục `models/` để không cần tải lại mỗi lần chạy:
+
+- **Vị trí cache**: `models/`
+- **Embedding model**: `Qwen/Qwen3-Embedding-0.6B`
+- **Đã thêm vào .gitignore**: Model files không được commit lên repo
+
 ## Environment Variables
 
 | Variable | Required | Description |

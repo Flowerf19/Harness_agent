@@ -4,10 +4,10 @@ import logging
 import re
 from typing import List, Optional
 
-from Arize_Phoenix_tool_kit import track_general_step
+from langsmith import traceable
 
 from ..models import EpisodicPayload
-from .prompts import EPISODIC_EXTRACTION_PROMPT
+from ..prompts import EPISODIC_EXTRACTION_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +52,10 @@ class EventExtractor:
             formatted_lines.append(f"[{role.upper()}]: {content}")
         return "\n".join(formatted_lines)
 
-    @track_general_step(
-        step_name="T2_Extract_Episodic_Event", tags=["tier_2", "extraction", "llm_call"]
+    @traceable(
+        name="T2_Extract_Episodic_Event",
+        run_type="chain",
+        tags=["tier_2", "extraction", "llm_call"],
     )
     async def extract_event(self, snapshot: List[dict]) -> Optional[EpisodicPayload]:
         """
@@ -64,10 +66,8 @@ class EventExtractor:
 
         try:
             # GỌI LLM (Thay bằng hàm thực tế của llm_client bạn đang dùng)
-            # Ví dụ: response_text = await self.llm_client.agenerate(prompt)
-            # Lưu ý: Cố gắng set temperature = 0.1 để output mang tính phân tích chính xác
-            response_text = await self.llm_client.chat_completion(
-                messages=[{"role": "user", "content": prompt}], temperature=0.1
+            response_text = await self.llm_client.generate_response(
+                messages=[{"role": "user", "content": prompt}]
             )
 
             # Gọt rửa JSON

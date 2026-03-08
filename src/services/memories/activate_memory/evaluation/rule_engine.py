@@ -1,13 +1,8 @@
-import logging
 import re
 from dataclasses import dataclass
 from typing import Optional
 
-from Arize_Phoenix_tool_kit import track_general_step
-
 from ..models import MessageCategory
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -17,8 +12,8 @@ class RuleResult:
     matched: bool
     score: float
     category: MessageCategory
-    stop_processing: bool  # Nếu True: Bỏ qua hoàn toàn AI (Qwen)
-    extracted_content: Optional[str] = None  # Dùng để tách nội dung khi dùng lệnh !note
+    stop_processing: bool
+    extracted_content: Optional[str] = None
 
 
 class RuleEngine:
@@ -28,117 +23,69 @@ class RuleEngine:
     """
 
     def __init__(self):
-        # Biên dịch Regex 1 lần duy nhất lúc khởi động để tối ưu tốc độ (Microseconds)
+        # Biên dịch Regex 1 lần duy nhất lúc khởi động để tối ưu tốc độ
+        # Bộ Regex Tiếng Việt sử dụng Kỹ thuật Loại trừ (Negative Lookahead)
+        self.fact_patterns = [
+            # 1. BẮT TÊN/ĐỊNH DANH
+            # Giải thích: Phải có chữ "tôi/tớ..." + "tên là/là" + KHÔNG ĐƯỢC chứa các chữ (cái|con|người|kẻ|đứa|nhân vật|bạn|thằng) ngay sau đó.
+            r"(?i)\b(tôi|tớ|mình|em|anh|chị|cháu|tao)\s+(tên là|là|được gọi là)\s+(?!cái|con|người|kẻ|đứa|nhân vật|bạn|thằng)[\w\s]{2,30}$",
+            # 2. BẮT TUỔI/NĂM SINH
+            r"(?i)\b(tôi|tớ|mình|em|anh|chị|cháu|tao)\s+(năm nay\s+)?(\d{1,2}\s+tuổi|sinh năm\s+\d{4})\b",
+            # 3. BẮT NƠI SỐNG/QUÊ QUÁN
+            r"(?i)\b(tôi|tớ|mình|em|anh|chị)\s+(đang sống ở|sống ở|ở|quê ở|đến từ)\s+[\w\s]{2,30}\b",
+            # 4. BẮT NGHỀ NGHIỆP/HỌC VẤN
+            r"(?i)\b(tôi|tớ|mình|em|anh|chị)\s+(làm nghề|đang làm vị trí|là sinh viên|học trường|đang học ngành)\s+[\w\s]{2,40}\b",
+            # 5. BẮT SỞ THÍCH/RÀNG BUỘC (Cảm xúc mạnh)
+            r"(?i)\b(tôi|tớ|mình|em|anh|chị)\s+(rất thích|cực kỳ thích|đam mê|ghét|cực kỳ ghét|dị ứng với|không ăn được)\s+[\w\s]{2,40}\b",
+        ]
 
-        # 1. Regex cho Rác: Chỉ chứa ký tự đặc biệt, emoji, không có chữ/số
+        self.compiled_facts = [re.compile(p) for p in self.fact_patterns]
+
+        # Regex cho Noise
         self.noise_regex = re.compile(r"^[\W_]+$")
 
-        # 2. Regex cho Bảo mật:
-        # - JWT Tokens (thường bắt đầu bằng eyJ...)
-        self.jwt_regex = re.compile(
-            r"eyJ[a-zA-Z0-9-_]+\.[a-zA-Z0-9-_]+\.[a-zA-Z0-9-_]+"
-        )
-        # - Căn cước công dân VN (12 số, bắt đầu bằng số 0)
-        self.cccd_regex = re.compile(r"\b0\d{11}\b")
-
-        # 3. Regex cho Lệnh ép buộc (Explicit Command):
-        # Bắt đầu bằng !note hoặc /nhớ, theo sau là khoảng trắng và nội dung. (Không phân biệt hoa/thường)
+        # Regex cho lệnh ép buộc (!note, /nhớ)
         self.cmd_regex = re.compile(r"^[!/](note|nhớ)\s+(.+)", re.IGNORECASE)
 
-    def _check_noise(self, text: str) -> RuleResult:
-        """Lọc tin nhắn quá ngắn hoặc vô nghĩa."""
-        if len(text.strip()) <= 3 or self.noise_regex.match(text):
+    def evaluate(self, content: str) -> RuleResult:
+        """Đánh giá cực nhanh bằng Regex trước khi qua Semantic Engine."""
+        # Chuẩn hóa khoảng trắng dư thừa
+        clean_content = " ".join(content.split())
+
+        # Tầng 1: Chặn rác (quá ngắn hoặc chỉ chứa ký tự đặc biệt)
+        if len(clean_content.strip()) <= 3 or self.noise_regex.match(clean_content):
             return RuleResult(
                 matched=True,
                 score=0.1,
                 category=MessageCategory.GENERAL,
                 stop_processing=True,
             )
-        return RuleResult(
-            matched=False,
-            score=0.0,
-            category=MessageCategory.GENERAL,
-            stop_processing=False,
-        )
 
-    def _check_security(self, text: str) -> RuleResult:
-        """Bảo vệ dữ liệu nhạy cảm không bị đưa vào AI hoặc lưu trữ lộ liễu."""
-        if self.jwt_regex.search(text) or self.cccd_regex.search(text):
-            logger.warning("🚨 RuleEngine: Phát hiện dữ liệu có cấu trúc nhạy cảm!")
-            return RuleResult(
-                matched=True,
-                score=1.0,
-                category=MessageCategory.SENSITIVE,
-                stop_processing=True,
-            )
-        return RuleResult(
-            matched=False,
-            score=0.0,
-            category=MessageCategory.GENERAL,
-            stop_processing=False,
-        )
-
-    def _check_explicit_command(self, text: str) -> RuleResult:
-        """Xử lý cú pháp bắt buộc bot phải nhớ (Bypass AI)."""
-        match = self.cmd_regex.match(text)
-        if match:
-            # Tách lấy phần nội dung thực sự (bỏ chữ !note đi)
-            content = match.group(2).strip()
+        # Tầng 2: Bắt lệnh trực tiếp (!note, /nhớ)
+        cmd_match = self.cmd_regex.match(clean_content)
+        if cmd_match:
             return RuleResult(
                 matched=True,
                 score=1.0,
                 category=MessageCategory.EXPLICIT_COMMAND,
                 stop_processing=True,
-                extracted_content=content,
+                extracted_content=cmd_match.group(2).strip(),
             )
-        return RuleResult(
-            matched=False,
-            score=0.0,
-            category=MessageCategory.GENERAL,
-            stop_processing=False,
-        )
 
-    def _check_question(self, text: str) -> RuleResult:
-        """Xác định ngữ pháp câu hỏi để cung cấp Base Score cho Qwen."""
-        text_lower = text.lower()
-        if "?" in text or text_lower.startswith(
-            ("tại sao", "làm sao", "làm thế nào", "ai")
-        ):
-            # LƯU Ý: stop_processing = False. Nó vẫn sẽ đi qua Qwen để xem nội dung câu hỏi là gì!
-            return RuleResult(
-                matched=True,
-                score=0.6,
-                category=MessageCategory.QUERY,
-                stop_processing=False,
-            )
+        # Tầng 3: Kiểm tra Fact patterns
+        for pattern in self.compiled_facts:
+            if pattern.search(clean_content):
+                return RuleResult(
+                    matched=True,
+                    score=0.85,  # Điểm cao cho fact
+                    category=MessageCategory.FACT,
+                    stop_processing=False,  # Vẫn cho qua Semantic để confirm
+                )
+
+        # Mặc định: Không match rule nào, tiếp tục sang Semantic
         return RuleResult(
             matched=False,
             score=0.2,
             category=MessageCategory.GENERAL,
             stop_processing=False,
         )
-
-    @track_general_step(
-        step_name="T1_Rule_Engine_Evaluation", tags=["tier_1", "rule_engine"]
-    )
-    def evaluate(self, text: str) -> RuleResult:
-        """
-        Chạy dữ liệu qua phễu. Lớp nào có quyền `stop_processing=True` sẽ lập tức trả về (Return early).
-        """
-        # Tầng 1: Chặn rác
-        noise_res = self._check_noise(text)
-        if noise_res.stop_processing:
-            return noise_res
-
-        # Tầng 2: Chặn dữ liệu nhạy cảm
-        sec_res = self._check_security(text)
-        if sec_res.stop_processing:
-            return sec_res
-
-        # Tầng 3: Bắt lệnh trực tiếp (!note)
-        cmd_res = self._check_explicit_command(text)
-        if cmd_res.stop_processing:
-            return cmd_res
-
-        # Tầng 4: Lấy ngữ pháp cơ bản (Không chặn, mặc định đi tiếp)
-        return self._check_question(text)

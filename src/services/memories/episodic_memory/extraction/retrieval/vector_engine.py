@@ -2,9 +2,9 @@
 import logging
 from typing import List, Optional
 
-from Arize_Phoenix_tool_kit import track_general_step
+from langsmith import traceable
 
-from ..models import EpisodicPayload, EpisodicRecord
+from ...models import EpisodicPayload, EpisodicRecord
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +21,10 @@ class VectorEngine:
         """
         self.embedding_service = embedding_service
 
-    @track_general_step(
-        step_name="T2_Embed_Event_Payload", tags=["tier_2", "embedding", "ingestion"]
+    @traceable(
+        name="T2_Embed_Event_Payload",
+        run_type="chain",
+        tags=["tier_2", "embedding", "ingestion"],
     )
     async def create_record(self, payload: EpisodicPayload) -> Optional[EpisodicRecord]:
         """
@@ -47,8 +49,10 @@ class VectorEngine:
             logger.error(f"❌ VectorEngine: Lỗi khi nhúng payload: {e}")
             return None
 
-    @track_general_step(
-        step_name="T2_Embed_User_Query", tags=["tier_2", "embedding", "retrieval"]
+    @traceable(
+        name="T2_Embed_User_Query",
+        run_type="chain",
+        tags=["tier_2", "embedding", "retrieval"],
     )
     async def embed_query(self, query_text: str) -> Optional[List[float]]:
         """Nhúng câu hỏi của user để đi tìm kiếm trong DB."""

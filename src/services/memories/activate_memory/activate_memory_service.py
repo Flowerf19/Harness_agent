@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, List
 
-from Arize_Phoenix_tool_kit import track_general_step
+from langsmith import traceable
 
 from .constants import CRITICAL_INFO_THRESHOLD, MAX_WORKING_TOKENS
 from .evaluation.pipeline import EvaluationPipeline
@@ -38,8 +38,8 @@ class ActiveMemoryService:
         self.context_builder = context_builder
         self.events = event_dispatcher
 
-    @track_general_step(
-        step_name="T1_Process_New_Message", tags=["tier_1", "core_flow"]
+    @traceable(
+        name="T1_Process_New_Message", run_type="chain", tags=["tier_1", "core_flow"]
     )
     async def add_message(self, user_id: str, role: str, content: str) -> MemoryEntry:
         """Luồng chính: Xử lý khi có tin nhắn mới."""
@@ -73,6 +73,7 @@ class ActiveMemoryService:
         # A. Bắt sự kiện Tức thời (Semantic Trigger)
         if (
             score >= CRITICAL_INFO_THRESHOLD
+            or category == MessageCategory.FACT
             or category == MessageCategory.EXPLICIT_COMMAND
         ):
             # Gửi toàn bộ object entry cho Tầng 3 tự bóc tách

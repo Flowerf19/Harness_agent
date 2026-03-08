@@ -1,7 +1,7 @@
 import logging
 from typing import Optional, Tuple
 
-from Arize_Phoenix_tool_kit import track_general_step
+from langsmith import traceable
 
 from ..models import MessageCategory
 
@@ -18,8 +18,10 @@ class EvaluationPipeline:
         self.rule_engine = rule_engine
         self.semantic_engine = semantic_engine
 
-    @track_general_step(
-        step_name="T1_Evaluation_Pipeline", tags=["tier_1", "pipeline", "evaluation"]
+    @traceable(
+        name="T1_Evaluation_Pipeline",
+        run_type="chain",
+        tags=["tier_1", "pipeline", "evaluation"],
     )
     async def evaluate_message(
         self, text: str, role: str

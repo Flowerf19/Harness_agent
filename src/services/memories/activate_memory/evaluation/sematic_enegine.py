@@ -1,8 +1,8 @@
 import logging
 import math
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
-from Arize_Phoenix_tool_kit import track_general_step
+from langsmith import traceable
 
 from ..constants import SEMANTIC_ACTIVATION_THRESHOLD
 from ..models import MessageCategory
@@ -40,43 +40,94 @@ class SemanticEngine:
     Đo khoảng cách giữa câu nói của user và các định nghĩa (Anchors).
     """
 
-    def __init__(self, embedding_service):
+    def __init__(self, embedding_service=None):
         """
         :param embedding_service: Wrapper service (VD: QwenService) có chứa hàm .get_embedding(text)
         """
         self.embedding_service = embedding_service
         self._anchor_vectors: Dict[MessageCategory, List[float]] = {}
+        self._fact_anchor_vectors: List[List[float]] = []
         self._is_initialized = False
 
-    async def _ensure_initialized(self):
-        """Lazy loading: Chỉ gọi API nhúng các mỏ neo trong lần gọi đầu tiên."""
+        # 16 anchor tiếng Việt cho việc phát hiện FACT
+        self.fact_anchors = [
+            # --- NHÓM 1: ĐỊNH DANH & NHÂN KHẨU HỌC ---
+            "Tôi tên là, biệt danh của tôi là, mọi người hay gọi tôi là.",
+            "Năm nay tôi nhiêu tuổi, tôi sinh năm, ngày tháng năm sinh của tôi.",
+            "Quê tôi ở, tôi sinh ra ở, hiện tại tôi đang sống và làm việc tại.",
+            "Thông tin cá nhân cơ bản, giới thiệu bản thân, tên tuổi quê quán.",
+            # --- NHÓM 2: NGHỀ NGHIỆP & HỌC VẤN ---
+            "Tôi làm nghề, công việc hiện tại của tôi là, chuyên môn của tôi là.",
+            "Tôi là sinh viên trường, tôi đang học ngành, tôi vừa mới tốt nghiệp.",
+            "Thông tin về nghề nghiệp, chức vụ, trường học, tình trạng công việc.",
+            # --- NHÓM 3: SỞ THÍCH & ĐAM MÊ ---
+            "Tôi rất thích, đam mê của tôi là, sở thích cá nhân, tôi hay dành thời gian để.",
+            "Món ăn yêu thích của tôi, thể loại nhạc tôi hay nghe, tựa game tôi thường chơi.",
+            "Phong cách của tôi, thói quen sinh hoạt hàng ngày của tôi là.",
+            # --- NHÓM 4: RÀNG BUỘC & CẤM KỴ (RẤT QUAN TRỌNG) ---
+            "Tôi cực kỳ ghét, tôi không thích, tôi không chịu được, tôi dị ứng với.",
+            "Sức khỏe của tôi, bệnh lý của tôi là, tôi không ăn được món.",
+            "Những điều cấm kỵ, nhược điểm cá nhân, thói quen xấu cần tránh.",
+            # --- NHÓM 5: MỐI QUAN HỆ & GIA ĐÌNH ---
+            "Tôi đã có người yêu, tôi đang độc thân, tình trạng hôn nhân của tôi.",
+            "Gia đình tôi có, bố mẹ tôi, con cái của tôi, bạn thân của tôi là.",
+            "Tôi có nuôi một chú chó, tôi có nuôi mèo, thú cưng của tôi tên là.",
+            # --- NHÓM 6: DỰ ĐỊNH & KẾ HOẠCH TƯƠNG LAI ---
+            "Tôi dự định sắp tới sẽ, mục tiêu của tôi là, kế hoạch năm nay tôi muốn.",
+            "Tôi đang ấp ủ dự án, tôi chuẩn bị đi du lịch ở.",
+        ]
+
+    async def initialize(self):
+        """Khởi tạo embedding cho các fact anchors."""
         if self._is_initialized:
             return
 
-        logger.info("🧠 SemanticEngine: Đang khởi tạo các Anchor Vectors từ Qwen...")
+        if not self.embedding_service:
+            logger.warning(
+                "⚠️ SemanticEngine: Không có embedding_service, bỏ qua khởi tạo"
+            )
+            return
+
+        logger.info("🧠 SemanticEngine: Đang khởi tạo các Fact Anchor Vectors...")
         try:
+            # Nhúng các fact anchors
+            for anchor in self.fact_anchors:
+                vector = await self.embedding_service.get_embedding(anchor)
+                self._fact_anchor_vectors.append(vector)
+
+            # Vẫn giữ category anchors cho backward compatibility
             for category, prompt in CATEGORY_ANCHOR_PROMPTS.items():
                 vector = await self.embedding_service.get_embedding(prompt)
                 self._anchor_vectors[category] = vector
+
             self._is_initialized = True
-            logger.info("✅ SemanticEngine: Khởi tạo Anchor Vectors thành công!")
+            logger.info(
+                f"✅ SemanticEngine: Khởi tạo {len(self._fact_anchor_vectors)} Fact Anchor Vectors thành công!"
+            )
         except Exception as e:
             logger.error(f"❌ SemanticEngine: Lỗi khi khởi tạo Anchor Vectors: {e}")
-            # Nếu sập API nhúng, bot vẫn chạy được nhưng không có AI đánh giá
             self._is_initialized = False
 
-    @track_general_step(
-        step_name="T1_Qwen_Embedding_Scoring", tags=["tier_1", "semantic", "qwen"]
+    async def close(self):
+        """Đóng kết nối."""
+        pass
+
+    @traceable(
+        name="T1_Qwen_Embedding_Scoring",
+        run_type="chain",
+        tags=["tier_1", "semantic", "qwen"],
     )
-    async def evaluate(self, text: str, role: str) -> Tuple[float, MessageCategory]:
+    async def evaluate(
+        self, text: str, role: str = "user"
+    ) -> Tuple[float, MessageCategory]:
         """
         Nhúng tin nhắn và so sánh với các mỏ neo.
         Trả về (Final_Score, Category)
         """
-        await self._ensure_initialized()
+        await self.initialize()
 
         # Fallback an toàn nếu API nhúng đang chết
-        if not self._is_initialized or not self._anchor_vectors:
+        if not self._is_initialized or not self._fact_anchor_vectors:
             return 0.0, MessageCategory.GENERAL
 
         try:
@@ -86,17 +137,25 @@ class SemanticEngine:
             max_similarity = 0.0
             best_category = MessageCategory.GENERAL
 
-            # 2. So sánh với từng Mỏ neo
+            # 2. So sánh với các Fact Anchors
+            similarities = []
+            for anchor_vec in self._fact_anchor_vectors:
+                sim = cosine_similarity(msg_vector, anchor_vec)
+                similarities.append(sim)
+
+            # Lấy similarity cao nhất từ fact anchors
+            if similarities:
+                max_similarity = max(similarities)
+                if max_similarity >= SEMANTIC_ACTIVATION_THRESHOLD:
+                    best_category = MessageCategory.FACT
+
+            # 3. So sánh với category anchors (backward compatibility)
             for category, anchor_vec in self._anchor_vectors.items():
                 sim = cosine_similarity(msg_vector, anchor_vec)
                 if sim > max_similarity:
                     max_similarity = sim
-                    best_category = category
-
-            # 3. Áp dụng Ngưỡng Kích Hoạt (Activation Threshold)
-            # Nếu điểm cao nhất vẫn thấp hơn Threshold (VD: 0.65), coi như đây là câu chat nhảm
-            if max_similarity < SEMANTIC_ACTIVATION_THRESHOLD:
-                best_category = MessageCategory.GENERAL
+                    if sim >= SEMANTIC_ACTIVATION_THRESHOLD:
+                        best_category = category
 
             # 4. Tính điểm cộng (Bonus Rules)
             final_score = max_similarity

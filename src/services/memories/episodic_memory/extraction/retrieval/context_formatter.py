@@ -1,7 +1,7 @@
 # src/services/episodic_memory/retrieval/context_formatter.py
 from typing import List, Tuple
 
-from ..models import EpisodicRecord
+from ...models import EpisodicRecord
 
 
 class ContextFormatter:

@@ -1,7 +1,7 @@
 import logging
 from typing import List
 
-from Arize_Phoenix_tool_kit import track_general_step
+from langsmith import traceable
 
 from ..models import MemoryEntry
 
@@ -13,8 +13,10 @@ class ContextBuilder:
     Bộ xây dựng Ngữ cảnh Hỗn hợp (Composite Context) để đưa vào Prompt cho LLM.
     """
 
-    @track_general_step(
-        step_name="T1_Build_Composite_Context", tags=["tier_1", "management", "context"]
+    @traceable(
+        name="T1_Build_Composite_Context",
+        run_type="chain",
+        tags=["tier_1", "management", "context"],
     )
     def build_context(
         self, entries: List[MemoryEntry], max_recent: int = 4, max_important: int = 2

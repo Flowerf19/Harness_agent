@@ -1,8 +1,9 @@
 import logging
 import os
+from typing import Dict, List, Optional
 
 import aiohttp
-from Arize_Phoenix_tool_kit import track_llm_call
+from langsmith import traceable
 
 from ...config.settings import Config
 from .base_llm_service import BaseLLMService
@@ -10,6 +11,9 @@ from .base_llm_service import BaseLLMService
 
 class GeminiService(BaseLLMService):
     def __init__(self):
+        # 🔴 Gọi super() để lấy base prompts
+        super().__init__()
+
         self.api_key = os.getenv("GEMINI_API_KEY")
         self.api_url = os.getenv(
             "GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/models"
@@ -18,18 +22,14 @@ class GeminiService(BaseLLMService):
         self.session = None
         self.logger = logging.getLogger("discord_bot.GeminiService")
 
-        # Load prompts
-        self.personality_prompt = self._load_prompt("personality.txt")
-        self.conversation_prompt = self._load_prompt("conversation_prompt.txt")
-
     async def _get_session(self):
         if self.session is None:
             self.session = aiohttp.ClientSession()
         return self.session
 
-    @track_llm_call(model_name=Config.LLM_MODEL, prompt_arg="prompt")
+    @traceable(name="Gemini_Generate", run_type="llm", tags=["gemini", "generation"])
     async def generate_response(
-        self, prompt: str, user_id: str = None, conversation_context: str = ""
+        self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None
     ) -> str:
         if not self.api_key:
             self.logger.error("Gemini API key not found")
@@ -37,16 +37,22 @@ class GeminiService(BaseLLMService):
 
         session = await self._get_session()
 
-        # Build system prompt and user message separately
-        system_prompt = self._build_system_prompt()
-        user_message = self._build_user_message(prompt, user_id, conversation_context)
+        # 1. Trộn hệ tư tưởng (System Prompt)
+        final_system_prompt = self._build_final_system_prompt(system_prompt)
 
-        # Construct the full API URL for generateContent
+        # 2. Biên dịch mảng `messages` sang chuẩn Gemini
+        # Chuyển đổi từ {"role": "assistant", "content": "..."}
+        # Sang {"role": "model", "parts": [{"text": "..."}]}
+        gemini_contents = []
+        for msg in messages:
+            role = "model" if msg["role"] == "assistant" else "user"
+            gemini_contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+
         full_url = f"{self.api_url}/{self.model}:generateContent?key={self.api_key}"
 
         payload = {
-            "system_instruction": {"parts": [{"text": system_prompt}]},
-            "contents": [{"role": "user", "parts": [{"text": user_message}]}],
+            "system_instruction": {"parts": [{"text": final_system_prompt}]},
+            "contents": gemini_contents,
             "generationConfig": {
                 "temperature": Config.LLM_TEMPERATURE,
                 "maxOutputTokens": Config.LLM_MAX_TOKENS,
@@ -56,9 +62,6 @@ class GeminiService(BaseLLMService):
         }
 
         try:
-            self.logger.debug(
-                f"Sending request to Gemini API with system prompt: {system_prompt[:100]}... and user message: {user_message[:100]}..."
-            )
             async with session.post(
                 full_url, json=payload, headers={"Content-Type": "application/json"}
             ) as response:
@@ -69,7 +72,6 @@ class GeminiService(BaseLLMService):
 
                 response_data = await response.json()
 
-                # Extract the text from the response
                 if (
                     "candidates" in response_data
                     and len(response_data["candidates"]) > 0
@@ -80,7 +82,6 @@ class GeminiService(BaseLLMService):
                         if len(parts) > 0 and "text" in parts[0]:
                             return parts[0]["text"]
 
-                self.logger.error(f"Unexpected response format: {response_data}")
                 return "Error: Unexpected response format."
 
         except Exception as e:

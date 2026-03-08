@@ -3,7 +3,7 @@ import logging
 from enum import Enum
 from typing import Any, Callable, Dict, List
 
-from Arize_Phoenix_tool_kit import track_general_step
+from langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class EventDispatcher:
         if callback not in self._listeners[event_type]:
             self._listeners[event_type].append(callback)
 
-    @track_general_step(step_name="T1_Event_Emitted", tags=["tier_1", "events"])
+    @traceable(name="T1_Event_Emitted", run_type="chain", tags=["tier_1", "events"])
     def emit(self, event_type: ActiveMemoryEvent, user_id: str, data: Any = None):
         """
         Phát sự kiện. Chạy các callback dạng Fire-and-Forget (Bắn và Quên)

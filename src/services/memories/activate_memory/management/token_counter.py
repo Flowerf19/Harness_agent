@@ -1,8 +1,7 @@
 import logging
-from typing import List
 
 import tiktoken
-from Arize_Phoenix_tool_kit import track_general_step
+from langsmith import traceable
 
 from ..constants import STRUCTURAL_OVERHEAD_TOKENS
 
@@ -29,8 +28,10 @@ class TokenCounter:
             return 0
         return len(self.encoding.encode(text))
 
-    @track_general_step(
-        step_name="T1_Token_Counting", tags=["tier_1", "management", "token"]
+    @traceable(
+        name="T1_Token_Counting",
+        run_type="chain",
+        tags=["tier_1", "management", "token"],
     )
     def count_entry_tokens(self, text: str) -> int:
         """

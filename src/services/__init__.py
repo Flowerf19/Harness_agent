@@ -1,30 +1,19 @@
-# filepath: discord-bot-gemini/src/services/__init__.py
-from .background import (
-    ActivityMonitor,
-    CleanupService,
-    MemoryBackgroundService,
-    MemoryDecayService,
-    SchedulerService,
-    SummaryScheduler,
-)
-from .core import AntiSpamService, MessageProcessor
-from .wrappers.gemini_service import GeminiService
-from .wrappers.lm_studio_service import LMStudioService
-from .wrappers.ollama_service import OllamaService
-from .wrappers.qwen_service import QwenService
+# src/services/__init__.py
+"""
+Services module for Discord bot.
+"""
+
+from .chat_coordinator import ChatCoordinator
+from .core import AntiSpamService
+from .dependencies import AppContainer
+from .llm import BaseLLMService, GeminiService, LocalEmbeddingService, QwenService
 
 __all__ = [
     "AntiSpamService",
+    "AppContainer",
+    "BaseLLMService",
+    "ChatCoordinator",
     "GeminiService",
-    "LMStudioService",
-    "MessageProcessor",
-    "OllamaService",
+    "LocalEmbeddingService",
     "QwenService",
-    "MemoryBackgroundService",
-    "ActivityMonitor",
-    # Background services
-    "SchedulerService",
-    "MemoryDecayService",
-    "SummaryScheduler",
-    "CleanupService",
 ]

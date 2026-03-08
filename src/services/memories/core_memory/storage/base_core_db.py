@@ -1,6 +1,5 @@
 # src/services/core_memory/storage/base_core_db.py
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from ..models import UserProfile
 

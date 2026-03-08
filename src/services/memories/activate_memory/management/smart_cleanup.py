@@ -1,7 +1,6 @@
 import logging
-from typing import List
 
-from Arize_Phoenix_tool_kit import track_general_step
+from langsmith import traceable
 
 from ..constants import CRITICAL_INFO_THRESHOLD, TARGET_SAFE_TOKENS
 from ..storage.base_storage import BaseStorage
@@ -19,8 +18,10 @@ class SmartCleanup:
     def __init__(self, storage: BaseStorage):
         self.storage = storage
 
-    @track_general_step(
-        step_name="T1_Smart_Cleanup_Execution", tags=["tier_1", "management", "cleanup"]
+    @traceable(
+        name="T1_Smart_Cleanup_Execution",
+        run_type="chain",
+        tags=["tier_1", "management", "cleanup"],
     )
     async def execute(self, user_id: str, current_tokens: int) -> None:
         """Thực thi thuật toán dọn dẹp cho user."""

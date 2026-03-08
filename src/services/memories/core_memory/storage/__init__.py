@@ -5,9 +5,9 @@ Provides database implementations for persistent core memory storage.
 """
 
 from .base_core_db import BaseCoreDB
-from .local_json_db import LocalJSONDB
+from .local_json_db import LocalCoreDB
 
 __all__ = [
     "BaseCoreDB",
-    "LocalJSONDB",
+    "LocalCoreDB",
 ]

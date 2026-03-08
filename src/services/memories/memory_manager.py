@@ -1,20 +1,23 @@
-import asyncio
 import logging
 from typing import Dict, List, Tuple
 
-from Arize_Phoenix_tool_kit import track_general_step
+from langsmith import traceable
 
 # --- IMPORTS TẦNG 1 (Active Memory) ---
-from .active_memory.active_memory_service import ActiveMemoryService
-from .active_memory.events.event_dispatcher import ActiveMemoryEvent, EventDispatcher
-from .active_memory.models import MessageCategory
+from src.services.memories.activate_memory.activate_memory_service import (
+    ActiveMemoryService,
+)
+from src.services.memories.activate_memory.events.event_dispatcher import (
+    ActiveMemoryEvent,
+    EventDispatcher,
+)
 
 # --- IMPORTS TẦNG 3 (Core Memory) ---
-from .core_memory.core_manager import CoreManager
+from src.services.memories.core_memory.core_manager import CoreManager
 
 # --- IMPORTS TẦNG 2 (Episodic Memory) ---
 # Giả định bạn đã gói các class T2 vào EpisodicManager
-from .episodic_memory.episodic_manager import EpisodicManager
+from src.services.memories.episodic_memory.episodic_manager import EpisodicManager
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +75,8 @@ class MemoryManager:
     # CÁC HÀM API PUBLIC CHO DISCORD BOT GỌI VÀO
     # ==========================================
 
-    @track_general_step(
-        step_name="Master_Add_Message", tags=["memory_manager", "write"]
+    @traceable(
+        name="Master_Add_Message", run_type="chain", tags=["memory_manager", "write"]
     )
     async def add_message(self, user_id: str, role: str, content: str) -> None:
         """
@@ -82,8 +85,9 @@ class MemoryManager:
         """
         await self.t1.add_message(user_id, role, content)
 
-    @track_general_step(
-        step_name="Master_Get_Context",
+    @traceable(
+        name="Master_Get_Context",
+        run_type="chain",
         tags=["memory_manager", "read", "context_assembly"],
     )
     async def get_context(

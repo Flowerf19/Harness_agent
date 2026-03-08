@@ -1,15 +1,20 @@
 import logging
 import os
+from typing import Dict, List, Optional
 
 import aiohttp
-from Arize_Phoenix_tool_kit import track_llm_call
+from langsmith import traceable
 
+# Chú ý: Đổi đường dẫn import tùy theo kiến trúc thư mục mới của bạn
 from ...config.settings import Config
 from .base_llm_service import BaseLLMService
 
 
 class QwenService(BaseLLMService):
     def __init__(self):
+        # 🔴 Bắt buộc gọi super() để load tính cách tĩnh từ file
+        super().__init__()
+
         self.api_key = os.getenv("QWEN_API_KEY")
         self.api_url = os.getenv(
             "QWEN_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -18,18 +23,15 @@ class QwenService(BaseLLMService):
         self.session = None
         self.logger = logging.getLogger("discord_bot.QwenService")
 
-        # Load prompts
-        self.personality_prompt = self._load_prompt("personality.txt")
-        self.conversation_prompt = self._load_prompt("conversation_prompt.txt")
-
     async def _get_session(self):
         if self.session is None:
             self.session = aiohttp.ClientSession()
         return self.session
 
-    @track_llm_call(model_name=Config.QWEN_MODEL, prompt_arg="prompt")
+    # Đổi prompt_arg thành "messages" cho hợp với tham số mới
+    @traceable(name="Qwen_Generate", run_type="llm", tags=["qwen", "generation"])
     async def generate_response(
-        self, prompt: str, user_id: str = None, conversation_context: str = ""
+        self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None
     ) -> str:
         if not self.api_key:
             self.logger.error("Qwen API key not found")
@@ -37,28 +39,23 @@ class QwenService(BaseLLMService):
 
         session = await self._get_session()
 
-        # Build system prompt and user message separately
-        system_prompt = self._build_system_prompt()
-        user_message = self._build_user_message(prompt, user_id, conversation_context)
+        # 1. Trộn Tính cách tĩnh + Tiềm thức User (Tầng 3)
+        final_system_prompt = self._build_final_system_prompt(system_prompt)
 
-        # Construct the full API URL
+        # 2. Xếp mảng hội thoại chuẩn OpenAI
+        # Nhét system_prompt lên đầu, sau đó đến toàn bộ lịch sử hội thoại (T1 + T2)
+        api_messages = [{"role": "system", "content": final_system_prompt}] + messages
+
         full_url = f"{self.api_url}/chat/completions"
-
         payload = {
             "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
+            "messages": api_messages,
             "temperature": Config.LLM_TEMPERATURE,
             "max_tokens": Config.LLM_MAX_TOKENS,
             "top_p": Config.LLM_TOP_P,
         }
 
         try:
-            self.logger.debug(
-                f"Sending request to Qwen API with system prompt: {system_prompt[:100]}... and user message: {user_message[:100]}..."
-            )
             async with session.post(
                 full_url,
                 json=payload,
@@ -74,13 +71,11 @@ class QwenService(BaseLLMService):
 
                 response_data = await response.json()
 
-                # Extract the text from the response
                 if "choices" in response_data and len(response_data["choices"]) > 0:
                     choice = response_data["choices"][0]
                     if "message" in choice and "content" in choice["message"]:
                         return choice["message"]["content"]
 
-                self.logger.error(f"Unexpected response format: {response_data}")
                 return "Error: Unexpected response format."
 
         except Exception as e:

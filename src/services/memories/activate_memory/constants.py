@@ -8,9 +8,9 @@ STRUCTURAL_OVERHEAD_TOKENS = (
 TARGET_SAFE_TOKENS = 1000  # Sau khi dọn dẹp, RAM nên giảm về mức an toàn này
 
 # --- Semantic Thresholds ---
-SEMANTIC_ACTIVATION_THRESHOLD = 0.65  # Ngưỡng Cosine thấp nhất để Qwen gán Category
+SEMANTIC_ACTIVATION_THRESHOLD = 0.55  # Ngưỡng Cosine thấp nhất để Qwen gán Category
 CRITICAL_INFO_THRESHOLD = (
-    0.85  # Ngưỡng Cosine cao để bắn thẳng xuống Tầng 3 (Core Persona)
+    0.55  # Ngưỡng Cosine cao để bắn thẳng xuống Tầng 3 (Core Persona)
 )
 
 # --- Timeouts ---

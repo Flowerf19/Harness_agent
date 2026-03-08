@@ -1,134 +1,77 @@
-import asyncio
 import logging
-import os
 
-import discord  # type: ignore
-from discord.ext import commands  # type: ignore
 from dotenv import load_dotenv
 
-# Load environment variables before importing Config
+# Load .env TRƯỚC khi import các module khác
 load_dotenv()
 
-# Import Config from settings
-# Phoenix tracing setup
-from Arize_Phoenix_tool_kit import init_toolkit
+import discord
+from discord.ext import commands
 
-from src.config.settings import Config  # noqa: E402
+from src.config.logging_config import setup_logging
+from src.config.settings import Config
+from src.services.dependencies import AppContainer
 
-# Simplified logging configuration
-logging.basicConfig(
-    level=getattr(
-        logging, Config.LOG_LEVEL.upper(), logging.INFO
-    ),  # Use Config.LOG_LEVEL with fallback to INFO
-    format="%(asctime)s - %(levelname)s - %(message)s",  # Simplified format
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("bot.log", encoding="utf-8"),
-    ],
-)
-logger = logging.getLogger("discord_bot")
-
-logger.info("🚀 Starting Discord Bot...")
-
-# Khởi tạo Phoenix Toolkit với error handling
-try:
-    tracer, success = init_toolkit(project_name="Be_Bay_Bot", frameworks=["aiohttp"])
-    if success:
-        logger.info("✅ Phoenix Toolkit initialized successfully")
-    else:
-        logger.warning("⚠️ Phoenix Toolkit initialization partially failed")
-except Exception as e:
-    logger.error(f"❌ Failed to initialize Phoenix Toolkit: {e}")
-
-intents = discord.Intents.default()
-intents.messages = True
-intents.guilds = True
-intents.message_content = True
-
-bot = commands.Bot(
-    command_prefix="!",
-    intents=intents,
-    help_command=None,
-    case_insensitive=True,
-    strip_after_prefix=True,
-    max_messages=Config.MAX_MESSAGES,
-)
+# Thiết lập Logging hệ thống
+setup_logging()
+logger = logging.getLogger("discord_bot.main")
 
 
-@bot.event
-async def on_ready():
-    logger.info(f"🚀 Bot started as {bot.user} in {len(bot.guilds)} guilds")
+class CoreBot(commands.Bot):
+    def __init__(self):
+        # Bật Intents để đọc được nội dung tin nhắn
+        intents = discord.Intents.default()
+        intents.message_content = True
+        intents.members = True  # Nếu bot cần chào người mới
 
-    if os.getenv("SYNC_COMMANDS") == "1":
+        super().__init__(
+            command_prefix=getattr(Config, "COMMAND_PREFIX", "!"),
+            intents=intents,
+            help_command=None,  # Tắt help mặc định nếu muốn tự custom
+        )
+
+    async def setup_hook(self):
+        """Hàm này chạy 1 lần duy nhất trước khi bot on_ready."""
+        logger.info("⚙️ Đang mồi nổ hệ thống (Setup Hook)...")
+
+        # 1. Kích hoạt Trạm Điện: Khởi tạo toàn bộ LLM và Memory 3 Tầng
+        await AppContainer.get_instance().initialize()
+
+        # 2. Load các Trạm kiểm soát Discord (Cogs)
         try:
-            await bot.tree.sync()
-            logger.info("✅ Slash commands synced")
+            # Load file giao tiếp chính (Ta sẽ viết file này thay cho llm_message cũ)
+            await self.load_extension("src.cogs.chat_gateway")
+
+            # Load các cogs phụ trợ khác nếu bạn vẫn xài (admin, commands...)
+            await self.load_extension("src.cogs.user_commands")
+            await self.load_extension("src.cogs.admin_channels")
+
+            logger.info("✅ Đã nạp thành công các Cogs!")
         except Exception as e:
-            logger.warning(f"⚠️ Slash command sync failed: {e}")
+            logger.error(f"❌ Lỗi khi nạp Cogs: {e}")
+
+    async def on_ready(self):
+        logger.info(f"🚀 Bot đã online với tư cách: {self.user} (ID: {self.user.id})")
+        # Đổi status của bot cho ngầu
+        await self.change_presence(
+            activity=discord.Game(name="Đang đồng bộ Trí nhớ...")
+        )
+
+    async def close(self):
+        """Dọn dẹp tài nguyên trước khi tắt bot."""
+        logger.info("🛑 Đang tắt bot và ngắt kết nối an toàn...")
+        await AppContainer.get_instance().shutdown()
+        await super().close()
 
 
-@bot.event
-async def on_error(event, *args, **kwargs):
-    logger.error(f"❌ Unhandled error in {event}", exc_info=True)
-
-
-async def load_cogs():
-    """Load all cogs from cogs directory"""
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    cogs_dir = os.path.join(current_dir, "cogs")
-
-    if not os.path.exists(cogs_dir):
-        logger.warning(f"⚠️ Cogs directory not found: {cogs_dir}")
+def main():
+    if not Config.DISCORD_BOT_TOKEN:
+        logger.critical("❌ Không tìm thấy DISCORD_BOT_TOKEN trong file .env!")
         return
 
-    cog_files = [
-        f"cogs.{filename[:-3]}"
-        for filename in os.listdir(cogs_dir)
-        if filename.endswith(".py") and not filename.startswith("__")
-    ]
-
-    if not cog_files:
-        logger.warning("⚠️ No cog files found")
-        return
-
-    loaded = 0
-    for cog_name in cog_files:
-        try:
-            await bot.load_extension(cog_name)
-            loaded += 1
-            logger.info(f"✅ Loaded {cog_name}")
-        except Exception as e:
-            logger.error(f"❌ Failed to load {cog_name}: {e}")
-
-    logger.info(f"📦 Loaded {loaded}/{len(cog_files)} cogs")
-
-
-async def main():
-    try:
-        async with bot:
-            await load_cogs()
-
-            token = os.getenv("DISCORD_LLM_BOT_TOKEN")
-            if not token:
-                logger.error("❌ No Discord token found in environment")
-                return
-
-            await bot.start(token)
-
-    except discord.LoginFailure:
-        logger.error("❌ Invalid Discord token")
-    except Exception as e:
-        logger.error(f"❌ Bot startup failed: {e}")
-    finally:
-        if not bot.is_closed():
-            await bot.close()
-        logger.info("🔒 Bot shutdown complete")
+    bot = CoreBot()
+    bot.run(Config.DISCORD_BOT_TOKEN)
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("👋 Bot stopped by user")
-    except Exception as e:
-        logger.error(f"❌ Fatal error: {e}")
+    main()

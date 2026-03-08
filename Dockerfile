@@ -12,7 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Sao chép file requirements.txt vào trước để tận dụng Docker Cache
 COPY requirements.txt .
 
-# Cài đặt các thư viện Python (Thêm --no-cache-dir để giảm dung lượng image)
+# Cài đặt PyTorch với ROCm support (cho AMD GPU)
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/rocm6.2
+
+# Cài đặt các thư viện Python còn lại
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Sao chép toàn bộ mã nguồn dự án vào container

@@ -1,7 +1,6 @@
 import logging
-from typing import Optional
 
-from Arize_Phoenix_tool_kit import track_general_step
+from langsmith import traceable
 
 from .smart_updater import SmartUpdater
 from .storage.base_core_db import BaseCoreDB
@@ -19,8 +18,9 @@ class CoreManager:
         self.storage = storage
         self.smart_updater = smart_updater
 
-    @track_general_step(
-        step_name="T3_Inject_System_Prompt",
+    @traceable(
+        name="T3_Inject_System_Prompt",
+        run_type="chain",
         tags=["tier_3", "core_memory", "prompt_injection"],
     )
     async def get_system_prompt_context(self, user_id: str) -> str:
@@ -90,8 +90,9 @@ class CoreManager:
 
         return "\n".join(lines)
 
-    @track_general_step(
-        step_name="T3_Handle_Critical_Info",
+    @traceable(
+        name="T3_Handle_Critical_Info",
+        run_type="chain",
         tags=["tier_3", "core_memory", "event_handler"],
     )
     async def handle_critical_info(

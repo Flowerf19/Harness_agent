@@ -9,8 +9,15 @@ services:
       # LM Studio endpoint - dùng host.docker.internal để kết nối từ Docker
       - TOOL_LLM_ENDPOINT=http://host.docker.internal:1234/v1
       - TOOL_LLM_MODEL=qwen3-coder-30b-a3b-instruct
+      # Hugging Face cache
+      - HF_HOME=/root/.cache/huggingface
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+    # Cấu hình AMD GPU (ROCm) access
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
 
     volumes:
       - ./src/data:/app/src/data

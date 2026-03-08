@@ -62,3 +62,7 @@ class RamStorage(BaseStorage):
             if user_id in self._locks:
                 del self._locks[user_id]
             logger.debug(f"🧹 RAM Storage: Reset trắng bộ nhớ (User: {user_id})")
+
+
+# Alias for backward compatibility
+LocalMemoryDB = RamStorage

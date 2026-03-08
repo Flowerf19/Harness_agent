@@ -1,0 +1,12 @@
+{
+  "test_user_123": {
+    "name": "Alex",
+    "demographics": "25 tuổi",
+    "relationships": [],
+    "interests": [],
+    "goals_and_plans": [],
+    "preferences": [],
+    "constraints": [],
+    "other_facts": []
+  }
+}

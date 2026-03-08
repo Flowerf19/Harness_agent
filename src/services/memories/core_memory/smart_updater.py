@@ -2,9 +2,8 @@
 import json
 import logging
 import re
-from typing import Optional
 
-from Arize_Phoenix_tool_kit import track_general_step
+from langsmith import traceable
 
 from .models import UserProfile
 from .prompts import CORE_UPDATE_PROMPT
@@ -30,8 +29,10 @@ class SmartUpdater:
         cleaned = re.sub(r"```$", "", cleaned)
         return cleaned.strip()
 
-    @track_general_step(
-        step_name="T3_Update_Core_Profile", tags=["tier_3", "core_memory", "llm_update"]
+    @traceable(
+        name="T3_Update_Core_Profile",
+        run_type="chain",
+        tags=["tier_3", "core_memory", "llm_update"],
     )
     async def update_profile_with_fact(self, user_id: str, new_fact: str) -> bool:
         """
@@ -49,9 +50,8 @@ class SmartUpdater:
 
         try:
             # 3. Gọi LLM làm việc (Temperature thấp để đảm bảo logic)
-            response_text = await self.llm_client.chat_completion(
+            response_text = await self.llm_client.generate_response(
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,  # Set về 0 để LLM nghiêm túc nhất có thể
             )
 
             # 4. Gọt rửa và Parse JSON

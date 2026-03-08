@@ -3,7 +3,6 @@ import asyncio
 import json
 import logging
 import os
-from collections import defaultdict
 from typing import Dict
 
 from ..models import UserProfile
@@ -19,7 +18,7 @@ class LocalCoreDB(BaseCoreDB):
     - Ghi: Bất đồng bộ (Async) an toàn qua Lock.
     """
 
-    def __init__(self, storage_file: str = "data/core_profiles.json"):
+    def __init__(self, storage_file: str = "memory_data/core_profiles.json"):
         self.storage_file = storage_file
         # Cache RAM: { "user_id": UserProfile }
         self._cache: Dict[str, UserProfile] = {}

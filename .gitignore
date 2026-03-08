@@ -42,5 +42,10 @@ src/data/user_summaries/
 src/data/relationships/
 src/data/server_relationships.txt
 
+# Model Cache
+models/
+*.bin
+*.safetensors
+
 # Tests
 tests/
