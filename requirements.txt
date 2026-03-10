@@ -28,3 +28,4 @@ sentence-transformers
 torch
 tiktoken
 langsmith
+underthesea

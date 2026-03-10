@@ -5,12 +5,12 @@ from dotenv import load_dotenv
 # Load .env TRƯỚC khi import các module khác
 load_dotenv()
 
-import discord
-from discord.ext import commands
+import discord  # noqa: E402
+from discord.ext import commands  # noqa: E402
 
-from src.config.logging_config import setup_logging
-from src.config.settings import Config
-from src.services.dependencies import AppContainer
+from src.config.logging_config import setup_logging  # noqa: E402
+from src.config.settings import Config  # noqa: E402
+from src.services.dependencies import AppContainer  # noqa: E402
 
 # Thiết lập Logging hệ thống
 setup_logging()

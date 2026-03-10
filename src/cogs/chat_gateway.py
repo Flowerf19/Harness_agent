@@ -2,6 +2,7 @@ import logging
 
 import discord
 from discord.ext import commands
+from underthesea import sent_tokenize
 
 from src.services.dependencies import AppContainer
 
@@ -9,54 +10,60 @@ logger = logging.getLogger(__name__)
 
 
 class ChatGateway(commands.Cog):
-    """
-    Cửa khẩu giao tiếp duy nhất giữa Discord và hệ thống AI.
-    Chịu trách nhiệm Tiền xử lý (Lọc rác) và Hậu xử lý (Cắt chuỗi 2000 ký tự).
-    """
-
     def __init__(self, bot):
         self.bot = bot
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        # --- 1. BỘ LỌC RÁC (TIỀN XỬ LÝ) ---
-
         # Bỏ qua tin nhắn của chính bot hoặc các bot khác
         if message.author.bot:
             return
 
-        # Bỏ qua tin nhắn rỗng hoặc chỉ có ảnh/file mà không có chữ
-        content = message.content.strip()
-        if not content:
-            return
-
-        # Bỏ qua nếu user đang gõ lệnh hệ thống (Ví dụ: !clear, !help)
-        # Để sân khấu cho file user_commands.py xử lý
+        # Bỏ qua nếu user đang gõ lệnh hệ thống (Ví dụ: !clear, !addbotchannel)
         ctx = await self.bot.get_context(message)
         if ctx.valid:
             return
 
-        # (Tùy chọn) Quy tắc phản hồi: Chỉ rep khi được Tag hoặc chat trong DM (Tin nhắn riêng)
-        # Xóa khối IF này nếu bạn muốn bot hóng hớt và rep MỌI tin nhắn trong server.
+        # --- 1. KIỂM TRA QUYỀN PHẢN HỒI ---
         is_dm = isinstance(message.channel, discord.DMChannel)
         is_mentioned = self.bot.user in message.mentions
 
-        if not (is_dm or is_mentioned):
+        # Lấy Cog AdminChannels để kiểm tra danh sách kênh
+        is_allowed_channel = False
+        if message.guild:  # Nếu không phải là tin nhắn riêng (DM)
+            admin_cog = self.bot.get_cog("AdminChannels")
+            if admin_cog:
+                # Hàm này trả về True nếu kênh đã được set (hoặc nếu chưa set kênh nào)
+                is_allowed_channel = admin_cog.is_bot_channel(
+                    message.guild.id, message.channel.id
+                )
+            else:
+                # Fallback: Nếu lỗi không load được Cog, mặc định cho phép
+                is_allowed_channel = True
+
+        # CHỐT HẠ: Phản hồi nếu (Là tin nhắn riêng) HOẶC (Được Tag) HOẶC (Đang ở trong kênh đã Set)
+        if not (is_dm or is_mentioned or is_allowed_channel):
             return
 
-        # Dọn dẹp Text: Xóa cái tag <@ID_Của_Bot> ra khỏi chuỗi để LLM không bị đọc vấp
+        # --- 2. DỌN DẸP TEXT ---
+        content = message.content
         if is_mentioned:
-            content = content.replace(f"<@{self.bot.user.id}>", "").strip()
+            # Xóa cái tag <@ID_Của_Bot> ra khỏi chuỗi để LLM không bị đọc vấp
+            content = content.replace(f"<@{self.bot.user.id}>", "")
 
-        # --- 2. ĐIỀU PHỐI LOGIC (GỌI NHẠC TRƯỞNG) ---
+        content = content.strip()
 
-        # Lấy instance của Nhạc trưởng từ Trạm Điện (AppContainer)
+        # Kiểm tra lại lần cuối xem sau khi xóa Tag, tin nhắn có bị rỗng không
+        if not content:
+            return
+
+        # --- 3. ĐIỀU PHỐI LOGIC CHAT ---
         coordinator = AppContainer.get_instance().chat_coordinator
         if not coordinator:
             logger.error("❌ ChatGateway: ChatCoordinator chưa được khởi tạo!")
             return
 
-        # Bật hiệu ứng "Bot đang gõ..." để user biết bot không bị sập
+        # Bật hiệu ứng "Bot đang gõ..."
         async with message.channel.typing():
             try:
                 # Ném đoạn hội thoại vào hệ thống lõi
@@ -64,7 +71,7 @@ class ChatGateway(commands.Cog):
                     user_id=str(message.author.id), content=content
                 )
 
-                # --- 3. TRẢ LỜI USER (HẬU XỬ LÝ) ---
+                # Trả lời User (Có cắt chuỗi 2000 ký tự)
                 await self._send_response(message, bot_response)
 
             except Exception as e:
@@ -77,43 +84,75 @@ class ChatGateway(commands.Cog):
         self, original_message: discord.Message, response_text: str
     ):
         """
-        Thuật toán chia nhỏ tin nhắn để lách luật giới hạn 2000 ký tự của Discord.
+        Gửi tin nhắn thông thường (Không Reply) và tự động chia nhỏ nếu quá 2000 ký tự.
         """
         if not response_text:
             return
 
-        # Nếu tin nhắn ngắn gọn, Reply thẳng luôn
+        # Nếu tin nhắn ngắn gọn, Gửi thẳng vào kênh (Dùng .channel.send thay vì .reply)
         if len(response_text) <= 2000:
-            await original_message.reply(response_text)
+            await original_message.channel.send(response_text)
             return
 
-        # Nếu quá dài, dùng thuật toán chặt khúc thân thiện (không chặt đứt ngang chữ)
+        # Nếu quá dài, dùng thuật toán chặt khúc lai (Hybrid)
         chunks = self._chunk_text(response_text, limit=1900)
 
-        # Đoạn đầu tiên thì Reply
-        await original_message.reply(chunks[0])
-
-        # Các đoạn sau thì gửi nối tiếp vào channel
-        for chunk in chunks[1:]:
+        # Gửi nối tiếp toàn bộ các đoạn văn bản vào channel
+        for chunk in chunks:
             await original_message.channel.send(chunk)
 
     def _chunk_text(self, text: str, limit: int = 1900) -> list:
-        """Cắt chuỗi thông minh theo từng dòng (newline) để không vỡ layout."""
+        """
+        Cắt chuỗi thông minh lai (Hybrid):
+        1. Ưu tiên gộp theo dòng (\n) để giữ nguyên layout Markdown/Code.
+        2. Nếu một dòng quá dài (> limit), dùng Underthesea cắt chuẩn theo câu Tiếng Việt.
+        """
         lines = text.split("\n")
         chunks = []
         current_chunk = ""
 
         for line in lines:
-            # Nếu thêm dòng này vào mà vượt quá limit thì chốt sổ chunk hiện tại
-            if len(current_chunk) + len(line) + 1 > limit:
+            # TRƯỜNG HỢP 1: Dòng văn bản siêu dài (Không có \n mà dài hơn 1900 chữ)
+            if len(line) > limit:
+                # Chốt sổ chunk hiện tại trước
                 if current_chunk:
                     chunks.append(current_chunk.strip())
-                current_chunk = line + "\n"
+                    current_chunk = ""
+
+                # Dùng Underthesea cắt dòng dài này thành các câu trọn vẹn
+                sentences = sent_tokenize(line)
+
+                for sentence in sentences:
+                    # Rất hiếm: 1 câu đơn dài hơn 1900 ký tự -> Chặt bạo lực theo số lượng
+                    if len(sentence) > limit:
+                        if current_chunk:
+                            chunks.append(current_chunk.strip())
+                            current_chunk = ""
+                        for i in range(0, len(sentence), limit):
+                            chunks.append(sentence[i : i + limit].strip())
+
+                    # Nếu nhét câu này vào bị lố limit -> Chốt sổ
+                    elif len(current_chunk) + len(sentence) + 1 > limit:
+                        chunks.append(current_chunk.strip())
+                        current_chunk = sentence + " "
+
+                    # Ngược lại thì gộp câu vào chunk hiện tại
+                    else:
+                        current_chunk += sentence + " "
+
+                current_chunk += "\n"  # Phục hồi lại dấu xuống dòng của paragraph gốc
+
+            # TRƯỜNG HỢP 2: Dòng bình thường (Duy trì Layout Markdown)
             else:
-                current_chunk += line + "\n"
+                if len(current_chunk) + len(line) + 1 > limit:
+                    if current_chunk:
+                        chunks.append(current_chunk.strip())
+                    current_chunk = line + "\n"
+                else:
+                    current_chunk += line + "\n"
 
         # Nhét nốt phần dư cuối cùng
-        if current_chunk:
+        if current_chunk.strip():
             chunks.append(current_chunk.strip())
 
         return chunks

@@ -6,6 +6,8 @@ from typing import List, Optional
 
 from langsmith import traceable
 
+from src.services.llm.llm_response import LLMResponse
+
 from ..models import EpisodicPayload
 from ..prompts import EPISODIC_EXTRACTION_PROMPT
 
@@ -65,19 +67,26 @@ class EventExtractor:
         prompt = EPISODIC_EXTRACTION_PROMPT.format(chat_history=chat_text)
 
         try:
-            # GỌI LLM (Thay bằng hàm thực tế của llm_client bạn đang dùng)
-            response_text = await self.llm_client.generate_response(
+            # GỌI LLM
+            llm_response = await self.llm_client.generate_response(
                 messages=[{"role": "user", "content": prompt}]
             )
 
-            # Gọt rửa JSON
-            json_str = self._clean_json_output(response_text)
+            # --- SỬA LỖI TẠI ĐÂY ---
+            # Bóc tách nội dung chữ (text) ra khỏi object LLMResponse
+            if isinstance(llm_response, LLMResponse):
+                raw_text = llm_response.content
+            else:
+                raw_text = str(llm_response)
+            # -----------------------
+
+            # Gọt rửa JSON bằng đoạn text đã lấy được
+            json_str = self._clean_json_output(raw_text)
 
             # Parse chuỗi thành Dict
             data_dict = json.loads(json_str)
 
             # Dùng Pydantic (EpisodicPayload) để ÉP KIỂU VÀ VALIDATE
-            # Nếu LLM thiếu trường, Pydantic sẽ văng lỗi ngay lập tức, không cho rác vào DB
             payload = EpisodicPayload(**data_dict)
 
             logger.info(
@@ -87,7 +96,7 @@ class EventExtractor:
 
         except json.JSONDecodeError as e:
             logger.error(
-                f"❌ T2 Extractor: LLM không trả về JSON hợp lệ. Lỗi: {e}\nRaw Output: {response_text}"
+                f"❌ T2 Extractor: LLM không trả về JSON hợp lệ. Lỗi: {e}\nRaw Output: {raw_text}"
             )
             return None
         except Exception as e:
