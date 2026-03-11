@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import discord
@@ -71,7 +72,7 @@ class ChatGateway(commands.Cog):
                     user_id=str(message.author.id), content=content
                 )
 
-                # Trả lời User (Có cắt chuỗi 2000 ký tự)
+                # Trả lời User (Tách theo \n và giới hạn 2000 ký tự)
                 await self._send_response(message, bot_response)
 
             except Exception as e:
@@ -84,74 +85,79 @@ class ChatGateway(commands.Cog):
         self, original_message: discord.Message, response_text: str
     ):
         """
-        Gửi tin nhắn thông thường (Không Reply) và tự động chia nhỏ nếu quá 2000 ký tự.
+        Xử lý tin nhắn trả về:
+        1. Tách các tin nhắn theo chuỗi "\\n" hoặc ký tự xuống dòng "\\n" do LLM sinh ra.
+        2. Gửi từng tin nhắn một, chia nhỏ nếu tin nhắn quá 2000 ký tự.
         """
         if not response_text:
             return
 
-        # Nếu tin nhắn ngắn gọn, Gửi thẳng vào kênh (Dùng .channel.send thay vì .reply)
-        if len(response_text) <= 2000:
-            await original_message.channel.send(response_text)
-            return
+        # --- BƯỚC 1: XỬ LÝ LOGIC TÁCH DÒNG \n CỦA LLM ---
+        # LLM đôi khi sinh ra chữ "\n" thô, đôi khi sinh ra ký tự xuống dòng thực sự '\n'
+        # Ta cần replace chữ "\n" (2 ký tự) thành '\n' (1 ký tự xuống dòng) trước
+        clean_text = response_text.replace("\\n", "\n")
 
-        # Nếu quá dài, dùng thuật toán chặt khúc lai (Hybrid)
-        chunks = self._chunk_text(response_text, limit=1900)
+        # Tách tin nhắn thành mảng các đoạn chat nhỏ
+        # Loại bỏ các chuỗi rỗng sau khi tách
+        messages_to_send = [
+            msg.strip() for msg in clean_text.split("\n") if msg.strip()
+        ]
 
-        # Gửi nối tiếp toàn bộ các đoạn văn bản vào channel
-        for chunk in chunks:
-            await original_message.channel.send(chunk)
+        # --- BƯỚC 2: GỬI TỪNG ĐOẠN TIN NHẮN ---
+        for i, msg in enumerate(messages_to_send):
+            # Nếu tin nhắn ngắn gọn, Gửi thẳng vào kênh
+            if len(msg) <= 2000:
+                await original_message.channel.send(msg)
+            else:
+                # Nếu 1 đoạn msg (sau khi đã tách \n) vẫn lố 2000 ký tự -> Dùng chunking lai
+                chunks = self._chunk_text(msg, limit=1900)
+                for chunk in chunks:
+                    await original_message.channel.send(chunk)
+
+            # Thêm delay giả lập người dùng gõ tin nhắn tiếp theo và chống Spam (Rate Limit)
+            # Không delay nếu đây là tin nhắn cuối cùng
+            if i < len(messages_to_send) - 1:
+                async with original_message.channel.typing():
+                    # Delay 1.5 giây giữa các tin nhắn rời rạc
+                    await asyncio.sleep(1.5)
 
     def _chunk_text(self, text: str, limit: int = 1900) -> list:
         """
         Cắt chuỗi thông minh lai (Hybrid):
-        1. Ưu tiên gộp theo dòng (\n) để giữ nguyên layout Markdown/Code.
-        2. Nếu một dòng quá dài (> limit), dùng Underthesea cắt chuẩn theo câu Tiếng Việt.
+        Đã được refactor lại cho an toàn và tránh bug nối chữ lố 2000 ký tự.
         """
         lines = text.split("\n")
         chunks = []
         current_chunk = ""
 
         for line in lines:
-            # TRƯỜNG HỢP 1: Dòng văn bản siêu dài (Không có \n mà dài hơn 1900 chữ)
-            if len(line) > limit:
-                # Chốt sổ chunk hiện tại trước
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                    current_chunk = ""
+            if len(current_chunk) + len(line) + 1 <= limit:
+                current_chunk += line + "\n"
+                continue
 
-                # Dùng Underthesea cắt dòng dài này thành các câu trọn vẹn
+            if current_chunk.strip():
+                chunks.append(current_chunk.strip())
+                current_chunk = ""
+
+            if len(line) <= limit:
+                current_chunk = line + "\n"
+            else:
                 sentences = sent_tokenize(line)
-
                 for sentence in sentences:
-                    # Rất hiếm: 1 câu đơn dài hơn 1900 ký tự -> Chặt bạo lực theo số lượng
                     if len(sentence) > limit:
-                        if current_chunk:
+                        if current_chunk.strip():
                             chunks.append(current_chunk.strip())
                             current_chunk = ""
                         for i in range(0, len(sentence), limit):
-                            chunks.append(sentence[i : i + limit].strip())
-
-                    # Nếu nhét câu này vào bị lố limit -> Chốt sổ
+                            chunks.append(sentence[i : i + limit])
                     elif len(current_chunk) + len(sentence) + 1 > limit:
                         chunks.append(current_chunk.strip())
                         current_chunk = sentence + " "
-
-                    # Ngược lại thì gộp câu vào chunk hiện tại
                     else:
                         current_chunk += sentence + " "
 
-                current_chunk += "\n"  # Phục hồi lại dấu xuống dòng của paragraph gốc
+                current_chunk += "\n"
 
-            # TRƯỜNG HỢP 2: Dòng bình thường (Duy trì Layout Markdown)
-            else:
-                if len(current_chunk) + len(line) + 1 > limit:
-                    if current_chunk:
-                        chunks.append(current_chunk.strip())
-                    current_chunk = line + "\n"
-                else:
-                    current_chunk += line + "\n"
-
-        # Nhét nốt phần dư cuối cùng
         if current_chunk.strip():
             chunks.append(current_chunk.strip())
 
