@@ -23,19 +23,37 @@ class LocalEmbeddingService:
         self.model_name = model_name
         self.model = None
         self.cache_dir = os.path.abspath(MODEL_CACHE_DIR)
+        self.device = None  # Lưu device thực tế đang sử dụng
 
     def _get_device(self) -> str:
-        """Kiểm tra và trả về device phù hợp (CUDA/ROCm hoặc CPU)."""
+        """
+        Kiểm tra và trả về device phù hợp (CUDA/ROCm hoặc CPU).
+        Phát hiện chính xác loại GPU đang sử dụng và ghi log tương ứng.
+        """
         if torch.cuda.is_available():
             device = "cuda"
-            logger.info(f"🎮 GPU detected: {torch.cuda.get_device_name(0)}")
+            # Kiểm tra xem đang sử dụng ROCm (AMD) hay CUDA (NVIDIA)
+            is_rocm = hasattr(torch.version, "hip") and torch.version.hip is not None
+
+            gpu_name = torch.cuda.get_device_name(0)
+
+            if is_rocm:
+                logger.info(f"🎮 AMD GPU (ROCm) detected: {gpu_name}")
+                logger.info(f"   HIP version: {torch.version.hip}")
+            else:
+                cuda_version = getattr(torch.version, "cuda", "N/A")
+                logger.info(f"🎮 NVIDIA GPU (CUDA) detected: {gpu_name}")
+                logger.info(f"   CUDA version: {cuda_version}")
         else:
             device = "cpu"
             logger.info("💻 Using CPU device")
         return device
 
     async def initialize(self):
-        """Khởi tạo model với cache_dir và device phù hợp."""
+        """
+        Khởi tạo model với cache_dir và device phù hợp.
+        Tự động fallback từ GPU sang CPU nếu gặp lỗi tương thích.
+        """
         # Tạo thư mục cache nếu chưa có
         os.makedirs(self.cache_dir, exist_ok=True)
 
@@ -44,6 +62,8 @@ class LocalEmbeddingService:
         logger.info(f"📁 Model cache directory: {self.cache_dir}")
         logger.info(f"⏳ Đang tải mô hình Embedding local: '{self.model_name}'...")
 
+        # Thử khởi tạo trên device được phát hiện
+        self.device = device
         try:
             # Qwen models thường yêu cầu trust_remote_code=True
             self.model = SentenceTransformer(
@@ -52,10 +72,44 @@ class LocalEmbeddingService:
                 device=device,
                 trust_remote_code=True,
             )
-            logger.info("✅ Tải mô hình Embedding thành công!")
+            logger.info(f"✅ Tải mô hình Embedding thành công trên {device}!")
         except Exception as e:
-            logger.error(f"❌ Lỗi tải mô hình Embedding: {e}")
-            raise
+            error_msg = str(e).lower()
+            is_gpu_error = any(
+                keyword in error_msg
+                for keyword in [
+                    "hip error",
+                    "cuda error",
+                    "invalid device",
+                    "out of memory",
+                ]
+            )
+
+            # Nếu lỗi liên quan đến GPU và đang dùng GPU, thử fallback sang CPU
+            if is_gpu_error and device == "cuda":
+                logger.warning(f"⚠️ Lỗi GPU khi tải model: {e}")
+                logger.warning("🔄 Đang fallback sang CPU...")
+
+                try:
+                    self.model = SentenceTransformer(
+                        self.model_name,
+                        cache_folder=self.cache_dir,
+                        device="cpu",
+                        trust_remote_code=True,
+                    )
+                    self.device = "cpu"
+                    logger.info(
+                        "✅ Tải mô hình Embedding thành công trên CPU (fallback)!"
+                    )
+                    logger.info(
+                        "💡 Mẹo: Kiểm tra cài đặt GPU/ROCm nếu muốn tăng tốc độ."
+                    )
+                except Exception as cpu_e:
+                    logger.error(f"❌ Lỗi tải mô hình Embedding trên CPU: {cpu_e}")
+                    raise
+            else:
+                logger.error(f"❌ Lỗi tải mô hình Embedding: {e}")
+                raise
 
     def _ensure_initialized(self):
         """Đảm bảo model đã được khởi tạo."""
@@ -80,8 +134,45 @@ class LocalEmbeddingService:
             return []
 
     def _encode(self, text: str) -> List[float]:
-        """Hàm đồng bộ thực thi việc nhúng qua CPU/GPU."""
+        """
+        Hàm đồng bộ thực thi việc nhúng qua CPU/GPU.
+        Tự động fallback sang CPU nếu gặp lỗi GPU.
+        """
         self._ensure_initialized()
-        # Trả về một mảng Python List chuẩn (thay vì Numpy Array) để dễ lưu JSON
-        # Tắt thanh tiến trình (progress bar) để tránh log quá nhiều
-        return self.model.encode(text, show_progress_bar=False).tolist()
+
+        try:
+            # Trả về một mảng Python List chuẩn (thay vì Numpy Array) để dễ lưu JSON
+            # Tắt thanh tiến trình (progress bar) để tránh log quá nhiều
+            return self.model.encode(text, show_progress_bar=False).tolist()
+        except Exception as e:
+            error_msg = str(e).lower()
+            is_gpu_error = any(
+                keyword in error_msg
+                for keyword in [
+                    "hip error",
+                    "cuda error",
+                    "invalid device function",
+                    "out of memory",
+                ]
+            )
+
+            # Nếu lỗi GPU và đang dùng GPU, thử fallback sang CPU
+            if is_gpu_error and self.device == "cuda":
+                logger.warning(f"⚠️ Lỗi GPU khi encode: {e}")
+                logger.warning("🔄 Đang fallback sang CPU cho lần encode này...")
+
+                try:
+                    # Di chuyển model sang CPU
+                    self.model = self.model.to("cpu")
+                    self.device = "cpu"
+                    logger.info(
+                        "✅ Đã chuyển model sang CPU. Các lần encode tiếp theo sẽ dùng CPU."
+                    )
+
+                    # Thử encode lại trên CPU
+                    return self.model.encode(text, show_progress_bar=False).tolist()
+                except Exception as cpu_e:
+                    logger.error(f"❌ Lỗi encode trên CPU: {cpu_e}")
+                    raise
+            else:
+                raise

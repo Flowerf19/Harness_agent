@@ -23,8 +23,8 @@ class BaseLLMService(abc.ABC):
 
         # Vẫn giữ lại việc load file tính cách gốc (Static Persona)
         # File này sẽ làm nền tảng, còn Core Memory (T3) sẽ bổ sung phần Dynamic Persona
-        self.static_personality = self._load_prompt("personality.txt")
-        self.static_guidelines = self._load_prompt("conversation_prompt.txt")
+        self.static_personality = self._load_prompt("personality.yaml")
+        self.static_guidelines = self._load_prompt("conversation_prompt.yaml")
 
     def _load_prompt(self, filename: str) -> str:
         """Load prompt content from file."""
