@@ -11,7 +11,6 @@ Main components:
 
 from .extraction import ContextFormatter, EventExtractor, VectorEngine
 from .models import EpisodicPayload, EpisodicRecord, get_utc_now
-from .prompts import EPISODIC_EXTRACTION_PROMPT
 from .storage import BaseVectorDB, LocalVectorDB
 
 __all__ = [
@@ -19,8 +18,6 @@ __all__ = [
     "EpisodicPayload",
     "EpisodicRecord",
     "get_utc_now",
-    # Prompts
-    "EPISODIC_EXTRACTION_PROMPT",
     # Extraction
     "EventExtractor",
     "VectorEngine",

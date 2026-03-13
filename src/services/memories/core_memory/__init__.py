@@ -11,14 +11,11 @@ Main components:
 
 from .core_manager import CoreManager
 from .models import UserProfile
-from .prompts import CORE_UPDATE_PROMPT
 from .storage import BaseCoreDB, LocalCoreDB
 
 __all__ = [
     # Models
     "UserProfile",
-    # Prompts
-    "CORE_UPDATE_PROMPT",
     # Manager
     "CoreManager",
     # Storage
