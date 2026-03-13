@@ -47,11 +47,11 @@ class SmartUpdater:
         self.storage = storage
 
     def _clean_json_output(self, raw_text: str) -> str:
-        """Gọt rửa các ký tự thừa (markdown) do LLM sinh ra quanh chuỗi JSON."""
-        cleaned = raw_text.strip()
-        cleaned = re.sub(r"^```(?:json)?", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"```$", "", cleaned)
-        return cleaned.strip()
+        """Trích xuất chính xác khối JSON nằm giữa ngoặc nhọn { } đầu tiên và cuối cùng"""
+        match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+        if match:
+            return match.group(0)
+        return raw_text.strip()
 
     @traceable(
         name="T3_Update_Core_Profile",
