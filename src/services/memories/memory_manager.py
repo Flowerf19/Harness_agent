@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Dict, List, Tuple
 
@@ -93,26 +94,21 @@ class MemoryManager:
     async def get_context(
         self, user_id: str, current_query: str
     ) -> Tuple[str, List[Dict]]:
-        """
-        Hàm đọc tối thượng: Chế biến thức ăn cho LLM trước khi trả lời User.
-        Trả về: (System_Prompt_Từ_T3, Danh_sách_Lịch_sử_Từ_T1_và_T2)
-        """
-        # 1. Lấy Tiềm thức (System Prompt) từ Tầng 3 (Chạy cực nhanh, mất < 1ms)
-        system_prompt = await self.t3.get_system_prompt_context(user_id)
+        
+        # Bắn 3 task chạy song song thay vì bắt bot chờ từng cái một
+        system_prompt_task = self.t3.get_system_prompt_context(user_id)
+        context_messages_task = self.t1.get_context_for_llm(user_id)
+        past_events_task = self.t2.retrieve_past_context(user_id, current_query)
 
-        # 2. Lấy Ngữ cảnh hiện tại từ Tầng 1 (RAM)
-        # Đã được mix trộn thông minh giữa tin nhắn mới nhất và quan trọng nhất
-        context_messages = await self.t1.get_context_for_llm(user_id)
-
-        # 3. Phân tích truy vấn xem có cần lục lọi quá khứ (Tầng 2) không?
-        # Nếu bot nhận diện user đang hỏi chuyện cũ (Ví dụ query có dấu hiệu "QUERY")
-        # Hoặc dùng LLM judge nhẹ, ở đây ta giả định T2 có hàm tìm kiếm RAG
-        past_events_text = await self.t2.retrieve_past_context(user_id, current_query)
+        # Đợi cả 3 task hoàn thành cùng lúc
+        system_prompt, context_messages, past_events_text = await asyncio.gather(
+            system_prompt_task, context_messages_task, past_events_task
+        )
 
         if past_events_text:
-            # Nếu tìm thấy ký ức RAG, nhét nó vào đầu danh sách RAM để LLM đọc
-            # Lưu ý: role "system" để AI hiểu đây là ký ức được cung cấp thêm
-            context_messages.insert(0, {"role": "system", "content": past_events_text})
+            context_messages.insert(
+                0, {"role": "system", "content": past_events_text}
+            )
 
         return system_prompt, context_messages
 

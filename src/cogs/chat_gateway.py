@@ -5,6 +5,7 @@ import discord
 from discord.ext import commands
 from underthesea import sent_tokenize
 
+from src.config.settings import Config
 from src.services.dependencies import AppContainer
 
 logger = logging.getLogger(__name__)
@@ -118,8 +119,8 @@ class ChatGateway(commands.Cog):
             # Không delay nếu đây là tin nhắn cuối cùng
             if i < len(messages_to_send) - 1:
                 async with original_message.channel.typing():
-                    # Delay 1.5 giây giữa các tin nhắn rời rạc
-                    await asyncio.sleep(1.5)
+                    # Dùng thông số trong config thay vì fix cứng 1.5s
+                    await asyncio.sleep(Config.PART_BREAK_DELAY)
 
     def _chunk_text(self, text: str, limit: int = 1900) -> list:
         """

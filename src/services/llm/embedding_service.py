@@ -24,6 +24,7 @@ class LocalEmbeddingService:
         self.model = None
         self.cache_dir = os.path.abspath(MODEL_CACHE_DIR)
         self.device = None  # Lưu device thực tế đang sử dụng
+        self._cache = {}
 
     def _get_device(self) -> str:
         """
@@ -117,22 +118,28 @@ class LocalEmbeddingService:
             raise RuntimeError("Model chưa được khởi tạo. Hãy gọi initialize() trước.")
 
     async def get_embedding(self, text: str) -> List[float]:
-        """
-        Chuyển đổi văn bản thành Vector (Mảng số thực).
-        Hàm này chạy Async để không làm block luồng chính của Discord.
-        """
         if not text or not text.strip():
             return []
+            
+        # 1. Kiểm tra xem câu này đã nhúng chưa
+        if text in self._cache:
+            return self._cache[text]
 
         loop = asyncio.get_event_loop()
         try:
-            # Chạy hàm encode đồng bộ (tốn CPU) trong một Executor (luồng nền)
+            # 2. Chạy nhúng vector nếu chưa có trong cache
             vector = await loop.run_in_executor(None, self._encode, text)
+            
+            # 3. Lưu lại kết quả, giữ tối đa 100 câu gần nhất để không tràn RAM
+            self._cache[text] = vector
+            if len(self._cache) > 100:
+                self._cache.pop(next(iter(self._cache)))
+                
             return vector
         except Exception as e:
-            logger.error(f"❌ Lỗi khi nhúng vector cho chuỗi '{text[:20]}...': {e}")
+            self.logger.error(f"Error generating embedding: {e}")
             return []
-
+        
     def _encode(self, text: str) -> List[float]:
         """
         Hàm đồng bộ thực thi việc nhúng qua CPU/GPU.
