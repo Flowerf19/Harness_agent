@@ -33,7 +33,7 @@ from src.services.memories.activate_memory.management.token_counter import Token
 from src.services.memories.activate_memory.storage.ram_storage import LocalMemoryDB
 from src.services.memories.core_memory.core_manager import CoreManager
 from src.services.memories.core_memory.smart_updater import SmartUpdater
-from src.services.memories.core_memory.storage.local_json_db import LocalCoreDB
+from src.services.memories.core_memory.storage.local_yaml_db import LocalYamlDB
 from src.services.memories.episodic_memory.episodic_manager import EpisodicManager
 from src.services.memories.episodic_memory.extraction.event_extractor import (
     EventExtractor,
@@ -115,7 +115,7 @@ class AppContainer:
 
         # 3. LẮP RÁP BỘ NHỚ TẦNG 3 (Core Memory)
         # Tầng 3 chỉ cần Chat LLM để làm thư ký tóm tắt, không cần Embedding
-        t3_storage = LocalCoreDB()
+        t3_storage = LocalYamlDB()
         t3_updater = SmartUpdater(llm_client=self.llm_service, storage=t3_storage)
         t3_manager = CoreManager(storage=t3_storage, smart_updater=t3_updater)
 

@@ -6,8 +6,10 @@ Provides database implementations for persistent core memory storage.
 
 from .base_core_db import BaseCoreDB
 from .local_json_db import LocalCoreDB
+from .local_yaml_db import LocalYamlDB
 
 __all__ = [
     "BaseCoreDB",
     "LocalCoreDB",
+    "LocalYamlDB",
 ]

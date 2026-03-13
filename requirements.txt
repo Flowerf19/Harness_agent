@@ -29,4 +29,4 @@ torch
 tiktoken
 langsmith
 underthesea
-yaml
+pyyaml
