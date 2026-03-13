@@ -1,8 +1,8 @@
-import json
 import logging
 import re
 from pathlib import Path
 
+import yaml
 from langsmith import traceable
 
 from .models import UserProfile
@@ -46,19 +46,14 @@ class SmartUpdater:
         self.llm_client = llm_client
         self.storage = storage
 
-    def _clean_json_output(self, raw_text: str) -> str:
-        """Gọt rửa markdown và TỰ ĐỘNG VÁ lỗi thiếu dấu phẩy của LLM"""
-        # 1. Trích xuất lõi JSON (né text nhảm LLM hay chèn vào đầu/cuối)
-        match = re.search(r"\{.*\}", raw_text, re.DOTALL)
-        cleaned = match.group(0) if match else raw_text.strip()
+    def _clean_yaml_output(self, raw_text: str) -> str:
+        """Trích xuất lõi YAML từ markdown của LLM"""
+        match = re.search(r"```yaml\n(.*?)\n```", raw_text, re.DOTALL | re.IGNORECASE)
+        if match:
+            return match.group(1)
 
-        # 2. Fix lỗi kinh điển: Thiếu dấu phẩy sau dấu ngoặc mảng (] "key":)
-        cleaned = re.sub(r'\]\s+"', '],\n"', cleaned)
-
-        # 3. Fix lỗi kinh điển: Thiếu dấu phẩy sau chuỗi ("value" "key":)
-        cleaned = re.sub(r'"\s+"(?=[a-zA-Z0-9_]+":)', '",\n"', cleaned)
-
-        return cleaned
+        # Nếu LLM quên bọc markdown tag, xóa các backtick thừa nếu có
+        return raw_text.replace("```yaml", "").replace("```", "").strip()
 
     @traceable(
         name="T3_Update_Core_Profile",
@@ -89,14 +84,20 @@ class SmartUpdater:
         )
 
         try:
-            # 3. Gọi LLM làm việc (Temperature thấp để đảm bảo logic)
+            # 3. Gọi LLM làm việc (Nên bỏ temperature vào đây như tớ đã hướng dẫn ở bước trước)
             response = await self.llm_client.generate_response(
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            # 4. Gọt rửa và Parse JSON
-            json_str = self._clean_json_output(response.content)
-            data_dict = json.loads(json_str)
+            # 4. Gọt rửa và Parse YAML thay vì JSON
+            yaml_str = self._clean_yaml_output(response.content)
+            data_dict = yaml.safe_load(yaml_str)
+
+            if not isinstance(data_dict, dict):
+                logger.error(
+                    "❌ T3 Updater: Dữ liệu YAML trả về không phải là Dictionary."
+                )
+                return False
 
             # 5. Ép kiểu bằng Pydantic (Hàng rào thép bảo vệ cấu trúc)
             updated_profile = UserProfile(**data_dict)
@@ -105,12 +106,12 @@ class SmartUpdater:
             await self.storage.save_profile(user_id, updated_profile)
 
             logger.info(
-                f"✅ T3 Updater: Đã cập nhật thành công Core Profile cho user {user_id}"
+                f"✅ T3 Updater: Đã cập nhật thành công Core Profile bằng YAML cho user {user_id}"
             )
             return True
 
-        except json.JSONDecodeError as e:
-            logger.error(f"❌ T3 Updater: Lỗi parse JSON từ LLM response: {e}")
+        except yaml.YAMLError as e:
+            logger.error(f"❌ T3 Updater: Lỗi parse YAML từ LLM response: {e}")
             return False
         except Exception as e:
             logger.error(f"❌ T3 Updater: Lỗi không xác định khi update profile: {e}")

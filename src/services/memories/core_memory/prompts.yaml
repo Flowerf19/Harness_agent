@@ -11,11 +11,10 @@ context_rules[3]:
   2, Sự thật mới có thể là một lời tuyên bố, phàn nàn, hoặc thông báo của User.
   3, Sử dụng "Ngữ cảnh hội thoại" để hiểu đầy đủ ý nghĩa của "Sự thật mới".
 
-processing_steps[4]:
-  1, Đọc "Ngữ cảnh hội thoại" để hiểu bối cảnh.
-  2, Đọc và phân loại "Sự thật mới" xem nó thuộc mảng nào (Nhân khẩu học, Nghề nghiệp, Mối quan hệ, Sở thích, Mục tiêu, Ràng buộc...).
-  3, Đối chiếu với "Hồ sơ hiện tại". Nếu là thông tin hoàn toàn mới -> Thêm vào list. Nếu mâu thuẫn/thay thế thông tin cũ -> Xóa cũ, đắp mới.
-  4, Xuất ra bản JSON. TỰ KIỂM TRA LẠI DẤU PHẨY trước khi xuất kết quả.
+success_metrics[3]:
+  1, KHÔNG HALLUCINATION: Tuyệt đối giữ nguyên các thông tin cũ nếu thông tin mới không đả động gì tới chúng.
+  2, XỬ LÝ XUNG ĐỘT (MERGE/OVERWRITE): Nếu thông tin mới mâu thuẫn với thông tin cũ, phải XÓA thông tin cũ và GHI ĐÈ thông tin mới.
+  3, STRICT YAML: Output bắt buộc phải là định dạng YAML hợp lệ, bọc trong block code ```yaml.
 
 inputs:
   current_profile: |
@@ -26,18 +25,23 @@ inputs:
 
 output_requirements:
   instruction: |
-    CẢNH BÁO CÚ PHÁP: Mặc dù prompt này dùng định dạng TOON, bạn BẮT BUỘC phải trả về JSON hợp lệ. 
-    Mẹo: Hãy viết các phần tử của mảng trên cùng 1 dòng để không bị quên dấu phẩy (VD: "interests": ["code", "game"],). TUYỆT ĐỐI KHÔNG dùng markdown.
-  json_template: |
-    {{
-      "name": "...",
-      "demographics": "...",
-      "occupation": "...",
-      "relationships": ["..."],
-      "interests": ["..."],
-      "goals_and_plans": ["..."],
-      "preferences": ["..."],
-      "constraints": ["..."],
-      "other_facts": ["..."]
-    }}
-""
+    CẢNH BÁO: Bạn BẮT BUỘC phải trả về định dạng YAML. KHÔNG ĐƯỢC dùng JSON.
+    Chỉ trả về duy nhất khối code YAML, không giải thích gì thêm.
+  yaml_template: |
+    ```yaml
+    name: "..."
+    demographics: "..."
+    occupation: "..."
+    relationships:
+      - "..."
+    interests:
+      - "..."
+    goals_and_plans:
+      - "..."
+    preferences:
+      - "..."
+    constraints:
+      - "..."
+    other_facts:
+      - "..."
+    ```

@@ -14,7 +14,9 @@
     "demographics": "24 tuổi",
     "occupation": "Developer",
     "relationships": [],
-    "interests": [],
+    "interests": [
+      "chó"
+    ],
     "goals_and_plans": [
       "code 1 con bot tên Bé Bảy cho server discord này"
     ],
