@@ -4,7 +4,7 @@ task: Cập nhật Hồ sơ Tiềm thức (Core Profile) của người dùng d�
 success_metrics[3]:
   1, KHÔNG HALLUCINATION: Tuyệt đối giữ nguyên các thông tin cũ nếu thông tin mới không đả động gì tới chúng.
   2, XỬ LÝ XUNG ĐỘT (MERGE/OVERWRITE): Nếu thông tin mới mâu thuẫn với thông tin cũ (VD: Đổi nghề, đổi sở thích, đổi nơi ở), phải XÓA thông tin cũ và GHI ĐÈ thông tin mới.
-  3, OUTPUT CHUẨN JSON: Phải trả về đúng cấu trúc JSON yêu cầu. KHÔNG in ra markdown (```json).
+  3, STRICT JSON: JSON output phải CHUẨN CÚ PHÁP 100%. Cực kỳ chú ý DẤU PHẨY (,) ngăn cách giữa các key và các mảng.
 
 context_rules[3]:
   1, Dưới đây là "Hồ sơ hiện tại" (JSON), "Ngữ cảnh hội thoại" và "Sự thật mới" (Text).
@@ -14,8 +14,8 @@ context_rules[3]:
 processing_steps[4]:
   1, Đọc "Ngữ cảnh hội thoại" để hiểu bối cảnh.
   2, Đọc và phân loại "Sự thật mới" xem nó thuộc mảng nào (Nhân khẩu học, Nghề nghiệp, Mối quan hệ, Sở thích, Mục tiêu, Ràng buộc...).
-  3, Đối chiếu với "Hồ sơ hiện tại". Nếu là thông tin hoàn toàn mới -> Thêm vào list tương ứng. Nếu mâu thuẫn/thay thế thông tin cũ -> Xóa cũ, đắp mới.
-  4, Xuất ra bản JSON Hồ sơ đã được cập nhật. Đảm bảo cấu trúc không đổi.
+  3, Đối chiếu với "Hồ sơ hiện tại". Nếu là thông tin hoàn toàn mới -> Thêm vào list. Nếu mâu thuẫn/thay thế thông tin cũ -> Xóa cũ, đắp mới.
+  4, Xuất ra bản JSON. TỰ KIỂM TRA LẠI DẤU PHẨY trước khi xuất kết quả.
 
 inputs:
   current_profile: |
@@ -25,7 +25,9 @@ inputs:
   new_fact: "{new_fact}"
 
 output_requirements:
-  instruction: Hãy trả về một chuỗi JSON hợp lệ, tuân thủ chính xác các keys sau (nếu value không có, để null hoặc []):
+  instruction: |
+    CẢNH BÁO CÚ PHÁP: Mặc dù prompt này dùng định dạng TOON, bạn BẮT BUỘC phải trả về JSON hợp lệ. 
+    Mẹo: Hãy viết các phần tử của mảng trên cùng 1 dòng để không bị quên dấu phẩy (VD: "interests": ["code", "game"],). TUYỆT ĐỐI KHÔNG dùng markdown.
   json_template: |
     {{
       "name": "...",

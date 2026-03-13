@@ -47,11 +47,18 @@ class SmartUpdater:
         self.storage = storage
 
     def _clean_json_output(self, raw_text: str) -> str:
-        """Trích xuất chính xác khối JSON nằm giữa ngoặc nhọn { } đầu tiên và cuối cùng"""
+        """Gọt rửa markdown và TỰ ĐỘNG VÁ lỗi thiếu dấu phẩy của LLM"""
+        # 1. Trích xuất lõi JSON (né text nhảm LLM hay chèn vào đầu/cuối)
         match = re.search(r"\{.*\}", raw_text, re.DOTALL)
-        if match:
-            return match.group(0)
-        return raw_text.strip()
+        cleaned = match.group(0) if match else raw_text.strip()
+
+        # 2. Fix lỗi kinh điển: Thiếu dấu phẩy sau dấu ngoặc mảng (] "key":)
+        cleaned = re.sub(r'\]\s+"', '],\n"', cleaned)
+
+        # 3. Fix lỗi kinh điển: Thiếu dấu phẩy sau chuỗi ("value" "key":)
+        cleaned = re.sub(r'"\s+"(?=[a-zA-Z0-9_]+":)', '",\n"', cleaned)
+
+        return cleaned
 
     @traceable(
         name="T3_Update_Core_Profile",
