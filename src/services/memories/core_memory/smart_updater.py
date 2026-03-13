@@ -55,6 +55,31 @@ class SmartUpdater:
         # Nếu LLM quên bọc markdown tag, xóa các backtick thừa nếu có
         return raw_text.replace("```yaml", "").replace("```", "").strip()
 
+    def _fix_yaml_string_issues(self, yaml_str: str) -> str:
+        """
+        Sửa các lỗi YAML phổ biến do LLM tạo ra:
+        1. Unclosed quotes - dấu ngoặc kép mở nhưng không đóng
+        2. Multiline strings trong quotes không đúng format
+        """
+        lines = yaml_str.split("\n")
+        fixed_lines = []
+
+        for line in lines:
+            # Đếm số dấu ngoặc kép trong dòng
+            quote_count = line.count('"')
+
+            # Nếu số lẻ -> có unclosed quote
+            if quote_count % 2 == 1:
+                # Kiểm tra xem dòng có kết thúc bằng chữ cái/number không (có thể thiếu đóng quote)
+                stripped = line.rstrip()
+                if stripped and not stripped.endswith('"'):
+                    # Thêm dấu ngoặc kép đóng vào cuối
+                    line = stripped + '"'
+
+            fixed_lines.append(line)
+
+        return "\n".join(fixed_lines)
+
     @traceable(
         name="T3_Update_Core_Profile",
         run_type="chain",
@@ -91,6 +116,8 @@ class SmartUpdater:
 
             # 4. Gọt rửa và Parse YAML thay vì JSON
             yaml_str = self._clean_yaml_output(response.content)
+            # 4.1. Sửa các lỗi YAML phổ biến do LLM tạo ra
+            yaml_str = self._fix_yaml_string_issues(yaml_str)
             data_dict = yaml.safe_load(yaml_str)
 
             if not isinstance(data_dict, dict):

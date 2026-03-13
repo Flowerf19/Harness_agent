@@ -29,3 +29,4 @@ torch
 tiktoken
 langsmith
 underthesea
+yaml
