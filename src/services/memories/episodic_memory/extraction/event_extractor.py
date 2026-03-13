@@ -1,7 +1,7 @@
-# src/services/episodic_memory/extraction/event_extractor.py
 import json
 import logging
 import re
+from pathlib import Path  # <-- BỔ SUNG DÒNG NÀY
 from typing import List, Optional
 
 from langsmith import traceable
@@ -9,9 +9,22 @@ from langsmith import traceable
 from src.services.llm.llm_response import LLMResponse
 
 from ..models import EpisodicPayload
-from ..prompts import EPISODIC_EXTRACTION_PROMPT
 
 logger = logging.getLogger(__name__)
+
+_PROMPTS_YAML_PATH = Path(__file__).parent / "prompts.yaml"
+
+
+def get_episodic_extraction_prompt(chat_history: str) -> str:
+    """Đọc thẳng template từ file văn bản và điền biến."""
+    with open(_PROMPTS_YAML_PATH, "r", encoding="utf-8") as f:
+        prompt_template = f.read()
+
+    # DÙNG .replace() THAY CHO .format()
+    return prompt_template.replace("{chat_history}", str(chat_history))
+
+
+# ==========================================================
 
 
 class EventExtractor:
@@ -59,34 +72,40 @@ class EventExtractor:
         run_type="chain",
         tags=["tier_2", "extraction", "llm_call"],
     )
+    @traceable(
+        name="T2_Extract_Episodic_Event",
+        run_type="chain",
+        tags=["tier_2", "extraction", "llm_call"],
+    )
     async def extract_event(self, snapshot: List[dict]) -> Optional[EpisodicPayload]:
         """
         Gọi LLM để trích xuất sự kiện. Trả về object Pydantic an toàn 100%.
         """
         chat_text = self._format_chat_history(snapshot)
-        prompt = EPISODIC_EXTRACTION_PROMPT.format(chat_history=chat_text)
+        raw_text = (
+            ""  # Khởi tạo trước để tránh lỗi UnboundLocalError khi catch exception
+        )
 
         try:
+            # Đọc Prompt từ YAML thay vì biến cứng
+            prompt = get_episodic_extraction_prompt(chat_text)
+
             # GỌI LLM
             llm_response = await self.llm_client.generate_response(
                 messages=[{"role": "user", "content": prompt}]
             )
 
-            # --- SỬA LỖI TẠI ĐÂY ---
             # Bóc tách nội dung chữ (text) ra khỏi object LLMResponse
             if isinstance(llm_response, LLMResponse):
                 raw_text = llm_response.content
             else:
                 raw_text = str(llm_response)
-            # -----------------------
 
-            # Gọt rửa JSON bằng đoạn text đã lấy được
+            # Gọt rửa JSON và Parse
             json_str = self._clean_json_output(raw_text)
-
-            # Parse chuỗi thành Dict
             data_dict = json.loads(json_str)
 
-            # Dùng Pydantic (EpisodicPayload) để ÉP KIỂU VÀ VALIDATE
+            # Dùng Pydantic ép kiểu
             payload = EpisodicPayload(**data_dict)
 
             logger.info(
@@ -94,11 +113,25 @@ class EventExtractor:
             )
             return payload
 
+        # Bổ sung bẫy lỗi cho việc đọc file YAML
+        except FileNotFoundError:
+            logger.error(
+                f"❌ T2 Extractor: Không tìm thấy file prompt tại {_PROMPTS_YAML_PATH}"
+            )
+            return None
+        except KeyError as e:
+            logger.error(
+                f"❌ T2 Extractor: Lỗi format biến YAML (quên bọc {{}} cho JSON): thiếu key {e}"
+            )
+            return None
         except json.JSONDecodeError as e:
             logger.error(
                 f"❌ T2 Extractor: LLM không trả về JSON hợp lệ. Lỗi: {e}\nRaw Output: {raw_text}"
             )
             return None
         except Exception as e:
-            logger.error(f"❌ T2 Extractor: Lỗi Pydantic Validation hoặc LLM Call: {e}")
+            logger.error(
+                f"❌ T2 Extractor: Lỗi Pydantic Validation hoặc LLM Call: {e}",
+                exc_info=True,
+            )
             return None

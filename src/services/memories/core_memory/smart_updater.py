@@ -1,15 +1,39 @@
-# src/services/core_memory/smart_updater.py
 import json
 import logging
 import re
+from pathlib import Path
 
 from langsmith import traceable
 
 from .models import UserProfile
-from .prompts import CORE_UPDATE_PROMPT
 from .storage.base_core_db import BaseCoreDB
 
 logger = logging.getLogger(__name__)
+
+# Đường dẫn đến file YAML chứa prompts
+_PROMPTS_YAML_PATH = Path(__file__).parent / "prompts.yaml"
+
+
+def get_core_update_prompt(current_profile: str, context: str, new_fact: str) -> str:
+    """
+    Đọc thẳng template từ file YAML và điền biến.
+    Mọi tiêu đề [D], [E], [T] đều phải được định nghĩa sẵn trong file YAML.
+    """
+    try:
+        with open(_PROMPTS_YAML_PATH, "r", encoding="utf-8") as f:
+            prompt_template = f.read()
+
+        return prompt_template.format(
+            current_profile=current_profile, context=context, new_fact=new_fact
+        )
+    except FileNotFoundError:
+        logger.error(f"❌ Không tìm thấy file prompt tại {_PROMPTS_YAML_PATH}")
+        raise
+    except KeyError as e:
+        logger.error(
+            f"❌ Lỗi format biến trong YAML (Thiếu key hoặc quên bọc {{}} cho JSON): {e}"
+        )
+        raise
 
 
 class SmartUpdater:
@@ -50,8 +74,8 @@ class SmartUpdater:
         current_profile = await self.storage.get_profile(user_id)
         current_profile_json = current_profile.model_dump_json(indent=2)
 
-        # 2. Chuẩn bị Prompt (có thể có hoặc không có context)
-        prompt = CORE_UPDATE_PROMPT.format(
+        # 2. Chuẩn bị Prompt từ YAML
+        prompt = get_core_update_prompt(
             current_profile=current_profile_json,
             new_fact=new_fact,
             context=context if context else "(Không có ngữ cảnh bổ sung)",
@@ -79,8 +103,8 @@ class SmartUpdater:
             return True
 
         except json.JSONDecodeError as e:
-            logger.error(f"❌ T3 Updater: LLM không trả về JSON hợp lệ. Lỗi: {e}")
+            logger.error(f"❌ T3 Updater: Lỗi parse JSON từ LLM response: {e}")
             return False
         except Exception as e:
-            logger.error(f"❌ T3 Updater: Lỗi cập nhật Profile: {e}")
+            logger.error(f"❌ T3 Updater: Lỗi không xác định khi update profile: {e}")
             return False
