@@ -19,7 +19,7 @@ class LocalVectorDB(BaseVectorDB):
     Có cơ chế tự động save/load xuống file JSON để giữ tính vĩnh cửu (Persistence).
     """
 
-    def __init__(self, storage_file: str = "memory_data/episodic_vectors.json"):
+    def __init__(self, storage_file: str = "data/memories/episodic_vectors.json"):
         self.storage_file = storage_file
         # Cấu trúc: { user_id: [EpisodicRecord, ...] }
         self._db: Dict[str, List[EpisodicRecord]] = defaultdict(list)

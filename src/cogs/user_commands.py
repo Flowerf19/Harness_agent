@@ -1,4 +1,3 @@
-
 import discord
 from discord.ext import commands
 
@@ -311,7 +310,9 @@ class UserCommandsCog(commands.Cog):
 
         import aiofiles
 
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        base_dir = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
         summary_file = os.path.join(
             base_dir, "data", "user_summaries", f"{user_id}_summary.txt"
         )

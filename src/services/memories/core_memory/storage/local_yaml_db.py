@@ -20,7 +20,7 @@ class LocalYamlDB(BaseCoreDB):
     - YAML dễ đọc và chỉnh sửa thủ công hơn JSON.
     """
 
-    def __init__(self, storage_file: str = "memory_data/core_profiles.yaml"):
+    def __init__(self, storage_file: str = "data/memories/core_profiles.yaml"):
         self.storage_file = storage_file
         # Cache RAM: { "user_id": UserProfile }
         self._cache: Dict[str, UserProfile] = {}

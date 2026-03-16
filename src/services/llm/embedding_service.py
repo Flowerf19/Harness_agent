@@ -9,6 +9,10 @@ from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
+# Tắt log verbose của các thư viện bên thứ ba
+logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 # Đường dẫn cache cho models
 MODEL_CACHE_DIR = os.path.join(os.path.dirname(__file__), "../../models")
 
@@ -120,7 +124,7 @@ class LocalEmbeddingService:
     async def get_embedding(self, text: str) -> List[float]:
         if not text or not text.strip():
             return []
-            
+
         # 1. Kiểm tra xem câu này đã nhúng chưa
         if text in self._cache:
             return self._cache[text]
@@ -129,17 +133,17 @@ class LocalEmbeddingService:
         try:
             # 2. Chạy nhúng vector nếu chưa có trong cache
             vector = await loop.run_in_executor(None, self._encode, text)
-            
+
             # 3. Lưu lại kết quả, giữ tối đa 100 câu gần nhất để không tràn RAM
             self._cache[text] = vector
             if len(self._cache) > 100:
                 self._cache.pop(next(iter(self._cache)))
-                
+
             return vector
         except Exception as e:
             self.logger.error(f"Error generating embedding: {e}")
             return []
-        
+
     def _encode(self, text: str) -> List[float]:
         """
         Hàm đồng bộ thực thi việc nhúng qua CPU/GPU.

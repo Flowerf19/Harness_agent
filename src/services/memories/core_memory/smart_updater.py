@@ -60,7 +60,15 @@ class SmartUpdater:
         Sửa các lỗi YAML phổ biến do LLM tạo ra:
         1. Unclosed quotes - dấu ngoặc kép mở nhưng không đóng
         2. Multiline strings trong quotes không đúng format
+        3. Unicode characters gây lỗi parse
+        4. Truncated YAML (LLM bị cắt do token limit)
         """
+        # 1. Lọc các Unicode control characters gây lỗi (ngoại trừ \n, \t)
+        yaml_str = self._sanitize_unicode(yaml_str)
+
+        # 2. Xử lý truncated YAML - tìm cấu trúc YAML hợp lệ
+        yaml_str = self._fix_truncated_yaml(yaml_str)
+
         lines = yaml_str.split("\n")
         fixed_lines = []
 
@@ -79,6 +87,55 @@ class SmartUpdater:
             fixed_lines.append(line)
 
         return "\n".join(fixed_lines)
+
+    def _sanitize_unicode(self, text: str) -> str:
+        """
+        Loại bỏ các Unicode control characters gây lỗi YAML parser.
+        Giữ lại: \n (newline), \t (tab)
+        """
+        import unicodedata
+
+        result = []
+        for char in text:
+            # Giữ lại các ký tự in được và whitespace thông thường
+            if char in ("\n", "\t", "\r"):
+                result.append(char)
+            elif unicodedata.category(char) not in ("Cc", "Cf", "Cs", "Co", "Cn"):
+                # Cc = Control, Cf = Format, Cs = Surrogate, Co = Private Use, Cn = Unassigned
+                result.append(char)
+            # Bỏ qua các control characters khác
+        return "".join(result)
+
+    def _fix_truncated_yaml(self, yaml_str: str) -> str:
+        """
+        Cố gắng sửa YAML bị cắt giữa chừng do LLM token limit.
+        Tìm block YAML hợp lệ cuối cùng và đóng các cấu trúc chưa hoàn chỉnh.
+        """
+        lines = yaml_str.strip().split("\n")
+        if not lines:
+            return yaml_str
+
+        # Đếm số dấu ngoặc và bracket để detect truncated structures
+        open_braces = yaml_str.count("[") - yaml_str.count("]")
+        open_brackets = yaml_str.count("{") - yaml_str.count("}")
+
+        # Nếu có unclosed brackets/braces -> có thể là truncated JSON-like YAML
+        # Thử đóng chúng
+        result = yaml_str.rstrip()
+        if open_braces > 0:
+            result += "]" * open_braces
+        if open_brackets > 0:
+            result += "}" * open_brackets
+
+        # Nếu dòng cuối có vẻ bị cắt (không kết thúc properly)
+        last_line = lines[-1].strip() if lines else ""
+        if last_line and not last_line.endswith(('"', "'", "]", "}", ":", "- ")):
+            # Kiểm tra nếu dòng cuối là một list item bị cắt
+            if last_line.startswith("- ") and last_line.count('"') % 2 == 1:
+                # Đóng quote cho list item
+                result = result.rstrip() + '"'
+
+        return result
 
     @traceable(
         name="T3_Update_Core_Profile",

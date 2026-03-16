@@ -41,6 +41,7 @@ venv/
 src/data/user_summaries/
 src/data/relationships/
 src/data/server_relationships.txt
+data/
 
 # Model Cache
 models/
