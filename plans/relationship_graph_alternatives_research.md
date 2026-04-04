@@ -16,7 +16,7 @@ Dựa trên phân tích tài liệu thiết kế `relationship_graph_design.md` 
 | **Khả năng truy vấn** | ⭐ Cơ bản | ⭐⭐⭐ Tốt | ⭐⭐⭐⭐⭐ Xuất sắc | ⭐⭐⭐ Tốt | ⭐⭐⭐ Tốt |
 | **Hiệu năng (Quy mô)** | ⭐⭐ Vừa-nhỏ | ⭐⭐ Chỉ RAM | ⭐⭐⭐⭐⭐ Doanh nghiệp | ⭐⭐⭐⭐ Tốt | ⭐⭐⭐ Tốt |
 | **Công sức tích hợp** | ⭐⭐⭐⭐⭐ Tối thiểu | ⭐⭐⭐⭐ Dễ | ⭐⭐ Phức tạp | ⭐⭐⭐ Trung bình | ⭐⭐⭐⭐ Dễ |
-| **Phụ thuộc** | ✅ Không | `networkx` | Docker/Server | Tái dùng T2 | `sqlite3` built-in |
+| **Phụ thuộc** | ✅ Không | `networkx` | External server | Tái dùng T2 | `sqlite3` built-in |
 | **Thao tác đồ thị** | Lặp thủ công | Thuật toán native | Native + Cypher | Truy vấn metadata | SQL joins |
 | **Lưu trữ bền vững** | ✅ Có | ❌ Chỉ RAM | ✅ Có | ✅ Có | ✅ Có |
 
@@ -62,7 +62,7 @@ Dựa trên phân tích tài liệu thiết kế `relationship_graph_design.md` 
 
 **Nhược điểm:**
 - **Quá mức cho quy mô dự án** - Discord bot traffic vừa phải
-- Yêu cầu Docker/server bên ngoài
+- Yêu cầu server riêng (external infrastructure)
 - Đường cong học tập dốc
 - Độ phức tạp vận hành thêm
 - Chi phí hosting

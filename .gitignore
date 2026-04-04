@@ -28,8 +28,6 @@ venv/
 
 # Environment Variables
 .env
-.env.*
-
 # Logs
 *.log
 
@@ -49,4 +47,7 @@ models/
 *.safetensors
 
 # Tests
-tests/
+tests/__pycache__/
+tests/data/
+tests
+

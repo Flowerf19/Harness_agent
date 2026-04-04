@@ -1,314 +1,416 @@
 # Discord LLM AI Chatbot
 
-Discord bot powered by Google Gemini and OLLAMA with conversation management,
-relationship tracking, and user profiling.
+Discord bot powered by Google Gemini và Qwen với hệ thống trí nhớ 3 tầng, theo dõi mối quan hệ và profile người dùng.
 
-## ✨ Current Features
+## 🧠 Kiến trúc Hệ thống
 
-### 🧠 Smart AI Personality & Roleplay
+### Tổng quan
 
-- **Deep Roleplay Engine**: Fully immersive "March 7th" persona
-(from Honkai: Star Rail) with a distinct Gen Z voice, sassy attitude,
-and energetic tone. Uses slang and emojis naturally.
-- **Adaptive Memory**: The bot learns!. It automatically summarizes user details
-(name, hobbies, job) from conversations and updates a long-term memory profile.
-- **Contextual Awareness**: Understands conversation flow, references to previous
-messages, and mentioned users. It remembers what you said 5 minutes ago or yesterday.
-
-### 💬 Advanced Conversation Engine
-
-- **Human-like Typing Simulation**: Not just a static delay. The bot calculates
-reading time + typing speed (WPM) + thinking pauses based on message complexity
-(emojis, length) to simulate a real person typing.
-- **Smart Queue & Anti-Spam**: Intelligent message queuing filters duplicate
-messages and prevents spam, ensuring stability even in busy channels.
-- **Hybrid AI Core**:
-Seamlessly switches between **Ollama (Local LLM)** for
-cost-efficiency/privacy and **Google Gemini (Cloud LLM)** for complex reasoning
-and creative tasks.
-- **Smart Addressing**: Intelligently identifies users by their Discord display
-name if a real name isn't provided, making interactions feel personal
-and avoiding generic responses.
-
-### 🤝 Social Intelligence (Relationship System)
-
-- **Dynamic Relationship Tracking**:
- Quantifies relationships based on interaction frequency and sentiment
- The bot knows if you are a "bestie" or just an acquaintance.
-- **Social Graph Awareness**:
-Understands the web of relationships in the server (who talks to whom).
-- **Sentiment Memory**:
-Remembers how you treated it in the past and adjusts its attitude accordingly.
-
-### 🛠️ Technical Highlights
-
-- **Modular Architecture**:
- Built with a clean Service-Repository pattern for easy maintenance, testing,
- and scalability.
-- **Asynchronous Core**:
-Fully async Python (`discord.py` + `aiohttp`) for high performance and responsiveness.
-- **Robust Error Handling**:
-Self-healing mechanisms for API failures and network issues.
-
-## Message Flow
+Bot được xây dựng theo kiến trúc **Service-Repository Pattern** với Dependency Injection, chia thành các layer rõ ràng:
 
 ```mermaid
-flowchart TD
-    START((User sends message)) --> BOT[bot.py receives event]
-    
-    BOT --> DEDUP{LLMMessageService<br/>Already processed?}
-    DEDUP -->|Yes| SKIP[Skip duplicate]
-    DEDUP -->|No| SPAM{MessageProcessor<br/>Spam check}
-    
-    SPAM -->|Rate exceeded| WARN[Send spam warning]
-    SPAM -->|OK| LOCK{ConversationManager<br/>Acquire user lock}
-    
-    LOCK -->|User busy| QUEUE[Queue message]
-    LOCK -->|Lock acquired| CTX[ContextBuilder]
-    
-    CTX --> FETCH["Fetch parallel data"]
-    
-    subgraph DataFetch["Data Fetching"]
-        FETCH --> SUM[SummaryService<br/>Get user profile]
-        FETCH --> REL[RelationshipService<br/>Get relationships]
-        FETCH --> HIST[ConversationManager<br/>Get conversation]
+flowchart TB
+    subgraph Discord["Discord Gateway"]
+        CG[ChatGateway Cog]
     end
     
-    SUM --> BUILD[Build enhanced prompt]
-    REL --> BUILD
-    HIST --> BUILD
+    subgraph Core["Core Layer"]
+        CC[ChatCoordinator<br/>Nhạc Trưởng]
+    end
     
-    BUILD --> AI{Select AI Service}
-    AI -->|Primary| GEMINI[GeminiService]
-    AI -->|Backup| DEEPSEEK[DeepSeekService]
+    subgraph Memory["Memory System - 3 Tầng"]
+        T1[Tầng 1: Active Memory<br/>RAM - Hội thoại hiện tại]
+        T2[Tầng 2: Episodic Memory<br/>Vector DB - Ký ức dài hạn]
+        T3[Tầng 3: Core Memory<br/>YAML DB - Profile người dùng]
+    end
     
-    GEMINI --> PROMPT[Load prompts from JSON]
-    DEEPSEEK --> PROMPT
+    subgraph LLM["LLM Services"]
+        GS[GeminiService]
+        QS[QwenService]
+    end
     
-    PROMPT --> GEN[Generate AI response]
-    GEN --> TYPING[Typing simulation<br/>Human-like delay]
+    subgraph Embedding["Embedding Service"]
+        ES[LocalEmbeddingService<br/>Qwen3-Embedding-0.6B]
+    end
     
-    TYPING --> SEND[Send to Discord]
-    SEND --> UNLOCK[Release user lock]
-    UNLOCK --> UPDATE[Update user data]
-    
-    UPDATE --> SAVE_SUM[Save summary]
-    UPDATE --> SAVE_REL[Save relationships]
-    
-    SAVE_SUM --> DONE((Done))
-    SAVE_REL --> DONE
-    
-    SKIP --> DONE
-    WARN --> DONE
-    QUEUE --> DONE
+    CG --> CC
+    CC --> T1
+    CC --> T2
+    CC --> T3
+    T1 -->|Event: CRITICAL_INFO| T3
+    T1 -->|Event: TOKEN_LIMIT| T2
+    CC --> GS
+    CC --> QS
+    T2 --> ES
+    T1 --> ES
 ```
 
-## Project Structure
+### Hệ thống Trí nhớ 3 Tầng
+
+```mermaid
+flowchart LR
+    subgraph T1["Tầng 1: Active Memory (RAM)"]
+        direction TB
+        A1[Message Input] --> A2[Evaluation Pipeline]
+        A2 --> A3[Token Counter]
+        A3 --> A4[RAM Storage]
+        A4 --> A5[Context Builder]
+        
+        A2 -->|Score >= Threshold| A6[Event: CRITICAL_INFO]
+        A3 -->|Tokens >= Limit| A7[Event: TOKEN_LIMIT]
+    end
+    
+    subgraph T2["Tầng 2: Episodic Memory (Vector DB)"]
+        direction TB
+        B1[Event Extractor] --> B2[Vector Engine]
+        B2 --> B3[Local Vector DB]
+        B3 --> B4[Context Formatter]
+    end
+    
+    subgraph T3["Tầng 3: Core Memory (YAML DB)"]
+        direction TB
+        C1[Smart Updater] --> C2[Profile YAML]
+        C2 --> C3[System Prompt Builder]
+    end
+    
+    A6 --> C1
+    A7 --> B1
+```
+
+#### Tầng 1: Active Memory (RAM)
+- **Mục đích**: Lưu trữ hội thoại hiện tại trong RAM
+- **Đánh giá tin nhắn**: Rule Engine + Semantic Engine
+- **Quản lý token**: Tự động cleanup khi vượt giới hạn
+- **Events**: Phát sự kiện khi phát hiện thông tin quan trọng hoặc RAM đầy
+
+#### Tầng 2: Episodic Memory (Vector DB)
+- **Mục đích**: Lưu trữ ký ức dài hạn dưới dạng vector embeddings
+- **Trích xuất sự kiện**: Dùng LLM để tóm tắt và trích xuất thông tin
+- **Tìm kiếm ngữ nghĩa**: Vector similarity search với threshold 0.4
+- **Embedding**: Qwen3-Embedding-0.6B chạy local
+
+#### Tầng 3: Core Memory (YAML DB)
+- **Mục đích**: Lưu profile người dùng (tên, sở thích, mối quan hệ...)
+- **Cập nhật thông minh**: Smart Updater dùng LLM để cập nhật profile
+- **System Prompt**: Tự động inject vào prompt cho LLM
+
+## 📊 Luồng Xử lý Tin nhắn
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant CG as ChatGateway
+    participant CC as ChatCoordinator
+    participant MM as MemoryManager
+    participant T1 as Active Memory
+    participant T2 as Episodic Memory
+    participant T3 as Core Memory
+    participant LLM as LLM Service
+    
+    U->>CG: Gửi tin nhắn
+    CG->>CG: Kiểm tra quyền phản hồi
+    CG->>CC: process_message(user_id, content)
+    
+    par Ghi nhận tin nhắn
+        CC->>MM: add_message(user_id, role, content)
+        MM->>T1: add_message()
+        T1->>T1: Đánh giá + Đếm token
+        T1-->>MM: MemoryEntry
+    end
+    
+    Note over T1: Nếu phát hiện info quan trọng
+    T1-->>T3: Event: CRITICAL_INFO_DETECTED
+    T3->>T3: Cập nhật profile
+    
+    Note over T1: Nếu RAM đầy
+    T1-->>T2: Event: TOKEN_LIMIT_REACHED
+    T2->>T2: Trích xuất + Lưu vector
+    
+    par Lấy ngữ cảnh
+        CC->>MM: get_context(user_id, query)
+        par Parallel Fetch
+            MM->>T3: get_system_prompt_context()
+            MM->>T1: get_context_for_llm()
+            MM->>T2: retrieve_past_context()
+        end
+        T3-->>MM: System Prompt (Profile)
+        T1-->>MM: Lịch sử hội thoại
+        T2-->>MM: Ký ức liên quan
+    end
+    
+    MM-->>CC: (system_prompt, context_messages)
+    CC->>LLM: generate_response(messages, system_prompt)
+    LLM-->>CC: LLMResponse (content + tokens)
+    
+    CC->>MM: add_message(user_id, assistant, response)
+    CC-->>CG: bot_response
+    CG->>U: Gửi tin nhắn phản hồi
+```
+
+## 🏗️ Cấu trúc Dự án
 
 ```text
-
 src/
-├── bot.py                          # Entry point, Cog auto-discovery
+├── bot.py                              # Entry point, Discord bot setup
+├── __main__.py                         # Python module entry
+│
 ├── config/
-│   ├── settings.py                 # Config class with pathlib paths
-│   └── logging_config.py           # Logging setup
-├── data/
-│   ├── prompts/                    # AI prompt templates (JSON)
-│   ├── user_summaries/             # User profiles (gitignored)
-│   └── relationships/              # Relationship data (gitignored)
+│   ├── settings.py                     # Config class (env variables)
+│   └── logging_config.py               # Logging setup
+│
+├── cogs/                               # Discord Cogs (Event handlers)
+│   ├── chat_gateway.py                 # Main message handler
+│   ├── user_commands.py                # User slash commands
+│   ├── admin_channels.py               # Admin channel management
+│   └── base_cog.py                     # Base cog class
+│
 ├── services/
-│   ├── ai/
-│   │   ├── gemini_service.py       # Gemini API integration
-│   │   ├── ollama_service.py       # Ollama API integration
-│   │   └── deepseek_service.py     # DeepSeek API integration
-│   ├── commands/
-│   │   ├── queue_commands.py       # Queue management commands
-│   │   └── typing_commands.py      # Typing simulation commands
-│   ├── conversation/
-│   │   ├── conversation_manager.py # Per-user locking
-│   │   ├── message_processor.py    # Anti-spam
-│   │   └── anti_spam_service.py    # Rate limiting
-│   ├── messeger/
-│   │   ├── llm_message_service.py  # Message deduplication
-│   │   ├── context_builder.py      # Context assembly
-│   │   └── message_queue.py        # Message queuing
-│   ├── relationship/
-│   │   ├── relationship_service.py # Relationship business logic
-│   │   └── relationship_data.py    # Repository for relationships
-│   ├── user/
-│   │   └── user_commands.py        # User-facing commands
-│   └── user_summary/
-│       ├── summary_service.py      # Summary business logic
-│       ├── summary_data.py         # Repository for summaries
-│       └── summary_parser.py       # Text parsing utilities
-└── utils/                          # Utility functions
+│   ├── chat_coordinator.py             # Main orchestrator
+│   ├── dependencies.py                 # DI Container (AppContainer)
+│   │
+│   ├── core/
+│   │   └── anti_spam_service.py        # Rate limiting
+│   │
+│   ├── llm/                            # LLM Providers
+│   │   ├── base_llm_service.py         # Abstract base class
+│   │   ├── gemini_service.py           # Google Gemini API
+│   │   ├── qwen_service.py             # Qwen API (OpenAI-compatible)
+│   │   ├── embedding_service.py        # Local embedding model
+│   │   └── llm_response.py             # Response wrapper
+│   │
+│   └── memories/                       # 3-Tier Memory System
+│       ├── memory_manager.py           # Master orchestrator
+│       │
+│       ├── activate_memory/            # Tầng 1: Active Memory
+│       │   ├── activate_memory_service.py
+│       │   ├── models.py               # MemoryEntry, MessageCategory
+│       │   ├── constants.py            # Thresholds config
+│       │   ├── evaluation/
+│       │   │   ├── pipeline.py         # Đánh giá tin nhắn
+│       │   │   ├── rule_engine.py      # Luật cứng
+│       │   │   └── sematic_enegine.py  # Semantic scoring
+│       │   ├── events/
+│       │   │   └── event_dispatcher.py # Pub/Sub system
+│       │   ├── management/
+│       │   │   ├── context_builder.py  # Build context for LLM
+│       │   │   ├── smart_cleanup.py    # Auto cleanup
+│       │   │   └── token_counter.py   # Token counting
+│       │   └── storage/
+│       │       ├── base_storage.py
+│       │       └── ram_storage.py      # In-memory storage
+│       │
+│       ├── core_memory/                # Tầng 3: Core Memory
+│       │   ├── core_manager.py
+│       │   ├── models.py               # UserProfile
+│       │   ├── smart_updater.py        # LLM-based profile updater
+│       │   ├── prompts.yaml            # Extraction prompts
+│       │   └── storage/
+│       │       ├── base_core_db.py
+│       │       ├── local_yaml_db.py    # YAML file storage
+│       │       └── local_json_db.py    # JSON file storage
+│       │
+│       └── episodic_memory/            # Tầng 2: Episodic Memory
+│           ├── episodic_manager.py
+│           ├── models.py               # EpisodicRecord
+│           ├── prompts.yaml            # Extraction prompts
+│           ├── extraction/
+│           │   ├── event_extractor.py  # LLM event extraction
+│           │   └── retrieval/
+│           │       ├── vector_engine.py # Embedding wrapper
+│           │       └── context_formatter.py
+│           └── storage/
+│               ├── base_vector_db.py
+│               └── local_vector_db.py  # Local vector storage
+│
+├── utils/
+│   └── helpers.py                      # Utility functions
+│
+└── data/                               # Data storage (gitignored)
+    ├── user_profiles/                  # Core Memory YAML files
+    └── vector_db/                      # Episodic Memory vectors
+
+prompts/
+├── personality.yaml                    # Bot personality
+└── conversation_prompt.yaml            # Conversation guidelines
 ```
 
-## Quick Start
+## 🚀 Quick Start
+
+### 1. Clone và Setup
 
 ```bash
-# Clone and setup
+# Clone repository
 git clone <repository-url>
-cd discord-bot-gemini
+cd discord-bot-v1
+
+# Tạo virtual environment
 python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # macOS/Linux
+source venv/bin/activate  # Linux/macOS
+# venv\Scripts\activate  # Windows
 
 # Install dependencies
 pip install -r requirements.txt
+```
 
-# Configure environment
+### 2. Cấu hình Environment
+
+```bash
+# Copy example env
 cp .env.example .env
-# Edit .env with your API keys
+```
 
-# Run
+Edit file `.env` với các biến sau:
+
+```env
+# Discord
+DISCORD_LLM_BOT_TOKEN=your_bot_token
+DISCORD_LLM_BOT_CLIENT_ID=your_client_id
+
+# LLM Provider (gemini hoặc qwen)
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-1.5-flash
+LLM_TEMPERATURE=0.7
+LLM_MAX_TOKENS=100
+
+# Gemini API
+GEMINI_API_KEY=your_gemini_key
+
+# Qwen API (nếu dùng Qwen)
+QWEN_API_KEY=your_qwen_key
+QWEN_MODEL=qwen-max
+
+# LangSmith Tracing (optional)
+LANGCHAIN_API_KEY=your_langsmith_key
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_PROJECT=discord-bot
+```
+
+### 3. Chạy Bot
+
+```bash
+python -m src.bot
+# hoặc
 python src/bot.py
 ```
 
-## 🎮 GPU Setup (AMD ROCm)
+## ⚙️ Cấu hình Chi tiết
 
-Bot hỗ trợ tăng tốc GPU với AMD ROCm để chạy mô hình embedding nhanh hơn.
+### LLM Parameters
 
-### Kiểm tra GPU
+| Biến | Mặc định | Mô tả |
+|------|----------|-------|
+| `LLM_PROVIDER` | `gemini` | Provider: `gemini` hoặc `qwen` |
+| `LLM_MODEL` | `gemini-1.5-flash` | Model name |
+| `LLM_TEMPERATURE` | `0.7` | Creativity (0-1) |
+| `LLM_MAX_TOKENS` | `100` | Max output tokens |
+| `LLM_TOP_P` | `0.9` | Nucleus sampling |
+| `LLM_TOP_K` | `40` | Top-k sampling |
 
-```bash
-# Chạy script test GPU
-python test_gpu.py
+### Typing Simulation
+
+| Biến | Mặc định | Mô tả |
+|------|----------|-------|
+| `ENABLE_TYPING_SIMULATION` | `1` | Bật/tắt typing simulation |
+| `TYPING_SPEED_WPM` | `250` | Tốc độ gõ (words/min) |
+| `MIN_TYPING_DELAY` | `0.5` | Delay tối thiểu (giây) |
+| `MAX_TYPING_DELAY` | `8.0` | Delay tối đa (giây) |
+| `PART_BREAK_DELAY` | `0.6` | Delay giữa các phần tin nhắn |
+
+## 🔧 Kiến trúc Dependency Injection
+
+```mermaid
+flowchart TB
+    subgraph AppContainer
+        direction TB
+        
+        subgraph LLM["LLM Service"]
+            LS[GeminiService / QwenService]
+        end
+        
+        subgraph Embedding["Embedding"]
+            ES[LocalEmbeddingService]
+        end
+        
+        subgraph T1["Tầng 1 Components"]
+            ED[EventDispatcher]
+            RS[LocalMemoryDB]
+            RE[RuleEngine]
+            SE[SemanticEngine]
+            EP[EvaluationPipeline]
+            TC[TokenCounter]
+            SC[SmartCleanup]
+            CB[ContextBuilder]
+            AMS[ActiveMemoryService]
+        end
+        
+        subgraph T2["Tầng 2 Components"]
+            LVD[LocalVectorDB]
+            EE[EventExtractor]
+            VE[VectorEngine]
+            EM[EpisodicManager]
+        end
+        
+        subgraph T3["Tầng 3 Components"]
+            LY[LocalYamlDB]
+            SU[SmartUpdater]
+            CM[CoreManager]
+        end
+        
+        subgraph Master["Master"]
+            MM[MemoryManager]
+            CC[ChatCoordinator]
+        end
+    end
+    
+    ES --> SE
+    LS --> SU
+    LS --> EE
+    
+    RS --> AMS
+    EP --> AMS
+    TC --> AMS
+    SC --> AMS
+    CB --> AMS
+    ED --> AMS
+    
+    AMS --> MM
+    EM --> MM
+    CM --> MM
+    ED --> MM
+    
+    MM --> CC
+    LS --> CC
 ```
 
-### Cài đặt ROCm for PyTorch
+## 📝 Ghi chú Kỹ thuật
 
-```bash
-# 1. Cài đặt ROCm driver (Ubuntu)
-sudo apt-get update
-sudo apt-get install rocm-dev rocm-libs rocm-utils
+### Event System (Pub/Sub)
 
-# 2. Thêm user vào render group
-sudo usermod -aG render,video $USER
+Hệ thống sử dụng Event Dispatcher để giao tiếp giữa các tầng:
 
-# 3. Reboot để áp dụng
-sudo reboot
+- **`CRITICAL_INFO_DETECTED`**: Khi Tầng 1 phát hiện thông tin quan trọng → Tầng 3 cập nhật profile
+- **`TOKEN_LIMIT_REACHED`**: Khi Tầng 1 đầy RAM → Tầng 2 tóm tắt và lưu vector
 
-# 4. Cài đặt PyTorch với ROCm support
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm5.7
+### Parallel Context Fetching
 
-# Hoặc bản nightly (mới nhất)
-pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/rocm5.7
-```
+Khi lấy ngữ cảnh cho LLM, 3 tác vụ chạy song song:
+1. Tầng 3: Lấy system prompt (profile user)
+2. Tầng 1: Lấy lịch sử hội thoại hiện tại
+3. Tầng 2: Tìm kiếm ký ức liên quan (vector similarity)
 
-### Verifying ROCm Installation
+### Token Tracking
 
-```bash
-# Kiểm tra ROCm
-rocminfo
-rocm-smi
+Mọi response từ LLM đều được track token usage:
+- Input tokens
+- Output tokens
+- Total tokens
 
-# Kiểm tra trong Python
-python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
-python -c "import torch; print(f'GPU: {torch.cuda.get_device_name(0)}')"
-```
+### LangSmith Integration
 
-## 📁 Model Caching
+Hệ thống tích hợp LangSmith tracing để debug và monitor:
+- `@traceable` decorator trên các hàm quan trọng
+- Track toàn bộ flow từ message đến response
 
-Models được cache trong thư mục `models/` để không cần tải lại mỗi lần chạy:
+## 📄 License
 
-- **Vị trí cache**: `models/`
-- **Embedding model**: `Qwen/Qwen3-Embedding-0.6B`
-- **Đã thêm vào .gitignore**: Model files không được commit lên repo
-
-## Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DISCORD_LLM_BOT_TOKEN` | Yes | Discord bot token |
-| `OLLAMA_URL` | Yes | Ollama server URL |
-| `GEMINI_API_KEY` | no | Google Gemini API key |
-| `DEEPSEEK_API_KEY` | No | DeepSeek API key (backup) |
-| `QWEN_API_KEY` | No | Alibaba Qwen API key |
-| `QWEN_API_URL` | No | Qwen API URL (default: https://dashscope.aliyuncs.com/compatible-mode/v1) |
-| `QWEN_MODEL` | No | Qwen model name (default: qwen-max) |
-| `LLM_PROVIDER` | No | LLM provider ('gemini', 'ollama', 'lm_studio', or 'qwen'; default: gemini) |
-| `LLM_MODEL` | No | Model name (default: gemini-2.0-flash) |
-| `ENABLE_TYPING_SIMULATION` | No | Enable typing delays (default: 1) |
-| `TYPING_SPEED_WPM` | No | Words per minute (default: 250) |
-
-## Bot Commands
-
-### User Commands
-
-| Command | Alias | Description |
-|---------|-------|-------------|
-| `!ping` | | Test bot responsiveness |
-| `!status` | | Check bot status and user info |
-| `!relationships [user]` | `!mq`, `!relation` | View user relationships |
-| `!conversation <user1> [user2]` | `!cv`, `!convo` | View conversation summary |
-| `!analysis [user]` | `!analyze` | Generate AI analysis of relationships |
-| `!search_relations <keyword>` | `!sr`, `!tìm` | Search relationships by keyword |
-| `!mentions <user1> <user2>` | `!tag` | View mention history between users |
-
-### Admin & Debug Commands
-
-| Command | Permission | Description |
-|---------|------------|-------------|
-| `!all_users` | Manage Messages | View summary of all users |
-| `!queue_status` | - | Show message queue status |
-| `!clear_queue` | Manage Messages | Clear pending queue |
-| `!debug_duplicate` | - | Debug duplicate response issues |
-| `!test_typing` | - | Test typing simulation |
-| `!typing_settings` | Manage Messages | View typing configuration |
-
-## 🚀 Future Updates & Roadmap
-
-This project is currently a **DEMO** version, showcasing the potential of
-LLM-powered Discord bots. The long-term vision is to build a
-comprehensive **AI Agent Platform** where users can deploy and customize their
-own agents.
-
-### Upcoming Features
-
-#### 🎵 Natural Music Interaction
-
-- **No more slash commands!** Just ask the bot naturally:
-  - "Ê bật bài Em Của Ngày Hôm Qua đi"
-  - "Thôi bài này chán quá, đổi bài khác sôi động hơn coi"
-  - "Tắt nhạc đi ngủ đây"
-- The bot will understand context and intent to control music playback.
-
-#### 🛡️ Server Administration
-
-- Intelligent server management and moderation.
-- Automated rule enforcement and user support.
-
-#### 🎨 Creative Capabilities
-
-- **Image Generation**:
- "Vẽ cho tui con mèo đang code error đi" -> Generates image on the fly.
-- **Event Management**:
- "Tạo event tối nay 8h anh em vào chiến game nha" -> Bot automatically sets up
- Discord event, sends notifications, and manages RSVPs.
-
-### 🌟 The Big Picture: Custom Agent Platform
-
-The ultimate goal is to evolve this bot into a platform where:
-
-- Users can **custom their own Agents** via a Discord App.
-- **Prompt Engineering**:
-Users define their agent's personality, knowledge base, and rules.
-- **Configuration**: Set up specific capabilities/tools for each agent.
-- **Deployment**:
-Invite these custom agents to your own servers for specific purposes
-(Customer Support, Gaming Buddy, Moderator, etc.).
-
-## 🤝 Contribution
-
-We are looking for contributors to help build this vision! If you are
-interested in AI, Discord Bots, and building cool stuff, join us.
-
-**Contact:**
-
-- 📧 Email: <hoaf.n.v@gmail.com>
-- 📘 Facebook: [facebook.com/hoaf.n.v](https://facebook.com/hoaf.n.v)
-
-## License
-
-MIT License - see LICENSE file for details.
+MIT License
