@@ -172,6 +172,24 @@ sequenceDiagram
 - Khi đạt ngưỡng → Phát sự kiện `TOKEN_LIMIT_REACHED`
 - Kích hoạt LLM độc lập để xử lý
 
+**⚠️ Gotcha: Time-based Trigger (Session Inactive Timeout)**
+
+**Vấn đề:** Nếu bạn đặt `MAX_WORKING_TOKENS = 2000`, nhưng user chỉ chat 3 câu (khoảng 100 tokens) rồi đi ngủ. RAM sẽ treo đoạn hội thoại đó mãi mà không đẩy vào Episodic / Core Memory vì chưa đủ ngưỡng.
+
+**Giải pháp:** Thêm một **Timeout Trigger** (ví dụ: Session Inactive). Nếu sau **30 phút** không có tin nhắn mới, tự động kích hoạt tiến trình "Đóng gói Ký ức" và dọn dẹp RAM.
+
+```python
+# Ví dụ triển khai
+SESSION_INACTIVE_TIMEOUT = 30 * 60  # 30 phút (giây)
+
+class ActiveMemoryService:
+    async def check_inactive_session(self, user_id: str):
+        last_activity = self.get_last_activity(user_id)
+        if time.now() - last_activity > SESSION_INACTIVE_TIMEOUT:
+            await self.trigger_memory_consolidation(user_id)
+            await self.clear_ram(user_id)
+```
+
 **Triển khai hiện tại:**
 - [`activate_memory_service.py`](src/services/memories/activate_memory/activate_memory_service.py)
 - [`ram_storage.py`](src/services/memories/activate_memory/storage/ram_storage.py)
@@ -216,6 +234,31 @@ Lịch sử raw → LLM Tóm tắt → Embedding → Vector DB
 - Cắt theo thẻ Heading (`#`, `##`, `###`)
 - Tự động gắn metadata: `{"Header 1": "Session", "Header 2": "Chủ đề chính"}`
 - LLM đọc hiểu tốt hơn JSON/YAML
+
+**⚠️ Gotcha: Metadata cho Vector DB**
+
+Trong `search_conversation_history`, hãy đảm bảo các vector được lưu cùng **Metadata mạnh mẽ** (như `user_id`, `timestamp`, `session_id`).
+
+Việc bot biết "User nhắc đến Wuthering Waves từ 3 tháng trước" khác hoàn toàn với "mới nhắc hôm qua". **Time-decay** (sự phai mờ ký ức theo thời gian) rất quan trọng trong Episodic Memory.
+
+```python
+# Ví dụ cấu trúc metadata khi lưu vector
+metadata = {
+    "user_id": "123456789",
+    "session_id": "sess_abc123",
+    "timestamp": "2026-04-05T14:30:00Z",
+    "date": "2026-04-05",  # Để dễ filter
+    "topics": ["game", "wuthering-waves"],  # Optional: extracted topics
+}
+
+# Khi search, có thể áp dụng time-decay scoring
+def search_with_time_decay(query_embedding, user_id, days_weight=0.1):
+    results = vector_db.search(query_embedding, filter={"user_id": user_id})
+    for result in results:
+        age_days = (now - result.metadata["timestamp"]).days
+        result.score *= math.exp(-days_weight * age_days)  # Decay theo thời gian
+    return sorted(results, key=lambda r: r.score, reverse=True)
+```
 
 **Triển khai hiện tại:**
 - [`episodic_manager.py`](src/services/memories/episodic_memory/episodic_manager.py)
@@ -266,6 +309,57 @@ Lịch sử raw → LLM Tóm tắt → Embedding → Vector DB
 - LLM độc lập (SmartUpdater) phát hiện thông tin quan trọng
 - Phát sự kiện `CRITICAL_INFO_DETECTED`
 - Cập nhật vào file .md
+
+**⚠️ Gotcha: Khó khăn khi Update file Markdown bằng Code**
+
+Hàm `update_user_profile(user_id: str, section: str, content: str)` nghe thì dễ, nhưng **parse file .md bằng code Python để "ghi đè đúng một section" là khá phức tạp và dễ vỡ cấu trúc (broken format)**.
+
+**Giải pháp:**
+
+**Phương án 1: Dùng thư viện markdown-it-py**
+```python
+from markdown_it import MarkdownIt
+
+def update_section(md_content: str, section: str, new_content: str) -> str:
+    """Parse markdown ra AST tree, modify, rồi render lại"""
+    mdit = MarkdownIt()
+    tokens = mdit.parse(md_content)
+    # Logic tìm và thay đổi section...
+    return mdit.render(tokens)
+```
+
+**Phương án 2 (Khuyên dùng): LLM-based Update**
+Mỗi lần update, đưa file markdown hiện tại cho LLM SmartUpdater và yêu cầu nó trả về **toàn bộ file Markdown mới** đã được cập nhật, sau đó chỉ việc ghi đè (overwrite) lên file cũ.
+
+```python
+async def update_user_profile(user_id: str, update_request: str) -> bool:
+    """LLM-based update - đơn giản và ít lỗi hơn"""
+    current_profile = read_user_profile(user_id)
+    
+    prompt = f"""
+    Bạn là SmartUpdater. Dưới đây là profile hiện tại của user:
+    
+    {current_profile}
+    
+    Yêu cầu cập nhật: {update_request}
+    
+    Hãy trả về TOÀN BỘ file markdown đã được cập nhật. Giữ nguyên cấu trúc.
+    """
+    
+    new_profile = await llm.generate(prompt)
+    
+    # Ghi đè đơn giản
+    with open(f"profiles/{user_id}.md", "w") as f:
+        f.write(new_profile)
+    
+    return True
+```
+
+**Ưu điểm phương án LLM-based:**
+- Không cần parse phức tạp
+- LLM hiểu ngữ cảnh và giữ cấu trúc tốt
+- Dễ maintain, ít bug
+- Chi phí token thấp (file profile thường ngắn)
 
 **Triển khai hiện tại:**
 - [`core_manager.py`](src/services/memories/core_memory/core_manager.py)
