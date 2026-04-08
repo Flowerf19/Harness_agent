@@ -19,6 +19,7 @@ Tài liệu này mô tả kế hoạch cập nhật hệ thống bộ nhớ cho 
 ---
 
 ## 📋 Checklist Triển khai
+- Code theo cấu trúc hiện tại của dự án. không nên hardcode. nếu gặp vấn đề gì không tuân theo được cấu trúc thì phải hỏi user xác nhận.
 
 ### Tầng 1: Active Memory (Redis Migration)
 - [ ] Tạo file `redis_storage.py` implement `BaseStorage` interface
