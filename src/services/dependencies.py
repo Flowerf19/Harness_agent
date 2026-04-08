@@ -11,6 +11,7 @@ from src.services.llm.embedding_service import LocalEmbeddingService
 
 # --- LLM Services ---
 from src.services.llm.gemini_service import GeminiService
+from src.services.llm.lm_studio_service import LMStudioService
 from src.services.llm.qwen_service import QwenService
 from src.services.memories.activate_memory.activate_memory_service import (
     ActiveMemoryService,
@@ -32,8 +33,7 @@ from src.services.memories.activate_memory.management.smart_cleanup import Smart
 from src.services.memories.activate_memory.management.token_counter import TokenCounter
 from src.services.memories.activate_memory.storage.ram_storage import LocalMemoryDB
 from src.services.memories.core_memory.core_manager import CoreManager
-from src.services.memories.core_memory.smart_updater import SmartUpdater
-from src.services.memories.core_memory.storage.local_yaml_db import LocalYamlDB
+from src.services.memories.core_memory import SmartUpdater, MarkdownStorage
 from src.services.memories.episodic_memory.episodic_manager import EpisodicManager
 from src.services.memories.episodic_memory.extraction.event_extractor import (
     EventExtractor,
@@ -75,6 +75,8 @@ class AppContainer:
         provider = getattr(Config, "LLM_PROVIDER", "gemini").lower()
         if provider == "qwen":
             self.llm_service = QwenService()
+        elif provider == "lms":
+            self.llm_service = LMStudioService()
         else:
             self.llm_service = GeminiService()
 
@@ -115,7 +117,8 @@ class AppContainer:
 
         # 3. LẮP RÁP BỘ NHỚ TẦNG 3 (Core Memory)
         # Tầng 3 chỉ cần Chat LLM để làm thư ký tóm tắt, không cần Embedding
-        t3_storage = LocalYamlDB()
+
+        t3_storage = MarkdownStorage() 
         t3_updater = SmartUpdater(llm_client=self.llm_service, storage=t3_storage)
         t3_manager = CoreManager(storage=t3_storage, smart_updater=t3_updater)
 

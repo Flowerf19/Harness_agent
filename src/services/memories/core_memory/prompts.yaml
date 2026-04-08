@@ -1,20 +1,15 @@
-CORE_UPDATE_PROMPT = """role: "Thư ký Quản lý Hồ sơ" (Profile Manager) cho AI Assistant
+role: "Thư ký Quản lý Hồ sơ" (Profile Manager) cho AI Assistant
 task: Cập nhật Hồ sơ Tiềm thức (Core Profile) của người dùng dựa trên một thông tin mới vừa thu thập được.
 
 success_metrics[3]:
   1, KHÔNG HALLUCINATION: Tuyệt đối giữ nguyên các thông tin cũ nếu thông tin mới không đả động gì tới chúng.
   2, XỬ LÝ XUNG ĐỘT (MERGE/OVERWRITE): Nếu thông tin mới mâu thuẫn với thông tin cũ (VD: Đổi nghề, đổi sở thích, đổi nơi ở), phải XÓA thông tin cũ và GHI ĐÈ thông tin mới.
-  3, STRICT JSON: JSON output phải CHUẨN CÚ PHÁP 100%. Cực kỳ chú ý DẤU PHẨY (,) ngăn cách giữa các key và các mảng.
+  3, STRICT MARKDOWN: Output phải là định dạng MARKDOWN. Sử dụng các thẻ Heading (##) để phân chia dữ liệu rõ ràng, không dùng JSON hay YAML.
 
 context_rules[3]:
-  1, Dưới đây là "Hồ sơ hiện tại" (JSON), "Ngữ cảnh hội thoại" và "Sự thật mới" (Text).
+  1, Dưới đây là "Hồ sơ hiện tại" (định dạng Markdown), "Ngữ cảnh hội thoại" và "Sự thật mới" (Text).
   2, Sự thật mới có thể là một lời tuyên bố, phàn nàn, hoặc thông báo của User.
   3, Sử dụng "Ngữ cảnh hội thoại" để hiểu đầy đủ ý nghĩa của "Sự thật mới".
-
-success_metrics[3]:
-  1, KHÔNG HALLUCINATION: Tuyệt đối giữ nguyên các thông tin cũ nếu thông tin mới không đả động gì tới chúng.
-  2, XỬ LÝ XUNG ĐỘT (MERGE/OVERWRITE): Nếu thông tin mới mâu thuẫn với thông tin cũ, phải XÓA thông tin cũ và GHI ĐÈ thông tin mới.
-  3, STRICT YAML: Output bắt buộc phải là định dạng YAML hợp lệ, bọc trong block code ```yaml.
 
 inputs:
   current_profile: |
@@ -25,23 +20,19 @@ inputs:
 
 output_requirements:
   instruction: |
-    CẢNH BÁO: Bạn BẮT BUỘC phải trả về định dạng YAML. KHÔNG ĐƯỢC dùng JSON.
-    Chỉ trả về duy nhất khối code YAML, không giải thích gì thêm.
-  yaml_template: |
-    ```yaml
-    name: "..."
-    demographics: "..."
-    occupation: "..."
-    relationships:
-      - "..."
-    interests:
-      - "..."
-    goals_and_plans:
-      - "..."
-    preferences:
-      - "..."
-    constraints:
-      - "..."
-    other_facts:
-      - "..."
-    ```
+    CẢNH BÁO: Bạn BẮT BUỘC phải viết lại toàn bộ hồ sơ bằng định dạng MARKDOWN.
+    KHÔNG giải thích, KHÔNG chào hỏi, CHỈ TRẢ VỀ DUY NHẤT nội dung Markdown.
+  markdown_template_example: |
+    ## Thông tin cơ bản
+    - Danh xưng: ...
+    - Nhân khẩu học: ...
+    
+    ## Nghề nghiệp & Xã hội
+    - Nghề nghiệp: ...
+    
+    ## Sở thích & Thói quen
+    - Sở thích: ...
+    - Thói quen: ...
+    
+    ## Ràng buộc & Cấm kỵ
+    - ...
