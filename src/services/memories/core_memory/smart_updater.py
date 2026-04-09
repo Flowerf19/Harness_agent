@@ -34,50 +34,16 @@ class SmartUpdater:
 
     def _clean_llm_output(self, content: str) -> str:
         """
-        Dọn dẹp output từ LLM - loại bỏ JSON tool calls và chỉ giữ Markdown.
+        Dọn dẹp output từ LLM - loại bỏ code block markers và whitespace thừa.
+        (Safety net - với skip_tools_prompt=True, LLM không nên output JSON tool calls)
         """
-        # 1. Xóa JSON tool call pattern (handle nested braces)
-        def remove_json_tool(text):
-            result = text
-            # Tìm và xóa JSON tool calls
-            while '{"tool"' in result or "{'tool'" in result:
-                for start_char in ['{']:
-                    idx = result.find('"tool"')
-                    if idx == -1:
-                        idx = result.find("'tool'")
-                    if idx != -1:
-                        brace_start = result.rfind('{', 0, idx)
-                        if brace_start != -1:
-                            brace_count = 0
-                            end_idx = None
-                            for j in range(brace_start, len(result)):
-                                if result[j] == '{':
-                                    brace_count += 1
-                                elif result[j] == '}':
-                                    brace_count -= 1
-                                    if brace_count == 0:
-                                        end_idx = j + 1
-                                        break
-                            if end_idx:
-                                result = result[:brace_start] + result[end_idx:]
-                                break
-            return result
+        # 1. Xóa markdown code block markers (LLM đôi khi wrap output trong ```markdown)
+        content = content.replace("```markdown", "").replace("```json", "").replace("```", "").strip()
         
-        content = remove_json_tool(content)
+        # 2. Xóa pattern "json" standalone (language identifier)
+        content = re.sub(r'^json\s*$', "", content, flags=re.MULTILINE)
         
-        # 2. Xóa các pattern JSON args
-        content = re.sub(r'\{[^{}]*"user_id"[^{}]*\}', "", content)
-        content = re.sub(r'\{[^{}]*\'user_id\'[^{}]*\}', "", content)
-        
-        # 3. Xóa markdown code block markers
-        content = content.replace("```markdown", "").replace("```", "").strip()
-        
-        # 4. Xóa các dòng JSON rác
-        content = re.sub(r'^\s*\{.*\}\s*$', "", content, flags=re.MULTILINE)
-        content = re.sub(r'^\s*"tool".*$', "", content, flags=re.MULTILINE)
-        content = re.sub(r'^\s*"args".*$', "", content, flags=re.MULTILINE)
-        
-        # 5. Clean up whitespace
+        # 3. Clean up whitespace
         content = re.sub(r'\n\s*\n+', '\n', content).strip()
         
         return content
@@ -91,9 +57,10 @@ class SmartUpdater:
         prompt = self._get_core_update_prompt(current_profile, new_fact, context)
 
         try:
-            # 3. Giao LLM xử lý
+            # 3. Giao LLM xử lý (skip_tools_prompt=True để LLM không output tool call)
             response = await self.llm_client.generate_response(
                 messages=[{"role": "user", "content": prompt}],
+                skip_tools_prompt=True,
             )
             
             # 4. Gọt text và lọc tag markdown + JSON
@@ -101,7 +68,7 @@ class SmartUpdater:
             new_markdown = self._clean_llm_output(content)
             
             # 5. Validate: Nếu output rỗng hoặc vẫn là JSON -> FAIL
-            if not new_markdown or new_markdown.startswith('{') or '"tool"' in new_markdown:
+            if not new_markdown or new_markdown.startswith('{') or '"tool"' in new_markdown or new_markdown.startswith('json'):
                 logger.error(f"❌ SmartUpdater: LLM output không hợp lệ (JSON hoặc rỗng): {content[:200]}")
                 return False
             

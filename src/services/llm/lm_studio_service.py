@@ -36,10 +36,15 @@ class LMStudioService(BaseLLMService):
 
     @traceable(name="LMStudio_Generate", run_type="llm", tags=["lm_studio", "generation"])
     async def generate_response(
-        self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None
+        self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None, skip_tools_prompt: bool = False
     ) -> Union[str, LLMResponse]:
         """
         Generate response from LM Studio API (OpenAI-compatible).
+
+        Args:
+            messages: Mảng tin nhắn theo chuẩn [{"role": "user/assistant", "content": "..."}]
+            system_prompt: Dữ liệu Tiềm thức từ Tầng 3 (Dynamic Core Memory).
+            skip_tools_prompt: Nếu True, không inject TOOLS.md vào system prompt.
 
         Returns:
             LLMResponse object with content and token metadata.
@@ -48,7 +53,7 @@ class LMStudioService(BaseLLMService):
         session = await self._get_session()
 
         # 1. Trộn Tính cách tĩnh + Tiềm thức User (Tầng 3)
-        final_system_prompt = self._build_final_system_prompt(system_prompt)
+        final_system_prompt = self._build_final_system_prompt(system_prompt, skip_tools_prompt=skip_tools_prompt)
 
         # 2. Xếp mảng hội thoại chuẩn OpenAI
         # Nhét system_prompt lên đầu, sau đó đến toàn bộ lịch sử hội thoại (T1 + T2)

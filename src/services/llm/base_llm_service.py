@@ -57,20 +57,25 @@ class BaseLLMService(abc.ABC):
             self.logger.error(f"❌ Error loading prompt {filename}: {e}")
             return ""
 
-    def _build_final_system_prompt(self, dynamic_core_prompt: str = "") -> str:
+    def _build_final_system_prompt(self, dynamic_core_prompt: str = "", skip_tools_prompt: bool = False) -> str:
         """
         Trộn lẫn Tính cách tĩnh (từ file .md) và Trí nhớ Tiềm thức (Từ Tầng 3).
         [MỚI] Bổ sung Tool Schemas từ TOOLS.md hoặc ToolManager.
+        
+        Args:
+            dynamic_core_prompt: Hồ sơ user từ T3
+            skip_tools_prompt: Nếu True, không inject TOOLS.md vào system prompt (dùng cho SmartUpdater)
         """
         parts = []
 
-        # 0. [MỚI] Nhét Tool Schemas lên đầu tiên
+        # 0. [MỚI] Nhét Tool Schemas lên đầu tiên (có thể skip)
         # Prefer TOOLS.md file, fallback to ToolManager hardcode
-        if self.static_tools:
-            parts.append(self.static_tools)
-        elif self.tool_manager:
-            tool_prompt = self.tool_manager.get_tool_schemas_prompt()
-            parts.append(tool_prompt)
+        if not skip_tools_prompt:
+            if self.static_tools:
+                parts.append(self.static_tools)
+            elif self.tool_manager:
+                tool_prompt = self.tool_manager.get_tool_schemas_prompt()
+                parts.append(tool_prompt)
 
         # 1. Nhét tính cách gốc của Bot vào trước (IDENTITY.md và SOUL.md)
         if self.static_identity:
@@ -89,7 +94,7 @@ class BaseLLMService(abc.ABC):
     # Nếu dùng ở cả 2 sẽ tạo nested spans không cần thiết
     @abc.abstractmethod
     async def generate_response(
-        self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None
+        self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None, skip_tools_prompt: bool = False
     ) -> Union[str, LLMResponse]:
         """
         Generate a response from the LLM based on structured messages.
@@ -98,6 +103,7 @@ class BaseLLMService(abc.ABC):
             messages: Mảng tin nhắn theo chuẩn [{"role": "user/assistant", "content": "..."}]
                       (Mảng này do MemoryManager.get_context() cung cấp).
             system_prompt: Dữ liệu Tiềm thức từ Tầng 3 (Dynamic Core Memory).
+            skip_tools_prompt: Nếu True, không inject TOOLS.md vào system prompt (dùng cho SmartUpdater).
 
         Returns:
             LLMResponse object with content and token metadata.

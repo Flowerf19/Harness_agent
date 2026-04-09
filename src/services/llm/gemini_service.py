@@ -30,10 +30,15 @@ class GeminiService(BaseLLMService):
 
     @traceable(name="Gemini_Generate", run_type="llm", tags=["gemini", "generation"])
     async def generate_response(
-        self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None
+        self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None, skip_tools_prompt: bool = False
     ) -> Union[str, LLMResponse]:
         """
         Generate response from Gemini API.
+
+        Args:
+            messages: Mảng tin nhắn theo chuẩn [{"role": "user/assistant", "content": "..."}]
+            system_prompt: Dữ liệu Tiềm thức từ Tầng 3 (Dynamic Core Memory).
+            skip_tools_prompt: Nếu True, không inject TOOLS.md vào system prompt.
 
         Returns:
             LLMResponse object with content and token metadata.
@@ -46,7 +51,7 @@ class GeminiService(BaseLLMService):
         session = await self._get_session()
 
         # 1. Trộn hệ tư tưởng (System Prompt)
-        final_system_prompt = self._build_final_system_prompt(system_prompt)
+        final_system_prompt = self._build_final_system_prompt(system_prompt, skip_tools_prompt=skip_tools_prompt)
 
         # 2. Biên dịch mảng `messages` sang chuẩn Gemini
         # Chuyển đổi từ {"role": "assistant", "content": "..."}
