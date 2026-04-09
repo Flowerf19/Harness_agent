@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import contextvars
 from enum import Enum
 from typing import Any, Callable, Dict, List
 
@@ -35,6 +36,9 @@ class EventDispatcher:
         """
         Phát sự kiện. Chạy các callback dạng Fire-and-Forget (Bắn và Quên)
         để không làm chậm luồng chat chính.
+        
+        Sử dụng contextvars.copy_context() để preserve tracing context
+        cho các async task chạy ngầm.
         """
         listeners = self._listeners.get(event_type, [])
         if not listeners:
@@ -42,17 +46,41 @@ class EventDispatcher:
 
         logger.info(f"🔔 Event Bắn ra: {event_type.value} (User: {user_id})")
 
-        for callback in listeners:
-            # Chạy async task ngầm, không block Tầng 1
-            asyncio.create_task(self._safe_execute(callback, event_type, user_id, data))
+        # Copy context hiện tại để truyền vào các task con
+        # Điều này đảm bảo tracing context được preserve
+        ctx = contextvars.copy_context()
 
-    async def _safe_execute(
-        self, callback: Callable, event_type: ActiveMemoryEvent, user_id: str, data: Any
+        for callback in listeners:
+            # Chạy async task ngầm với context được preserve
+            # Sử dụng context.run để wrap task creation
+            task = asyncio.create_task(
+                self._safe_execute_with_context(
+                    callback, event_type, user_id, data, ctx
+                )
+            )
+
+    async def _safe_execute_with_context(
+        self,
+        callback: Callable,
+        event_type: ActiveMemoryEvent,
+        user_id: str,
+        data: Any,
+        ctx: contextvars.Context,
     ):
-        """Bọc try/catch để nếu callback (Tầng 2/3) lỗi thì Tầng 1 không bị crash theo."""
+        """
+        Wrapper để chạy callback với context đã được preserve.
+        Bọc try/catch để nếu callback (Tầng 2/3) lỗi thì Tầng 1 không bị crash theo.
+        """
         try:
-            await callback(event_type, user_id, data)
+            # Chạy callback trong context đã copy
+            await ctx.run(self._execute_callback, callback, event_type, user_id, data)
         except Exception as e:
             logger.error(
                 f"❌ Lỗi khi thực thi callback cho event {event_type.value}: {e}"
             )
+
+    async def _execute_callback(
+        self, callback: Callable, event_type: ActiveMemoryEvent, user_id: str, data: Any
+    ):
+        """Thực thi callback thực sự."""
+        await callback(event_type, user_id, data)

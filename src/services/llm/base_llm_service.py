@@ -67,10 +67,9 @@ class BaseLLMService(abc.ABC):
         return "\n\n".join(parts)
 
     # 🔴 CHỮ KÝ HÀM MỚI QUAN TRỌNG NHẤT
+    # Note: Không dùng @traceable ở abstract method vì subclass đã có trace riêng
+    # Nếu dùng ở cả 2 sẽ tạo nested spans không cần thiết
     @abc.abstractmethod
-    @traceable(
-        name="LLM_Generation", run_type="llm", tags=["llm_wrapper", "generation"]
-    )
     async def generate_response(
         self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None
     ) -> Union[str, LLMResponse]:

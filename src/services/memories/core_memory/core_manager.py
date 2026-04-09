@@ -1,7 +1,10 @@
 # src/services/memories/core_memory/core_manager.py
 import logging
 
+from langsmith import traceable
+
 logger = logging.getLogger(__name__)
+
 
 class CoreManager:
     # Nhận storage và smart_updater từ bên ngoài truyền vào
@@ -9,6 +12,11 @@ class CoreManager:
         self.storage = storage
         self.updater = smart_updater
 
+    @traceable(
+        name="T3_Get_System_Prompt",
+        run_type="chain",
+        tags=["tier_3", "core_memory", "read"]
+    )
     async def get_system_prompt_context(self, user_id: str) -> str:
         """Lấy hồ sơ Markdown và nhúng thẳng vào System Prompt cho Bot chat"""
         profile_md = self.storage.get_profile(user_id)
@@ -19,6 +27,11 @@ class CoreManager:
             
         return f"\n=== THÔNG TIN NGƯỜI DÙNG (TẦNG 3) ===\n{profile_md}\n"
 
+    @traceable(
+        name="T3_Handle_Critical_Info",
+        run_type="chain",
+        tags=["tier_3", "core_memory", "write", "event_handler"]
+    )
     async def handle_critical_info(self, event_type: str, user_id: str, data: dict) -> bool:
         """
         Callback (Lỗ tai) lắng nghe sự kiện từ EventDispatcher của Tầng 1.

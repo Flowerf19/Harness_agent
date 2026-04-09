@@ -106,6 +106,11 @@ class ActiveMemoryService:
         )
         return entry
 
+    @traceable(
+        name="T1_Get_Context_For_LLM",
+        run_type="chain",
+        tags=["tier_1", "active_memory", "read", "context_assembly"]
+    )
     async def get_context_for_llm(self, user_id: str) -> List[Dict]:
         """Lấy Composite Context (Ngữ cảnh hỗn hợp) để nạp vào Prompt."""
         entries = await self.storage.get_entries(user_id)

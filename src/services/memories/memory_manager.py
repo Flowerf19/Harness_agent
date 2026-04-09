@@ -3,6 +3,7 @@ import logging
 from typing import Dict, List, Tuple
 
 from langsmith import traceable
+from langsmith.run_helpers import tracing_context
 
 # --- IMPORTS TẦNG 1 (Active Memory) ---
 from src.services.memories.activate_memory.activate_memory_service import (
@@ -18,6 +19,7 @@ from src.services.memories.core_memory.core_manager import CoreManager
 
 # --- IMPORTS TẦNG 2 (Episodic Memory) ---
 # Giả định bạn đã gói các class T2 vào EpisodicManager
+import contextvars
 from src.services.memories.episodic_memory.episodic_manager import EpisodicManager
 
 logger = logging.getLogger(__name__)
@@ -94,15 +96,31 @@ class MemoryManager:
     async def get_context(
         self, user_id: str, current_query: str
     ) -> Tuple[str, List[Dict]]:
-        
-        # Bắn 3 task chạy song song thay vì bắt bot chờ từng cái một
-        system_prompt_task = self.t3.get_system_prompt_context(user_id)
-        context_messages_task = self.t1.get_context_for_llm(user_id)
-        past_events_task = self.t2.retrieve_past_context(user_id, current_query)
+        """
+        Lấy context từ 3 tầng trí nhớ chạy song song.
+        Sử dụng tracing_context để preserve parent-child relationship khi chạy asyncio.gather().
+        """
+        # Lấy parent run_id hiện tại để truyền vào các child tasks
+        # Điều này đảm bảo các span con được gắn đúng vào cây trace
 
-        # Đợi cả 3 task hoàn thành cùng lúc
+        
+        # Copy context hiện tại để truyền vào các task chạy song song
+        ctx = contextvars.copy_context()
+        
+        async def _run_t3_system_prompt():
+            return await self.t3.get_system_prompt_context(user_id)
+        
+        async def _run_t1_context():
+            return await self.t1.get_context_for_llm(user_id)
+        
+        async def _run_t2_past_events():
+            return await self.t2.retrieve_past_context(user_id, current_query)
+
+        # Chạy 3 task song song với context được preserve
         system_prompt, context_messages, past_events_text = await asyncio.gather(
-            system_prompt_task, context_messages_task, past_events_task
+            _run_t3_system_prompt(),
+            _run_t1_context(),
+            _run_t2_past_events()
         )
 
         if past_events_text:
