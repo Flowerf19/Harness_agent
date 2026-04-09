@@ -1,0 +1,169 @@
+"""
+ToolManager - Quản lý các công cụ (Tools) cho Agent.
+Bao gồm việc cung cấp mô tả công cụ cho LLM và thực thi chúng.
+"""
+
+import logging
+import os
+import asyncio
+from datetime import datetime
+from typing import Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
+
+
+class ToolManager:
+    """
+    Quản lý các công cụ (Tools) cho Agent.
+    Cho phép LLM tự động tìm kiếm ký ức, cập nhật hồ sơ user và điều chỉnh tính cách.
+    """
+
+    def __init__(
+        self,
+        episodic_manager: Optional[Any] = None,
+        core_manager: Optional[Any] = None,
+        base_memory_path: str = "memories",
+    ):
+        """
+        Khởi tạo ToolManager.
+
+        Args:
+            episodic_manager: EpisodicManager (T2) để tìm kiếm ký ức
+            core_manager: CoreManager (T3) để đọc/ghi hồ sơ user
+            base_memory_path: Đường dẫn thư mục memories (default: "memories")
+        """
+        self.episodic_manager = episodic_manager
+        self.core_manager = core_manager
+        self.base_memory_path = base_memory_path
+
+        # Đảm bảo thư mục users tồn tại
+        users_path = os.path.join(self.base_memory_path, "users")
+        os.makedirs(users_path, exist_ok=True)
+        logger.info(f"ToolManager: Đã khởi tạo với base_path={base_memory_path}")
+
+    def get_tool_schemas_prompt(self) -> str:
+        """
+        Trả về chuỗi hướng dẫn cách dùng Tool.
+        Lưu ý: Prompt chính được load từ TOOLS.md, hàm này chỉ return empty string.
+        """
+        # Prompt đã được load từ TOOLS.md trong base_llm_service.py
+        # Hàm này giữ lại để fallback nếu TOOLS.md không tồn tại
+        return ""
+
+    async def execute_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
+        """
+        Router điều hướng thực thi tool.
+
+        Args:
+            tool_name: Tên tool cần chạy
+            args: Dict chứa các tham số cho tool
+
+        Returns:
+            Kết quả thực thi (string) để LLM đọc
+        """
+        logger.info(f"Thực thi Tool: {tool_name} cho user: {args.get('user_id', 'N/A')}")
+        try:
+            if tool_name == "search_memory":
+                return await self._search_memory(
+                    str(args.get("user_id", "")), args.get("query", "")
+                )
+            elif tool_name == "update_user_profile":
+                return await self._update_user_profile(
+                    str(args.get("user_id", "")), args.get("new_fact", "")
+                )
+            elif tool_name == "update_personality":
+                return await self._update_personality(args.get("instruction", ""))
+            else:
+                return f"Lỗi: Không tìm thấy công cụ tên '{tool_name}'."
+        except Exception as e:
+            logger.error(f"Lỗi khi chạy tool {tool_name}: {e}")
+            return f"Lỗi hệ thống khi chạy tool: {e}"
+
+    # ==========================================
+    # CÁC HÀM THỰC THI CHI TIẾT
+    # ==========================================
+
+    async def _search_memory(self, user_id: str, query: str) -> str:
+        """
+        Tìm kiếm ký ức dài hạn từ EpisodicManager (T2).
+        """
+        if not user_id or not query:
+            return "Lỗi: Thiếu user_id hoặc query."
+
+        # Validate user_id - phải là số (Discord ID format)
+        if not user_id.isdigit():
+            logger.warning(f"⚠️ Invalid user_id: {user_id} - không phải số")
+            return f"Lỗi: user_id '{user_id}' không hợp lệ. user_id phải là số ID của Discord user."
+
+        # Gọi xuống tầng Episodic Memory (T2)
+        if self.episodic_manager:
+            try:
+                results = await self.episodic_manager.retrieve_past_context(
+                    user_id=user_id, current_query=query
+                )
+                if not results:
+                    return f"Không tìm thấy ký ức nào liên quan đến '{query}'."
+                return f"Đã tìm thấy các ký ức sau:\n{results}"
+            except Exception as e:
+                logger.error(f"Lỗi khi tìm kiếm episodic memory: {e}")
+                return f"Lỗi khi tìm kiếm ký ức: {e}"
+        else:
+            return "Lỗi: Hệ thống Episodic Memory chưa sẵn sàng."
+
+    async def _update_user_profile(self, user_id: str, new_fact: str) -> str:
+        """
+        Ghi thêm fact mới vào hồ sơ user (T3 Core Memory).
+        Sử dụng SmartUpdater của T3 để LLM xử lý và cập nhật profile Markdown.
+        """
+        if not user_id or not new_fact:
+            return "Lỗi: Thiếu thông tin update."
+
+        # Validate user_id - phải là số (Discord ID format)
+        if not user_id.isdigit():
+            logger.warning(f"⚠️ Invalid user_id: {user_id} - không phải số")
+            return f"Lỗi: user_id '{user_id}' không hợp lệ. user_id phải là số ID của Discord user."
+
+        # Gọi T3 CoreManager để cập nhật profile qua SmartUpdater
+        if self.core_manager and self.core_manager.updater:
+            try:
+                success = await self.core_manager.updater.update_profile_with_fact(
+                    user_id=user_id,
+                    new_fact=new_fact,
+                    context=""  # Agent tự quyết định fact, không cần context từ T1
+                )
+                if success:
+                    logger.info(f"✅ ToolManager: Đã cập nhật T3 cho user {user_id} qua Agent")
+                    return f"Đã ghi nhớ thành công vào hồ sơ user: {new_fact}"
+                else:
+                    return f"Lỗi: Không thể cập nhật hồ sơ user {user_id}."
+            except Exception as e:
+                logger.error(f"Lỗi khi gọi T3 updater: {e}")
+                return f"Lỗi hệ thống khi cập nhật hồ sơ: {e}"
+        else:
+            return "Lỗi: Hệ thống Core Memory (T3) chưa sẵn sàng."
+
+    async def _update_personality(self, instruction: str) -> str:
+        """
+        Ghi thêm quy tắc mới vào IDENTITY.md.
+        """
+        if not instruction:
+            return "Lỗi: Thiếu instruction."
+
+        identity_file = os.path.join(self.base_memory_path, "IDENTITY.md")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        append_text = f"\n- [{timestamp}] Cập nhật tính cách: {instruction}"
+
+        def write_file():
+            # Nếu file chưa có thì tạo mới với header
+            if not os.path.exists(identity_file):
+                with open(identity_file, "w", encoding="utf-8") as f:
+                    f.write("# NHÂN CÁCH CỦA BẠN\n\n")
+                    f.write("## Quy tắc động (Agent tự cập nhật)\n")
+            # Append quy tắc mới
+            with open(identity_file, "a", encoding="utf-8") as f:
+                f.write(append_text)
+
+        await asyncio.to_thread(write_file)
+        logger.info(f"Đã cập nhật tính cách: {instruction}")
+        return "Đã cập nhật tính cách/luật lệ thành công. Hãy áp dụng ngay từ bây giờ."

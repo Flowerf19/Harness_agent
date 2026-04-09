@@ -313,8 +313,9 @@ class UserCommandsCog(commands.Cog):
         base_dir = os.path.dirname(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         )
+        # Đọc từ memories/users/ thay vì data/user_summaries/
         summary_file = os.path.join(
-            base_dir, "data", "user_summaries", f"{user_id}_summary.txt"
+            base_dir, "memories", "users", f"{user_id}.md"
         )
 
         try:

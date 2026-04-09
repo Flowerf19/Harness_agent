@@ -5,7 +5,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class MarkdownStorage:
-    def __init__(self, base_path: str = "data/core_memory"):
+    def __init__(self, base_path: str = "memories/users"):
         self.base_path = base_path
         os.makedirs(self.base_path, exist_ok=True)
 

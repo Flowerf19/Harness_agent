@@ -51,14 +51,10 @@ class MemoryManager:
 
     def _wire_events(self):
         """
-        Cắm dây thần kinh: Khi T1 la lên, T2 và T3 sẽ lắng nghe và tự động làm việc.
+        Cắm dây thần kinh: Khi T1 la lên, T2 sẽ lắng nghe và tự động làm việc.
+        Lưu ý: T3 (Core Memory) giờ được cập nhật bởi Agent qua Tool, không còn event-driven.
         """
-        # 1. Tầng 1 báo có thông tin quan trọng -> Tầng 3 (Thư ký) cập nhật Profile
-        self.events.subscribe(
-            ActiveMemoryEvent.CRITICAL_INFO_DETECTED, self.t3.handle_critical_info
-        )
-
-        # 2. Tầng 1 báo tràn RAM -> Tầng 2 tóm tắt RAG, sau đó Tầng 1 tự dọn dẹp
+        # T1 báo tràn RAM -> T2 tóm tắt RAG, sau đó T1 tự dọn dẹp
         self.events.subscribe(
             ActiveMemoryEvent.TOKEN_LIMIT_REACHED, self._handle_memory_overflow
         )

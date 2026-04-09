@@ -21,11 +21,14 @@ class CoreManager:
         """Lấy hồ sơ Markdown và nhúng thẳng vào System Prompt cho Bot chat"""
         profile_md = self.storage.get_profile(user_id)
         
-        # Nếu chưa có thông tin gì thì không cần nhét vào prompt cho nặng
+        # Luôn include user_id để LLM biết ID của user đang chat (dùng cho tool calls)
+        user_id_context = f"ID Discord của user đang chat: {user_id}"
+        
+        # Nếu chưa có thông tin gì thì chỉ return user_id
         if not profile_md or "Chưa có thông tin" in profile_md:
-            return ""
+            return f"\n=== THÔNG TIN NGƯỜI DÙNG ===\n{user_id_context}\n"
             
-        return f"\n=== THÔNG TIN NGƯỜI DÙNG (TẦNG 3) ===\n{profile_md}\n"
+        return f"\n=== THÔNG TIN NGƯỜI DÙNG ===\n{user_id_context}\n{profile_md}\n"
 
     @traceable(
         name="T3_Handle_Critical_Info",

@@ -20,26 +20,35 @@ class BaseLLMService(abc.ABC):
     def __init__(self):
         self.session = None
         self.logger = logging.getLogger(f"discord_bot.{self.__class__.__name__}")
+        self.tool_manager = None  # [MỚI] ToolManager sẽ được inject sau
 
-        # Vẫn giữ lại việc load file tính cách gốc (Static Persona)
+        # Load file tính cách từ Markdown (Static Persona)
         # File này sẽ làm nền tảng, còn Core Memory (T3) sẽ bổ sung phần Dynamic Persona
-        self.static_personality = self._load_prompt("personality.yaml")
-        self.static_guidelines = self._load_prompt("conversation_prompt.yaml")
+        self.static_identity = self._load_prompt("IDENTITY.md", "memories")
+        self.static_soul = self._load_prompt("SOUL.md", "memories")
+        self.static_tools = self._load_prompt("TOOLS.md", "memories")  # [MỚI] Load TOOLS.md
 
-    def _load_prompt(self, filename: str) -> str:
-        """Load prompt content from file."""
+    def set_tool_manager(self, tool_manager) -> None:
+        """[MỚI] Inject ToolManager vào LLM Service."""
+        self.tool_manager = tool_manager
+        self.logger.info("✅ ToolManager đã được inject vào LLM Service")
+
+    def _load_prompt(self, filename: str, folder: str = "prompts") -> str:
+        """Load prompt content from file.
+        
+        Args:
+            filename: Tên file cần load (VD: "IDENTITY.md", "SOUL.md")
+            folder: Thư mục chứa file (VD: "memories", "prompts")
+        """
         try:
-            prompts_dir = os.path.join(
-                os.path.dirname(
-                    os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-                ),
-                "prompts",
-            )
-            filepath = os.path.join(prompts_dir, filename)
+            base_dir = os.path.dirname(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))
+            ))
+            filepath = os.path.join(base_dir, folder, filename)
             if os.path.exists(filepath):
                 with open(filepath, "r", encoding="utf-8") as f:
                     content = f.read().strip()
-                    self.logger.info(f"✅ Loaded prompt: {filename}")
+                    self.logger.info(f"✅ Loaded prompt: {filename} from {folder}")
                     return content
             else:
                 self.logger.warning(f"⚠️ Prompt file not found: {filepath}")
@@ -50,15 +59,24 @@ class BaseLLMService(abc.ABC):
 
     def _build_final_system_prompt(self, dynamic_core_prompt: str = "") -> str:
         """
-        Trộn lẫn Tính cách tĩnh (từ file) và Trí nhớ Tiềm thức (Từ Tầng 3).
+        Trộn lẫn Tính cách tĩnh (từ file .md) và Trí nhớ Tiềm thức (Từ Tầng 3).
+        [MỚI] Bổ sung Tool Schemas từ TOOLS.md hoặc ToolManager.
         """
         parts = []
 
-        # 1. Nhét tính cách gốc của Bot vào trước
-        if self.static_personality:
-            parts.append(f"=== NHÂN CÁCH CỦA BẠN ===\n{self.static_personality}")
-        if self.static_guidelines:
-            parts.append(f"=== HƯỚNG DẪN HỘI THOẠI ===\n{self.static_guidelines}")
+        # 0. [MỚI] Nhét Tool Schemas lên đầu tiên
+        # Prefer TOOLS.md file, fallback to ToolManager hardcode
+        if self.static_tools:
+            parts.append(self.static_tools)
+        elif self.tool_manager:
+            tool_prompt = self.tool_manager.get_tool_schemas_prompt()
+            parts.append(tool_prompt)
+
+        # 1. Nhét tính cách gốc của Bot vào trước (IDENTITY.md và SOUL.md)
+        if self.static_identity:
+            parts.append(f"=== NHÂN CÁCH CỦA BẠN ===\n{self.static_identity}")
+        if self.static_soul:
+            parts.append(f"=== HƯỚNG DẪN HỘI THOẠI ===\n{self.static_soul}")
 
         # 2. Nhét hồ sơ người dùng (Từ Tầng 3 gửi sang) vào sau
         if dynamic_core_prompt:

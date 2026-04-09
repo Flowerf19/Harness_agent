@@ -44,6 +44,9 @@ from src.services.memories.episodic_memory.extraction.retrieval.vector_engine im
 from src.services.memories.episodic_memory.storage.local_vector_db import LocalVectorDB
 from src.services.memories.memory_manager import MemoryManager
 
+# --- Tools System ---
+from src.services.tools.tool_manager import ToolManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -146,9 +149,21 @@ class AppContainer:
             event_dispatcher=event_bus,
         )
 
-        # 6. KHỞI TẠO NHẠC TRƯỞNG GIAO TIẾP
+        # 6. KHỞI TẠO TOOL MANAGER (Đôi tay của Agent)
+        tool_manager = ToolManager(
+            episodic_manager=t2_manager,
+            core_manager=t3_manager,
+            base_memory_path="memories",
+        )
+
+        # 6.5 [MỚI] Inject ToolManager vào LLM Service để nó có tool schemas trong system prompt
+        self.llm_service.set_tool_manager(tool_manager)
+
+        # 7. KHỞI TẠO NHẠC TRƯỞNG GIAO TIẾP
         self.chat_coordinator = ChatCoordinator(
-            memory_manager=self.memory_manager, llm_service=self.llm_service
+            memory_manager=self.memory_manager,
+            llm_service=self.llm_service,
+            tool_manager=tool_manager,
         )
 
         logger.info("✅ Hệ thống đã sẵn sàng online!")
