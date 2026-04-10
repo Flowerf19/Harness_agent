@@ -28,9 +28,34 @@ class GeminiService(BaseLLMService):
             self.session = aiohttp.ClientSession()
         return self.session
 
+    def _map_tools_to_gemini_format(self, openai_tools: List[Dict]) -> List[Dict]:
+        """
+        Map OpenAI tool schemas to Gemini functionDeclarations format.
+        
+        OpenAI format:
+        {"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}
+        
+        Gemini format:
+        {"functionDeclarations": [{"name": "...", "description": "...", "parameters": {...}}]}
+        """
+        function_declarations = []
+        for tool in openai_tools:
+            if tool.get("type") == "function":
+                func = tool.get("function", {})
+                function_declarations.append({
+                    "name": func.get("name", ""),
+                    "description": func.get("description", ""),
+                    "parameters": func.get("parameters", {})
+                })
+        return function_declarations
+
     @traceable(name="Gemini_Generate", run_type="llm", tags=["gemini", "generation"])
     async def generate_response(
-        self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None, skip_tools_prompt: bool = False
+        self, 
+        messages: List[Dict[str, str]], 
+        system_prompt: Optional[str] = None, 
+        skip_tools_prompt: bool = False,
+        use_native_tools: bool = False
     ) -> Union[str, LLMResponse]:
         """
         Generate response from Gemini API.
@@ -39,9 +64,10 @@ class GeminiService(BaseLLMService):
             messages: Mảng tin nhắn theo chuẩn [{"role": "user/assistant", "content": "..."}]
             system_prompt: Dữ liệu Tiềm thức từ Tầng 3 (Dynamic Core Memory).
             skip_tools_prompt: Nếu True, không inject TOOLS.md vào system prompt.
+            use_native_tools: Nếu True, sử dụng Native Function Calling (API Tool Calling).
 
         Returns:
-            LLMResponse object with content and token metadata.
+            LLMResponse object with content, token metadata, and tool_calls if present.
             Falls back to string for backwards compatibility on errors.
         """
         if not self.api_key:
@@ -51,7 +77,11 @@ class GeminiService(BaseLLMService):
         session = await self._get_session()
 
         # 1. Trộn hệ tư tưởng (System Prompt)
-        final_system_prompt = self._build_final_system_prompt(system_prompt, skip_tools_prompt=skip_tools_prompt)
+        # Nếu dùng native tools, skip TOOLS.md prompt
+        final_system_prompt = self._build_final_system_prompt(
+            system_prompt, 
+            skip_tools_prompt=skip_tools_prompt or use_native_tools
+        )
 
         # 2. Biên dịch mảng `messages` sang chuẩn Gemini
         # Chuyển đổi từ {"role": "assistant", "content": "..."}
@@ -74,6 +104,14 @@ class GeminiService(BaseLLMService):
             },
         }
 
+        # 3. [NATIVE TOOL CALLING] Thêm tools vào payload nếu enabled
+        if use_native_tools and self.tool_manager:
+            openai_tools = self.tool_manager.get_native_tool_schemas()
+            if openai_tools:
+                gemini_tools = self._map_tools_to_gemini_format(openai_tools)
+                payload["tools"] = [{"functionDeclarations": gemini_tools}]
+                self.logger.debug(f"🔧 Native tools enabled: {len(gemini_tools)} tools")
+
         try:
             async with session.post(
                 full_url, json=payload, headers={"Content-Type": "application/json"}
@@ -86,7 +124,6 @@ class GeminiService(BaseLLMService):
                 response_data = await response.json()
 
                 # Extract token usage metadata from Gemini response
-                # Gemini returns usageMetadata with promptTokenCount and candidatesTokenCount
                 usage_metadata = response_data.get("usageMetadata", {})
                 input_tokens = usage_metadata.get("promptTokenCount", 0)
                 output_tokens = usage_metadata.get("candidatesTokenCount", 0)
@@ -101,24 +138,44 @@ class GeminiService(BaseLLMService):
                     candidate = response_data["candidates"][0]
                     if "content" in candidate and "parts" in candidate["content"]:
                         parts = candidate["content"]["parts"]
-                        if len(parts) > 0 and "text" in parts[0]:
-                            content = parts[0]["text"]
+                        
+                        # [NATIVE TOOL CALLING] Parse functionCall from parts
+                        tool_calls = None
+                        content = ""
+                        
+                        for part in parts:
+                            if "functionCall" in part:
+                                # Gemini returns functionCall directly
+                                fc = part["functionCall"]
+                                if not tool_calls:
+                                    tool_calls = []
+                                tool_calls.append({
+                                    "id": f"gemini_{fc.get('name', '')}",  # Gemini doesn't have IDs
+                                    "name": fc.get("name", ""),
+                                    "arguments": fc.get("args", {})
+                                })
+                            elif "text" in part:
+                                content += part["text"]
+                        
+                        if tool_calls:
+                            self.logger.info(f"🛠️ Gemini returned {len(tool_calls)} tool calls: {[tc['name'] for tc in tool_calls]}")
 
-                            # Log token usage for debugging
-                            self.logger.info(
-                                f"Gemini API - Input tokens: {input_tokens}, "
-                                f"Output tokens: {output_tokens}, Total: {total_tokens}"
-                            )
+                        # Log token usage for debugging
+                        self.logger.info(
+                            f"Gemini API - Input tokens: {input_tokens}, "
+                            f"Output tokens: {output_tokens}, Total: {total_tokens}"
+                        )
 
-                            return LLMResponse(
-                                content=content,
-                                input_tokens=input_tokens,
-                                output_tokens=output_tokens,
-                                total_tokens=total_tokens,
-                                model=self.model,
-                                finish_reason=candidate.get("finishReason"),
-                                raw_response=response_data,
-                            )
+                        return LLMResponse(
+                            content=content,
+                            input_tokens=input_tokens,
+                            output_tokens=output_tokens,
+                            total_tokens=total_tokens,
+                            model=self.model,
+                            finish_reason=candidate.get("finishReason"),
+                            raw_response=response_data,
+                            tool_calls=tool_calls,
+                        )
 
                 return "Error: Unexpected response format."
 

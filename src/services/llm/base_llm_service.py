@@ -94,10 +94,23 @@ class BaseLLMService(abc.ABC):
     # Nếu dùng ở cả 2 sẽ tạo nested spans không cần thiết
     @abc.abstractmethod
     async def generate_response(
-        self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None, skip_tools_prompt: bool = False
+        self, 
+        messages: List[Dict[str, str]], 
+        system_prompt: Optional[str] = None, 
+        skip_tools_prompt: bool = False,
+        use_native_tools: bool = False
     ) -> Union[str, LLMResponse]:
         """
         Generate a response from the LLM based on structured messages.
+        
+        Args:
+            messages: List of message dicts with "role" and "content" keys
+            system_prompt: Dynamic core memory context from T3
+            skip_tools_prompt: If True, skip TOOLS.md in system prompt (for SmartUpdater)
+            use_native_tools: If True, use Native Function Calling (API Tool Calling)
+        
+        Returns:
+            LLMResponse with content, token metadata, and tool_calls if present
 
         Args:
             messages: Mảng tin nhắn theo chuẩn [{"role": "user/assistant", "content": "..."}]

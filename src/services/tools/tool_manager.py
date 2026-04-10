@@ -50,6 +50,77 @@ class ToolManager:
         # Hàm này giữ lại để fallback nếu TOOLS.md không tồn tại
         return ""
 
+    def get_native_tool_schemas(self) -> list:
+        """
+        Trả về danh sách tool schemas theo chuẩn OpenAI JSON Schema.
+        Dùng cho Native Function Calling (API Tool Calling).
+        
+        Returns:
+            List of tool definitions compatible with OpenAI/Qwen/LM Studio APIs.
+            Gemini cần map sang functionDeclarations format.
+        """
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "search_memory",
+                    "description": "Tìm kiếm ký ức cũ của user từ Episodic Memory (T2). Dùng khi user nhắc chuyện quá khứ, hỏi về sở thích/sự kiện cũ, hoặc cần context từ lịch sử hội thoại.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "user_id": {
+                                "type": "string",
+                                "description": "Discord user ID (số) của user đang chat. VD: '726302130318868500'"
+                            },
+                            "query": {
+                                "type": "string",
+                                "description": "Từ khóa hoặc câu hỏi để tìm kiếm trong ký ức. VD: 'sở thích', 'chuyện hôm qua'"
+                            }
+                        },
+                        "required": ["user_id", "query"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "update_user_profile",
+                    "description": "Ghi thông tin MỚI về user vào Core Memory (T3). Dùng khi user chia sẻ thông tin cá nhân mới (tên, sở thích, công việc, quan hệ, etc.). KHÔNG dùng cho thông tin đã biết hoặc chung chung.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "user_id": {
+                                "type": "string",
+                                "description": "Discord user ID (số) của user đang chat. VD: '726302130318868500'"
+                            },
+                            "new_fact": {
+                                "type": "string",
+                                "description": "Thông tin cụ thể cần ghi nhớ. VD: 'Tên là Hoàng', 'Sở thích chơi game', 'Làm việc tại công ty ABC'"
+                            }
+                        },
+                        "required": ["user_id", "new_fact"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "update_personality",
+                    "description": "Thay đổi cách nói chuyện hoặc thêm quy tắc mới vào IDENTITY.md. CHỈ dùng khi user YÊU CẦU bạn thay đổi. KHÔNG tự ý thay đổi.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "instruction": {
+                                "type": "string",
+                                "description": "Quy tắc hoặc hướng dẫn mới về cách nói chuyện. VD: 'Nói ngắn gọn hơn', 'Dùng emoji nhiều hơn', 'Tránh slang Gen Z'"
+                            }
+                        },
+                        "required": ["instruction"]
+                    }
+                }
+            }
+        ]
+
     async def execute_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
         """
         Router điều hướng thực thi tool.
