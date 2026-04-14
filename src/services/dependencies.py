@@ -44,8 +44,13 @@ from src.services.memories.episodic_memory.extraction.retrieval.vector_engine im
 from src.services.memories.episodic_memory.storage.local_vector_db import LocalVectorDB
 from src.services.memories.memory_manager import MemoryManager
 
-# --- Tools System ---
-from src.services.tools.tool_manager import ToolManager
+# --- Tools System (MCP Architecture) ---
+from src.services.tools.tool_registry import ToolRegistry
+from src.services.tools.mcp_server import MCPServer
+from src.services.tools.mcp_client import MCPClient
+from src.services.tools.mcp_transport import InMemoryTransport
+from src.services.tools.tool_discovery import discover_and_register_tools
+from src.services.tools.tool_manager import ToolManager  # Legacy adapter
 
 logger = logging.getLogger(__name__)
 
@@ -149,22 +154,70 @@ class AppContainer:
             event_dispatcher=event_bus,
         )
 
-        # 6. KHỞI TẠO TOOL MANAGER (Đôi tay của Agent)
+        # 6. KHỞI TẠO MCP TOOL SYSTEM (Đôi tay của Agent)
+        # ================================================
+        # Architecture: Registry Pattern + MCP Client-Server
+        
+        # 6.1 Tạo Tool Registry
+        tool_registry = ToolRegistry()
+        
+        # 6.2 Khám phá và đăng ký tools tự động
+        # Dependencies để inject vào các tools
+        tool_dependencies = {
+            "episodic_manager": t2_manager,
+            "core_manager": t3_manager,
+            "base_memory_path": "memories",
+        }
+        
+        # Auto-discover tools từ implementations directory
+        tools_dir = "src/services/tools/implementations"
+        discovered_tools = discover_and_register_tools(
+            tools_dir=tools_dir,
+            registry=tool_registry,
+            dependencies=tool_dependencies,
+        )
+        logger.info(f"🔧 MCP: Đã khám phá {len(discovered_tools)} tools")
+        
+        # 6.3 Tạo MCP Server
+        mcp_server = MCPServer(
+            registry=tool_registry,
+            server_name="discord-bot-mcp-server",
+            server_version="1.0.0",
+            tool_timeout=60,  # Timeout 60s cho tool execution
+        )
+        
+        # 6.4 Tạo MCP Client (via InMemoryTransport)
+        mcp_transport = InMemoryTransport(mcp_server)
+        mcp_client = MCPClient(transport=mcp_transport)
+        
+        # 6.5 Cache tool schemas (để LLM services dùng ngay)
+        await mcp_client.list_tools()
+        
+        # 6.6 [LEGACY] Tạo ToolManager adapter cho backward compatibility
+        # Deprecated: Use mcp_client instead
         tool_manager = ToolManager(
             episodic_manager=t2_manager,
             core_manager=t3_manager,
             base_memory_path="memories",
         )
-
-        # 6.5 [MỚI] Inject ToolManager vào LLM Service để nó có tool schemas trong system prompt
-        self.llm_service.set_tool_manager(tool_manager)
-
+        
+        # 6.7 Inject MCP Client vào LLM Service
+        # LLM Service sẽ dùng mcp_client để lấy tool schemas
+        self.llm_service.set_tool_manager(tool_manager)  # Legacy
+        self.llm_service.set_mcp_client(mcp_client)      # New MCP
+        
         # 7. KHỞI TẠO NHẠC TRƯỞNG GIAO TIẾP
         self.chat_coordinator = ChatCoordinator(
             memory_manager=self.memory_manager,
             llm_service=self.llm_service,
-            tool_manager=tool_manager,
+            tool_manager=tool_manager,  # Legacy (deprecated)
+            mcp_client=mcp_client,      # New MCP
         )
+        
+        # Store MCP components for later access
+        self.mcp_client = mcp_client
+        self.mcp_server = mcp_server
+        self.tool_registry = tool_registry
 
         logger.info("✅ Hệ thống đã sẵn sàng online!")
 

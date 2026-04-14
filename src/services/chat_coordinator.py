@@ -3,14 +3,15 @@ import logging
 import asyncio
 import uuid
 import json
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 from langsmith import traceable
 
 from src.services.llm.base_llm_service import BaseLLMService
 from src.services.llm.llm_response import LLMResponse
 from src.services.memories.memory_manager import MemoryManager
-from src.services.tools.tool_manager import ToolManager 
+from src.services.tools.tool_manager import ToolManager  # Legacy
+from src.services.tools.mcp_client import MCPClient  # New MCP
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +35,22 @@ class ChatCoordinator:
         self,
         memory_manager: MemoryManager,
         llm_service: BaseLLMService,
-        tool_manager: ToolManager = None,
+        tool_manager: ToolManager = None,  # Legacy (deprecated)
+        mcp_client: Optional[MCPClient] = None,  # New MCP
         use_native_tools: bool = True,  # [MỚI] Enable native tool calling by default
     ):
         self.memory = memory_manager
         self.llm = llm_service
-        self.tool_manager = tool_manager
+        self.tool_manager = tool_manager  # Legacy
+        self.mcp_client = mcp_client      # New MCP
         self.use_native_tools = use_native_tools
         
         # Detect LLM service type for context message formatting
         self._llm_type = self._detect_llm_type()
         
-        logger.info(f"🔧 ChatCoordinator initialized with use_native_tools={self.use_native_tools}, llm_type={self._llm_type}")
+        # Log initialization
+        tool_mode = "MCP Client" if mcp_client else "ToolManager (legacy)" if tool_manager else "No tools"
+        logger.info(f"🔧 ChatCoordinator initialized: use_native_tools={self.use_native_tools}, llm_type={self._llm_type}, tool_mode={tool_mode}")
 
     def _detect_llm_type(self) -> str:
         """Detect LLM service type for proper context message formatting."""
@@ -169,11 +174,22 @@ class ChatCoordinator:
                         tool_call_id = tc.get("id", str(uuid.uuid4()))
                         
                         try:
-                            # [MỚI] Timeout cho tool execution
-                            tool_result = await asyncio.wait_for(
-                                self.tool_manager.execute_tool(tool_name, tool_args),
-                                timeout=TOOL_EXECUTION_TIMEOUT
-                            )
+                            # [MỚI] Sử dụng MCP Client nếu có, fallback to ToolManager
+                            if self.mcp_client:
+                                # MCP Architecture
+                                tool_result = await asyncio.wait_for(
+                                    self.mcp_client.execute_tool(tool_name, tool_args),
+                                    timeout=TOOL_EXECUTION_TIMEOUT
+                                )
+                            elif self.tool_manager:
+                                # Legacy ToolManager
+                                tool_result = await asyncio.wait_for(
+                                    self.tool_manager.execute_tool(tool_name, tool_args),
+                                    timeout=TOOL_EXECUTION_TIMEOUT
+                                )
+                            else:
+                                tool_result = f"Lỗi: Không có tool system configured."
+                            
                             logger.info(f"✅ Tool '{tool_name}' executed successfully")
                             
                         except asyncio.TimeoutError:
