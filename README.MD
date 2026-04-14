@@ -2,6 +2,28 @@
 
 Discord bot powered by Google Gemini và Qwen với hệ thống trí nhớ 3 tầng, theo dõi mối quan hệ và profile người dùng.
 
+## 🚧 Trạng thái Phát triển
+
+**Branch hiện tại**: `Harness_discord_v1`
+
+| Phase | Mô tả | Trạng thái |
+|-------|-------|------------|
+| **Phase 1** | Settings & Configuration | ✅ Hoàn thành |
+| **Phase 2** | LM Studio Reasoning Support | ✅ Hoàn thành |
+| **Phase 3** | Native Tool Calling | 🔄 Đang thực hiện |
+| **Phase 4** | Memory System Updates | 🔄 Đang thực hiện |
+| **Phase 5** | Testing & Validation | ⏳ Chờ |
+| **Phase 6** | Documentation & Cleanup | ⏳ Chờ |
+
+### Tính năng mới (v1.1)
+- **Reasoning Models Support**: DeepSeek R1, Qwen thinking models
+- **Native Tool Calling**: Function calling qua API (không dùng regex parsing)
+- **Token Limit**: Tăng từ 100 → 2000 tokens
+- **Debug Logging**: Chi tiết cho reasoning models
+- **Fallback Mechanism**: Tự động dùng `reasoning_content` khi `content` rỗng
+
+---
+
 ## 🧠 Kiến trúc Hệ thống
 
 ### Tổng quan
@@ -21,12 +43,17 @@ flowchart TB
     subgraph Memory["Memory System - 3 Tầng"]
         T1[Tầng 1: Active Memory<br/>RAM - Hội thoại hiện tại]
         T2[Tầng 2: Episodic Memory<br/>Vector DB - Ký ức dài hạn]
-        T3[Tầng 3: Core Memory<br/>YAML DB - Profile người dùng]
+        T3[Tầng 3: Core Memory<br/>Markdown DB - Profile người dùng]
     end
     
     subgraph LLM["LLM Services"]
         GS[GeminiService]
         QS[QwenService]
+        LM[LMStudioService]
+    end
+    
+    subgraph Tools["Tools Service"]
+        TM[ToolManager]
     end
     
     subgraph Embedding["Embedding Service"]
@@ -36,6 +63,8 @@ flowchart TB
     CG --> CC
     CC --> T1
     CC --> T2
+    CC --> LM
+    CC --> TM
     CC --> T3
     T1 -->|Event: CRITICAL_INFO| T3
     T1 -->|Event: TOKEN_LIMIT| T2
@@ -65,9 +94,9 @@ flowchart LR
         B1[Event Extractor] --> B2[Vector Engine]
         B2 --> B3[Local Vector DB]
         B3 --> B4[Context Formatter]
-    end
-    
-    subgraph T3["Tầng 3: Core Memory (YAML DB)"]
+    endMarkdown DB)"]
+        direction TB
+        C1[Smart Updater] --> C2[Profile Markdown)"]
         direction TB
         C1[Smart Updater] --> C2[Profile YAML]
         C2 --> C3[System Prompt Builder]
@@ -87,12 +116,45 @@ flowchart LR
 - **Mục đích**: Lưu trữ ký ức dài hạn dưới dạng vector embeddings
 - **Trích xuất sự kiện**: Dùng LLM để tóm tắt và trích xuất thông tin
 - **Tìm kiếm ngữ nghĩa**: Vector similarity search với threshold 0.4
-- **Embedding**: Qwen3-Embedding-0.6B chạy local
-
-#### Tầng 3: Core Memory (YAML DB)
+- **Embedding**: Qwen3-EmbMarkdown DB)
 - **Mục đích**: Lưu profile người dùng (tên, sở thích, mối quan hệ...)
 - **Cập nhật thông minh**: Smart Updater dùng LLM để cập nhật profile
 - **System Prompt**: Tự động inject vào prompt cho LLM
+- **Storage**: Markdown files trong `memories/users/` mối quan hệ...)
+- **Cập nhật thông minh**: Smart Updater dùng LLM để cập nhật profile
+- **System Prompt**: Tự động inject vào prompt cho LLM
+
+## 🤖 Agent Memories & Identity
+
+Bot sử dụng hệ thống **Agent Memories** để định hình tính cách và hành vi:
+
+### Cấu trúc Memories
+
+```
+memories/
+├── INDEX.md           # Index & navigation
+├── IDENTITY.md        # Bot personality (March 7th)
+├── SOUL.md            # Conversation guidelines
+├── TOOLS.md           # Tool usage instructions
+├── AWAKENING.md       # Reserved
+├── MEMORY.md          # Reserved
+├── HEARTBEAT.md       # Reserved
+└── users/
+    └── {user_id}.md   # User profiles
+```
+
+### Bot Identity: March 7th (Bé Bảy)
+- **Character**: Heart of the Astral Express crew (Honkai: Star Rail)
+- **Style**: Vietnamese Gen-Z, cheerful, optimistic
+- **Self-reference**: "tui", "Bé Bảy"
+- **Icons**: `:)))`, `:v`, `:3`, `^^`, `><`, `T.T`
+
+### Available Tools
+1. **search_memory** - Tìm kiếm ký ức quá khứ
+2. **update_user_profile** - Cập nhật thông tin user
+3. **update_personality** - Thay đổi phong cách hội thoại
+
+---
 
 ## 📊 Luồng Xử lý Tin nhắn
 
@@ -101,6 +163,7 @@ sequenceDiagram
     participant U as User
     participant CG as ChatGateway
     participant CC as ChatCoordinator
+    participant TM as ToolManager
     participant MM as MemoryManager
     participant T1 as Active Memory
     participant T2 as Episodic Memory
@@ -140,6 +203,14 @@ sequenceDiagram
     
     MM-->>CC: (system_prompt, context_messages)
     CC->>LLM: generate_response(messages, system_prompt)
+    
+    alt Tool Call Detected
+        LLM-->>CC: Tool Call Request
+        CC->>TM: execute_tool(tool_name, args)
+        TM-->>CC: Tool Result
+        CC->>LLM: generate_response(with tool result)
+    end
+    
     LLM-->>CC: LLMResponse (content + tokens)
     
     CC->>MM: add_message(user_id, assistant, response)
@@ -175,8 +246,12 @@ src/
 │   │   ├── base_llm_service.py         # Abstract base class
 │   │   ├── gemini_service.py           # Google Gemini API
 │   │   ├── qwen_service.py             # Qwen API (OpenAI-compatible)
+│   │   ├── lm_studio_service.py        # LM Studio (local LLM)
 │   │   ├── embedding_service.py        # Local embedding model
 │   │   └── llm_response.py             # Response wrapper
+│   │
+│   ├── tools/                          # Tool System
+│   │   └── tool_manager.py             # Native tool calling manager
 │   │
 │   └── memories/                       # 3-Tier Memory System
 │       ├── memory_manager.py           # Master orchestrator
@@ -188,7 +263,7 @@ src/
 │       │   ├── evaluation/
 │       │   │   ├── pipeline.py         # Đánh giá tin nhắn
 │       │   │   ├── rule_engine.py      # Luật cứng
-│       │   │   └── sematic_enegine.py  # Semantic scoring
+│       │   │   └── semantic_engine.py  # Semantic scoring
 │       │   ├── events/
 │       │   │   └── event_dispatcher.py # Pub/Sub system
 │       │   ├── management/
@@ -201,37 +276,44 @@ src/
 │       │
 │       ├── core_memory/                # Tầng 3: Core Memory
 │       │   ├── core_manager.py
-│       │   ├── models.py               # UserProfile
 │       │   ├── smart_updater.py        # LLM-based profile updater
 │       │   ├── prompts.yaml            # Extraction prompts
 │       │   └── storage/
-│       │       ├── base_core_db.py
-│       │       ├── local_yaml_db.py    # YAML file storage
-│       │       └── local_json_db.py    # JSON file storage
+│       │       └── markdown_storage.py # Markdown file storage
 │       │
 │       └── episodic_memory/            # Tầng 2: Episodic Memory
 │           ├── episodic_manager.py
 │           ├── models.py               # EpisodicRecord
 │           ├── prompts.yaml            # Extraction prompts
 │           ├── extraction/
-│           │   ├── event_extractor.py  # LLM event extraction
-│           │   └── retrieval/
-│           │       ├── vector_engine.py # Embedding wrapper
-│           │       └── context_formatter.py
+│           │   └── event_extractor.py  # LLM event extraction
 │           └── storage/
 │               ├── base_vector_db.py
 │               └── local_vector_db.py  # Local vector storage
+│
+├── models/                             # HuggingFace model cache
+│   └── models--Qwen--Qwen3-Embedding-0.6B/
 │
 ├── utils/
 │   └── helpers.py                      # Utility functions
 │
 └── data/                               # Data storage (gitignored)
-    ├── user_profiles/                  # Core Memory YAML files
-    └── vector_db/                      # Episodic Memory vectors
+    ├── bot_channels.json               # Bot channel configurations
+    └── core_memory/                    # User profiles (YAML)
 
-prompts/
-├── personality.yaml                    # Bot personality
-└── conversation_prompt.yaml            # Conversation guidelines
+memories/                               # Agent memory files
+├── INDEX.md                            # Index
+├── IDENTITY.md                         # Bot personality
+├── SOUL.md                             # Conversation guidelines
+├── TOOLS.md                            # Tool instructions
+├── AWAKENING.md                        # Reserved
+├── MEMORY.md                           # Reserved
+├── HEARTBEAT.md                        # Reserved
+└── users/                              # User profiles
+    └── {user_id}.md
+
+plan/                                   # Implementation plans
+└── upgrade-harness-bot-1.md            # Current upgrade plan
 ```
 
 ## 🚀 Quick Start
@@ -243,10 +325,9 @@ prompts/
 git clone <repository-url>
 cd discord-bot-v1
 
-# Tạo virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/macOS
-# venv\Scripts\activate  # Windows
+# Tạo conda environment
+conda create -n discord_bot python=3.14
+conda activate discord_bot
 
 # Install dependencies
 pip install -r requirements.txt
@@ -267,10 +348,13 @@ DISCORD_LLM_BOT_TOKEN=your_bot_token
 DISCORD_LLM_BOT_CLIENT_ID=your_client_id
 
 # LLM Provider (gemini hoặc qwen)
+LLM_PROVIDER=gemini, qwen, lm_studio)
 LLM_PROVIDER=gemini
-LLM_MODEL=gemini-1.5-flash
+LLM_MODEL=gemini-2.5-flash
 LLM_TEMPERATURE=0.7
-LLM_MAX_TOKENS=100
+LLM_MAX_TOKENS=2000
+LLM_TOP_P=0.9
+LLM_TOP_K=40
 
 # Gemini API
 GEMINI_API_KEY=your_gemini_key
@@ -279,12 +363,23 @@ GEMINI_API_KEY=your_gemini_key
 QWEN_API_KEY=your_qwen_key
 QWEN_MODEL=qwen-max
 
-# LangSmith Tracing (optional)
-LANGCHAIN_API_KEY=your_langsmith_key
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_PROJECT=discord-bot
-```
+# LM Studio (nếu dùng local LLM)
+TOOL_LLM_ENDPOINT=http://localhost:1234/v1
 
+# Tool Execution
+TOOL_EXECUTION_TIMEOUT=60
+
+# Local development
+conda activate discord_bot
+python src/bot.py
+
+# Hoặc as module
+python -m src
+
+# Docker deployment
+docker-compose up -d
+docker-compose logs -f be_bay_bot
+docker-compose down
 ### 3. Chạy Bot
 
 ```bash
@@ -299,12 +394,13 @@ python src/bot.py
 
 | Biến | Mặc định | Mô tả |
 |------|----------|-------|
-| `LLM_PROVIDER` | `gemini` | Provider: `gemini` hoặc `qwen` |
-| `LLM_MODEL` | `gemini-1.5-flash` | Model name |
+| `LLM_PROVIDER` | `gemini` | Provider: `gemini`, `qwen`, `lm_studio` |
+| `LLM_MODEL` | `gemini-2.5-flash` | Model name |
 | `LLM_TEMPERATURE` | `0.7` | Creativity (0-1) |
-| `LLM_MAX_TOKENS` | `100` | Max output tokens |
+| `LLM_MAX_TOKENS` | `2000` | Max output tokens |
 | `LLM_TOP_P` | `0.9` | Nucleus sampling |
 | `LLM_TOP_K` | `40` | Top-k sampling |
+| `TOOL_EXECUTION_TIMEOUT` | `60` | Tool call timeout (seconds) |
 
 ### Typing Simulation
 
@@ -316,6 +412,17 @@ python src/bot.py
 | `MAX_TYPING_DELAY` | `8.0` | Delay tối đa (giây) |
 | `PART_BREAK_DELAY` | `0.6` | Delay giữa các phần tin nhắn |
 
+### Reasoning Models Support
+
+Bot hỗ trợ **reasoning models** (DeepSeek R1, Qwen thinking):
+
+```python
+# LM Studio Service tự động xử lý reasoning_content
+# Khi content rỗng, fallback sang reasoning_content
+if not content and reasoning_content:
+    content = reasoning_content
+```
+
 ## 🔧 Kiến trúc Dependency Injection
 
 ```mermaid
@@ -324,7 +431,11 @@ flowchart TB
         direction TB
         
         subgraph LLM["LLM Service"]
-            LS[GeminiService / QwenService]
+            LS[GeminiService / QwenService / LMStudioService]
+        end
+        
+        subgraph Tools["Tools"]
+            TM[ToolManager]
         end
         
         subgraph Embedding["Embedding"]
@@ -351,7 +462,7 @@ flowchart TB
         end
         
         subgraph T3["Tầng 3 Components"]
-            LY[LocalYamlDB]
+            MS[MarkdownStorage]
             SU[SmartUpdater]
             CM[CoreManager]
         end
@@ -365,6 +476,7 @@ flowchart TB
     ES --> SE
     LS --> SU
     LS --> EE
+    LS --> TM
     
     RS --> AMS
     EP --> AMS
@@ -379,6 +491,7 @@ flowchart TB
     ED --> MM
     
     MM --> CC
+    TM --> CC
     LS --> CC
 ```
 
@@ -405,11 +518,12 @@ Mọi response từ LLM đều được track token usage:
 - Output tokens
 - Total tokens
 
-### LangSmith Integration
+### Phoenix Tracing Integration
 
-Hệ thống tích hợp LangSmith tracing để debug và monitor:
+Hệ thống tích hợp Arize Phoenix tracing để debug và monitor:
 - `@traceable` decorator trên các hàm quan trọng
 - Track toàn bộ flow từ message đến response
+- Export traces qua OTLP đến Phoenix collector
 
 ## 📄 License
 
