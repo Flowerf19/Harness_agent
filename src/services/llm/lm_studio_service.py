@@ -101,6 +101,18 @@ class LMStudioService(BaseLLMService):
                     return "Error generating response."
 
                 response_data = await response.json()
+                
+                # [DEBUG] Log raw response để debug reasoning models
+                self.logger.debug(f"📦 Raw response keys: {response_data.keys()}")
+                if "choices" in response_data:
+                    choice = response_data["choices"][0]
+                    self.logger.debug(f"📦 Choice keys: {choice.keys()}")
+                    message = choice.get("message", {})
+                    self.logger.debug(f"📦 Message keys: {message.keys()}")
+                    self.logger.debug(f"📦 Content preview: {str(message.get('content', ''))[:500]}")
+                    # Check for reasoning_content field (DeepSeek R1 format)
+                    if "reasoning_content" in message:
+                        self.logger.debug(f"📦 reasoning_content preview: {str(message.get('reasoning_content', ''))[:500]}")
 
                 # Extract token usage metadata from OpenAI-compatible response
                 usage = response_data.get("usage", {})
@@ -114,6 +126,18 @@ class LMStudioService(BaseLLMService):
                     
                     # Extract content (may be empty if tool_calls present)
                     content = message.get("content", "") or ""
+                    
+                    # [REASONING MODELS] DeepSeek R1 và các model reasoning có thể 
+                    # trả về reasoning_content thay vì content, hoặc content rỗng
+                    if not content:
+                        reasoning_content = message.get("reasoning_content", "")
+                        if reasoning_content:
+                            self.logger.info("🧠 Detected reasoning_content from reasoning model")
+                            self.logger.info(f"🧠 reasoning_content preview: {reasoning_content[:300]}...")
+                            content = reasoning_content
+                    
+                    # Log final content để debug
+                    self.logger.info(f"📝 Final content preview: {content[:200] if content else 'EMPTY'}...")
                     
                     # [NATIVE TOOL CALLING] Parse tool_calls if present
                     tool_calls = None

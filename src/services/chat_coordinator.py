@@ -15,7 +15,7 @@ from src.services.tools.tool_manager import ToolManager
 logger = logging.getLogger(__name__)
 
 # Timeout cho mỗi tool execution (seconds)
-TOOL_EXECUTION_TIMEOUT = 30
+TOOL_EXECUTION_TIMEOUT = 60
 
 
 class ChatCoordinator:

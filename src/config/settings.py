@@ -9,7 +9,7 @@ class Config:
     GEMINI_API_URL = os.getenv(
         "GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/models"
     )
-    LLM_MODEL = os.getenv("LLM_MODEL", "gemini-1.5-flash")
+    LLM_MODEL = os.getenv("LLM_MODEL", "gemini-2.5-flash")
     SYNC_COMMANDS = os.getenv("SYNC_COMMANDS", "0")
 
     # LLM Provider settings
@@ -39,7 +39,10 @@ class Config:
 
     # LLM Generation parameters
     LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.7"))
-    LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "100"))
+    # [REASONING MODELS] Tăng max_tokens vì reasoning models cần tokens cho thinking + final answer
+    # Model thường: 100-500 tokens đủ
+    # Reasoning models (DeepSeek R1, Qwen thinking): cần 500-2000 tokens
+    LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "2000"))
     LLM_TOP_P = float(os.getenv("LLM_TOP_P", "0.9"))
     LLM_TOP_K = int(os.getenv("LLM_TOP_K", "40"))
 
