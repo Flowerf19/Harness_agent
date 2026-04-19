@@ -69,6 +69,7 @@ def main():
         logger.critical("❌ Không tìm thấy DISCORD_BOT_TOKEN trong file .env!")
         return
 
+    logger.info(f"🔧 LLM_PROVIDER: {Config.LLM_PROVIDER}")
     bot = CoreBot()
     bot.run(Config.DISCORD_BOT_TOKEN)
 

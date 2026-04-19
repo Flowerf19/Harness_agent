@@ -63,3 +63,14 @@ class Config:
     LANGCHAIN_ENDPOINT = os.getenv(
         "LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com"
     )
+
+    # Redis configuration for Active Memory (Tier 1) storage
+    REDIS_ENABLED = os.getenv("REDIS_ENABLED", "false").lower() == "true"
+    REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+    REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
+    REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+
+    # Qdrant configuration for Episodic Memory (Tier 2) storage
+    QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+    QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
+    QDRANT_COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME", "episodic_memory")

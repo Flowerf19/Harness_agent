@@ -6,6 +6,12 @@ requests
 aiofiles
 google-generativeai
 
+# Redis for Active Memory storage
+redis[hiredis]
+
+# Qdrant for Episodic Memory (Tier 2) storage
+qdrant-client
+
 # LangChain dependencies for auto-instrumentation
 langchain
 langchain-community

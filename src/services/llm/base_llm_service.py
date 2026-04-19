@@ -27,7 +27,6 @@ class BaseLLMService(abc.ABC):
         # File này sẽ làm nền tảng, còn Core Memory (T3) sẽ bổ sung phần Dynamic Persona
         self.static_identity = self._load_prompt("IDENTITY.md", "memories")
         self.static_soul = self._load_prompt("SOUL.md", "memories")
-        self.static_tools = self._load_prompt("TOOLS.md", "memories")  # [MỚI] Load TOOLS.md
 
     def set_tool_manager(self, tool_manager) -> None:
         """[MỚI] Inject ToolManager vào LLM Service (Legacy)."""
@@ -41,7 +40,7 @@ class BaseLLMService(abc.ABC):
 
     def _load_prompt(self, filename: str, folder: str = "prompts") -> str:
         """Load prompt content from file.
-        
+
         Args:
             filename: Tên file cần load (VD: "IDENTITY.md", "SOUL.md")
             folder: Thư mục chứa file (VD: "memories", "prompts")
@@ -63,25 +62,15 @@ class BaseLLMService(abc.ABC):
             self.logger.error(f"❌ Error loading prompt {filename}: {e}")
             return ""
 
-    def _build_final_system_prompt(self, dynamic_core_prompt: str = "", skip_tools_prompt: bool = False) -> str:
+    def _build_final_system_prompt(self, dynamic_core_prompt: str = "") -> str:
         """
         Trộn lẫn Tính cách tĩnh (từ file .md) và Trí nhớ Tiềm thức (Từ Tầng 3).
-        [MỚI] Bổ sung Tool Schemas từ TOOLS.md hoặc ToolManager.
-        
+        Tool schemas được inject qua Native Function Calling (API Tool Calling).
+
         Args:
             dynamic_core_prompt: Hồ sơ user từ T3
-            skip_tools_prompt: Nếu True, không inject TOOLS.md vào system prompt (dùng cho SmartUpdater)
         """
         parts = []
-
-        # 0. [MỚI] Nhét Tool Schemas lên đầu tiên (có thể skip)
-        # Prefer TOOLS.md file, fallback to ToolManager hardcode
-        if not skip_tools_prompt:
-            if self.static_tools:
-                parts.append(self.static_tools)
-            elif self.tool_manager:
-                tool_prompt = self.tool_manager.get_tool_schemas_prompt()
-                parts.append(tool_prompt)
 
         # 1. Nhét tính cách gốc của Bot vào trước (IDENTITY.md và SOUL.md)
         if self.static_identity:
@@ -100,33 +89,21 @@ class BaseLLMService(abc.ABC):
     # Nếu dùng ở cả 2 sẽ tạo nested spans không cần thiết
     @abc.abstractmethod
     async def generate_response(
-        self, 
-        messages: List[Dict[str, str]], 
-        system_prompt: Optional[str] = None, 
-        skip_tools_prompt: bool = False,
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
         use_native_tools: bool = False
     ) -> Union[str, LLMResponse]:
         """
         Generate a response from the LLM based on structured messages.
-        
+
         Args:
             messages: List of message dicts with "role" and "content" keys
             system_prompt: Dynamic core memory context from T3
-            skip_tools_prompt: If True, skip TOOLS.md in system prompt (for SmartUpdater)
             use_native_tools: If True, use Native Function Calling (API Tool Calling)
-        
+
         Returns:
             LLMResponse with content, token metadata, and tool_calls if present
-
-        Args:
-            messages: Mảng tin nhắn theo chuẩn [{"role": "user/assistant", "content": "..."}]
-                      (Mảng này do MemoryManager.get_context() cung cấp).
-            system_prompt: Dữ liệu Tiềm thức từ Tầng 3 (Dynamic Core Memory).
-            skip_tools_prompt: Nếu True, không inject TOOLS.md vào system prompt (dùng cho SmartUpdater).
-
-        Returns:
-            LLMResponse object with content and token metadata.
-            Falls back to string for backwards compatibility on errors.
         """
         pass
 

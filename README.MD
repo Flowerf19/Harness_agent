@@ -135,7 +135,6 @@ memories/
 ├── INDEX.md           # Index & navigation
 ├── IDENTITY.md        # Bot personality (March 7th)
 ├── SOUL.md            # Conversation guidelines
-├── TOOLS.md           # Tool usage instructions
 ├── AWAKENING.md       # Reserved
 ├── MEMORY.md          # Reserved
 ├── HEARTBEAT.md       # Reserved
@@ -305,7 +304,6 @@ memories/                               # Agent memory files
 ├── INDEX.md                            # Index
 ├── IDENTITY.md                         # Bot personality
 ├── SOUL.md                             # Conversation guidelines
-├── TOOLS.md                            # Tool instructions
 ├── AWAKENING.md                        # Reserved
 ├── MEMORY.md                           # Reserved
 ├── HEARTBEAT.md                        # Reserved

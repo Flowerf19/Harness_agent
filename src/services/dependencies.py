@@ -32,6 +32,11 @@ from src.services.memories.activate_memory.management.context_builder import (
 from src.services.memories.activate_memory.management.smart_cleanup import SmartCleanup
 from src.services.memories.activate_memory.management.token_counter import TokenCounter
 from src.services.memories.activate_memory.storage.ram_storage import LocalMemoryDB
+from src.services.memories.activate_memory.storage.redis_storage import (
+    RedisStorage,
+    create_redis_storage,
+)
+from src.services.memories.activate_memory.storage.base_storage import BaseStorage
 from src.services.memories.core_memory.core_manager import CoreManager
 from src.services.memories.core_memory import SmartUpdater, MarkdownStorage
 from src.services.memories.episodic_memory.episodic_manager import EpisodicManager
@@ -41,7 +46,7 @@ from src.services.memories.episodic_memory.extraction.event_extractor import (
 from src.services.memories.episodic_memory.extraction.retrieval.vector_engine import (
     VectorEngine,
 )
-from src.services.memories.episodic_memory.storage.local_vector_db import LocalVectorDB
+from src.services.memories.episodic_memory.storage.qdrant_vector_db import QdrantVectorDB
 from src.services.memories.memory_manager import MemoryManager
 
 # --- Tools System (MCP Architecture) ---
@@ -67,6 +72,8 @@ class AppContainer:
         self.llm_service = None
         self.memory_manager = None
         self.chat_coordinator = None
+        self.redis_storage = None  # Track Redis storage for cleanup
+        self.qdrant_storage = None  # Track Qdrant storage for cleanup
 
     @classmethod
     def get_instance(cls):
@@ -102,7 +109,10 @@ class AppContainer:
 
         # 2. LẮP RÁP BỘ NHỚ TẦNG 1 (Active Memory)
         event_bus = EventDispatcher()
-        t1_storage = LocalMemoryDB()
+        
+        # === 🔴 STORAGE FACTORY: Redis vs RAM ===
+        t1_storage = await self._get_t1_storage()
+        # ========================================
 
         # Cắm Embedding Service xịn xò vào Semantic Engine thay vì cắm nhầm Chat LLM
         t1_semantic = SemanticEngine(embedding_service=self.embedding_service)
@@ -131,7 +141,7 @@ class AppContainer:
         t3_manager = CoreManager(storage=t3_storage, smart_updater=t3_updater)
 
         # 4. LẮP RÁP BỘ NHỚ TẦNG 2 (Episodic Memory)
-        t2_storage = LocalVectorDB()
+        t2_storage = await self._get_t2_storage()
 
         # Trạm trích xuất dùng LLM để bóc tách tin nhắn
         t2_extractor = EventExtractor(llm_client=self.llm_service)
@@ -225,6 +235,88 @@ class AppContainer:
         """Đóng các kết nối khi bot tắt."""
         if self.llm_service:
             await self.llm_service.close()
+        # Close Redis connection if used
+        if self.redis_storage:
+            await self.redis_storage.close()
+            logger.info("🔴 Redis connection closed")
+        # Close Qdrant connection if used
+        if self.qdrant_storage:
+            await self.qdrant_storage.close()
+            logger.info("🔴 Qdrant connection closed")
+
+    async def _get_t1_storage(self) -> BaseStorage:
+        """
+        Factory method: Chọn storage implementation cho Tầng 1.
+        
+        Strategy:
+        - Nếu REDIS_ENABLED=true: Thử kết nối Redis
+        - Nếu Redis fail hoặc REDIS_ENABLED=false: Fallback về RamStorage
+        
+        Returns:
+            BaseStorage: RedisStorage hoặc RamStorage instance
+        """
+        redis_enabled = getattr(Config, "REDIS_ENABLED", False)
+        
+        if not redis_enabled:
+            logger.info("📦 T1 Storage: Using RamStorage (Redis disabled)")
+            return LocalMemoryDB()
+        
+        # Try Redis connection
+        redis_url = getattr(Config, "REDIS_URL", "redis://localhost:6379")
+        redis_password = getattr(Config, "REDIS_PASSWORD", None)
+        redis_db = getattr(Config, "REDIS_DB", 0)
+        
+        try:
+            storage = create_redis_storage(
+                redis_url=redis_url,
+                redis_password=redis_password,
+                redis_db=redis_db,
+            )
+            
+            # Health check
+            if await storage.health_check():
+                self.redis_storage = storage  # Track for cleanup
+                logger.info(f"🔴 T1 Storage: Using RedisStorage (URL: {redis_url})")
+                return storage
+            else:
+                logger.warning("🔴 Redis health check failed, falling back to RamStorage")
+                await storage.close()
+                return LocalMemoryDB()
+                
+        except Exception as e:
+            logger.warning(f"🔴 Redis connection failed: {e}, falling back to RamStorage")
+            return LocalMemoryDB()
+
+    async def _get_t2_storage(self):
+        """
+        Factory method: Khởi tạo Qdrant storage cho Tầng 2 (Episodic Memory).
+
+        Returns:
+            BaseVectorDB: QdrantVectorDB instance
+
+        Raises:
+            RuntimeError: Nếu không kết nối được Qdrant
+        """
+        qdrant_url = getattr(Config, "QDRANT_URL", "http://localhost:6333")
+        qdrant_api_key = getattr(Config, "QDRANT_API_KEY", None)
+        qdrant_collection = getattr(Config, "QDRANT_COLLECTION_NAME", "episodic_memory")
+
+        try:
+            storage = QdrantVectorDB(
+                url=qdrant_url,
+                api_key=qdrant_api_key,
+                collection_name=qdrant_collection,
+            )
+
+            # Initialize collection
+            await storage.initialize()
+            self.qdrant_storage = storage  # Track for cleanup
+            logger.info(f"🔴 T2 Storage: Using QdrantVectorDB (URL: {qdrant_url})")
+            return storage
+
+        except Exception as e:
+            logger.error(f"❌ Qdrant connection failed: {e}")
+            raise RuntimeError(f"Không thể kết nối Qdrant: {e}")
 
 
 # Hàm tiện ích để gọi ở các file khác

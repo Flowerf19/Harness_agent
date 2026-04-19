@@ -6,8 +6,10 @@ Provides vector database implementations for storing and retrieving episodic rec
 
 from .base_vector_db import BaseVectorDB
 from .local_vector_db import LocalVectorDB
+from .qdrant_vector_db import QdrantVectorDB
 
 __all__ = [
     "BaseVectorDB",
     "LocalVectorDB",
+    "QdrantVectorDB",
 ]

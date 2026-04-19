@@ -16,6 +16,8 @@ class ToolManager:
     """
     Quản lý các công cụ (Tools) cho Agent.
     Cho phép LLM tự động tìm kiếm ký ức, cập nhật hồ sơ user và điều chỉnh tính cách.
+    
+    Note: Đây là legacy adapter. Hãy dùng MCP architecture (mcp_client.py) thay vì ToolManager.
     """
 
     def __init__(
@@ -24,37 +26,19 @@ class ToolManager:
         core_manager: Optional[Any] = None,
         base_memory_path: str = "memories",
     ):
-        """
-        Khởi tạo ToolManager.
-
-        Args:
-            episodic_manager: EpisodicManager (T2) để tìm kiếm ký ức
-            core_manager: CoreManager (T3) để đọc/ghi hồ sơ user
-            base_memory_path: Đường dẫn thư mục memories (default: "memories")
-        """
         self.episodic_manager = episodic_manager
         self.core_manager = core_manager
         self.base_memory_path = base_memory_path
 
-        # Đảm bảo thư mục users tồn tại
         users_path = os.path.join(self.base_memory_path, "users")
         os.makedirs(users_path, exist_ok=True)
         logger.info(f"ToolManager: Đã khởi tạo với base_path={base_memory_path}")
-
-    def get_tool_schemas_prompt(self) -> str:
-        """
-        Trả về chuỗi hướng dẫn cách dùng Tool.
-        Lưu ý: Prompt chính được load từ TOOLS.md, hàm này chỉ return empty string.
-        """
-        # Prompt đã được load từ TOOLS.md trong base_llm_service.py
-        # Hàm này giữ lại để fallback nếu TOOLS.md không tồn tại
-        return ""
 
     def get_native_tool_schemas(self) -> list:
         """
         Trả về danh sách tool schemas theo chuẩn OpenAI JSON Schema.
         Dùng cho Native Function Calling (API Tool Calling).
-        
+
         Returns:
             List of tool definitions compatible with OpenAI/Qwen/LM Studio APIs.
             Gemini cần map sang functionDeclarations format.
@@ -150,23 +134,15 @@ class ToolManager:
             logger.error(f"Lỗi khi chạy tool {tool_name}: {e}")
             return f"Lỗi hệ thống khi chạy tool: {e}"
 
-    # ==========================================
-    # CÁC HÀM THỰC THI CHI TIẾT
-    # ==========================================
-
     async def _search_memory(self, user_id: str, query: str) -> str:
-        """
-        Tìm kiếm ký ức dài hạn từ EpisodicManager (T2).
-        """
+        """Tìm kiếm ký ức dài hạn từ EpisodicManager (T2)."""
         if not user_id or not query:
             return "Lỗi: Thiếu user_id hoặc query."
 
-        # Validate user_id - phải là số (Discord ID format)
         if not user_id.isdigit():
             logger.warning(f"⚠️ Invalid user_id: {user_id} - không phải số")
             return f"Lỗi: user_id '{user_id}' không hợp lệ. user_id phải là số ID của Discord user."
 
-        # Gọi xuống tầng Episodic Memory (T2)
         if self.episodic_manager:
             try:
                 results = await self.episodic_manager.retrieve_past_context(
@@ -182,25 +158,20 @@ class ToolManager:
             return "Lỗi: Hệ thống Episodic Memory chưa sẵn sàng."
 
     async def _update_user_profile(self, user_id: str, new_fact: str) -> str:
-        """
-        Ghi thêm fact mới vào hồ sơ user (T3 Core Memory).
-        Sử dụng SmartUpdater của T3 để LLM xử lý và cập nhật profile Markdown.
-        """
+        """Ghi thêm fact mới vào hồ sơ user (T3 Core Memory)."""
         if not user_id or not new_fact:
             return "Lỗi: Thiếu thông tin update."
 
-        # Validate user_id - phải là số (Discord ID format)
         if not user_id.isdigit():
             logger.warning(f"⚠️ Invalid user_id: {user_id} - không phải số")
             return f"Lỗi: user_id '{user_id}' không hợp lệ. user_id phải là số ID của Discord user."
 
-        # Gọi T3 CoreManager để cập nhật profile qua SmartUpdater
         if self.core_manager and self.core_manager.updater:
             try:
                 success = await self.core_manager.updater.update_profile_with_fact(
                     user_id=user_id,
                     new_fact=new_fact,
-                    context=""  # Agent tự quyết định fact, không cần context từ T1
+                    context=""
                 )
                 if success:
                     logger.info(f"✅ ToolManager: Đã cập nhật T3 cho user {user_id} qua Agent")
@@ -214,9 +185,7 @@ class ToolManager:
             return "Lỗi: Hệ thống Core Memory (T3) chưa sẵn sàng."
 
     async def _update_personality(self, instruction: str) -> str:
-        """
-        Ghi thêm quy tắc mới vào IDENTITY.md.
-        """
+        """Ghi thêm quy tắc mới vào IDENTITY.md."""
         if not instruction:
             return "Lỗi: Thiếu instruction."
 
@@ -226,12 +195,10 @@ class ToolManager:
         append_text = f"\n- [{timestamp}] Cập nhật tính cách: {instruction}"
 
         def write_file():
-            # Nếu file chưa có thì tạo mới với header
             if not os.path.exists(identity_file):
                 with open(identity_file, "w", encoding="utf-8") as f:
                     f.write("# NHÂN CÁCH CỦA BẠN\n\n")
                     f.write("## Quy tắc động (Agent tự cập nhật)\n")
-            # Append quy tắc mới
             with open(identity_file, "a", encoding="utf-8") as f:
                 f.write(append_text)
 

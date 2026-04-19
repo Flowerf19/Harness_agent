@@ -12,7 +12,6 @@ from .llm_response import LLMResponse
 
 class GeminiService(BaseLLMService):
     def __init__(self):
-        # 🔴 Gọi super() để lấy base prompts
         super().__init__()
 
         self.api_key = os.getenv("GEMINI_API_KEY")
@@ -31,10 +30,10 @@ class GeminiService(BaseLLMService):
     def _map_tools_to_gemini_format(self, openai_tools: List[Dict]) -> List[Dict]:
         """
         Map OpenAI tool schemas to Gemini functionDeclarations format.
-        
+
         OpenAI format:
         {"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}
-        
+
         Gemini format:
         {"functionDeclarations": [{"name": "...", "description": "...", "parameters": {...}}]}
         """
@@ -51,10 +50,9 @@ class GeminiService(BaseLLMService):
 
     @traceable(name="Gemini_Generate", run_type="llm", tags=["gemini", "generation"])
     async def generate_response(
-        self, 
-        messages: List[Dict[str, str]], 
-        system_prompt: Optional[str] = None, 
-        skip_tools_prompt: bool = False,
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
         use_native_tools: bool = False
     ) -> Union[str, LLMResponse]:
         """
@@ -63,7 +61,6 @@ class GeminiService(BaseLLMService):
         Args:
             messages: Mảng tin nhắn theo chuẩn [{"role": "user/assistant", "content": "..."}]
             system_prompt: Dữ liệu Tiềm thức từ Tầng 3 (Dynamic Core Memory).
-            skip_tools_prompt: Nếu True, không inject TOOLS.md vào system prompt.
             use_native_tools: Nếu True, sử dụng Native Function Calling (API Tool Calling).
 
         Returns:
@@ -77,15 +74,9 @@ class GeminiService(BaseLLMService):
         session = await self._get_session()
 
         # 1. Trộn hệ tư tưởng (System Prompt)
-        # Nếu dùng native tools, skip TOOLS.md prompt
-        final_system_prompt = self._build_final_system_prompt(
-            system_prompt, 
-            skip_tools_prompt=skip_tools_prompt or use_native_tools
-        )
+        final_system_prompt = self._build_final_system_prompt(system_prompt)
 
         # 2. Biên dịch mảng `messages` sang chuẩn Gemini
-        # Chuyển đổi từ {"role": "assistant", "content": "..."}
-        # Sang {"role": "model", "parts": [{"text": "..."}]}
         gemini_contents = []
         for msg in messages:
             role = "model" if msg["role"] == "assistant" else "user"
@@ -138,29 +129,27 @@ class GeminiService(BaseLLMService):
                     candidate = response_data["candidates"][0]
                     if "content" in candidate and "parts" in candidate["content"]:
                         parts = candidate["content"]["parts"]
-                        
+
                         # [NATIVE TOOL CALLING] Parse functionCall from parts
                         tool_calls = None
                         content = ""
-                        
+
                         for part in parts:
                             if "functionCall" in part:
-                                # Gemini returns functionCall directly
                                 fc = part["functionCall"]
                                 if not tool_calls:
                                     tool_calls = []
                                 tool_calls.append({
-                                    "id": f"gemini_{fc.get('name', '')}",  # Gemini doesn't have IDs
+                                    "id": f"gemini_{fc.get('name', '')}",
                                     "name": fc.get("name", ""),
                                     "arguments": fc.get("args", {})
                                 })
                             elif "text" in part:
                                 content += part["text"]
-                        
+
                         if tool_calls:
                             self.logger.info(f"🛠️ Gemini returned {len(tool_calls)} tool calls: {[tc['name'] for tc in tool_calls]}")
 
-                        # Log token usage for debugging
                         self.logger.info(
                             f"Gemini API - Input tokens: {input_tokens}, "
                             f"Output tokens: {output_tokens}, Total: {total_tokens}"

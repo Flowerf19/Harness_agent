@@ -13,7 +13,6 @@ from .llm_response import LLMResponse
 
 class QwenService(BaseLLMService):
     def __init__(self):
-        # 🔴 Bắt buộc gọi super() để load tính cách tĩnh từ file
         super().__init__()
 
         self.api_key = os.getenv("QWEN_API_KEY")
@@ -29,13 +28,11 @@ class QwenService(BaseLLMService):
             self.session = aiohttp.ClientSession()
         return self.session
 
-    # Đổi prompt_arg thành "messages" cho hợp với tham số mới
     @traceable(name="Qwen_Generate", run_type="llm", tags=["qwen", "generation"])
     async def generate_response(
-        self, 
-        messages: List[Dict[str, str]], 
-        system_prompt: Optional[str] = None, 
-        skip_tools_prompt: bool = False,
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
         use_native_tools: bool = False
     ) -> Union[str, LLMResponse]:
         """
@@ -44,7 +41,6 @@ class QwenService(BaseLLMService):
         Args:
             messages: Mảng tin nhắn theo chuẩn [{"role": "user/assistant", "content": "..."}]
             system_prompt: Dữ liệu Tiềm thức từ Tầng 3 (Dynamic Core Memory).
-            skip_tools_prompt: Nếu True, không inject TOOLS.md vào system prompt.
             use_native_tools: Nếu True, sử dụng Native Function Calling (API Tool Calling).
 
         Returns:
@@ -58,14 +54,9 @@ class QwenService(BaseLLMService):
         session = await self._get_session()
 
         # 1. Trộn Tính cách tĩnh + Tiềm thức User (Tầng 3)
-        # Nếu dùng native tools, skip TOOLS.md prompt
-        final_system_prompt = self._build_final_system_prompt(
-            system_prompt, 
-            skip_tools_prompt=skip_tools_prompt or use_native_tools
-        )
+        final_system_prompt = self._build_final_system_prompt(system_prompt)
 
         # 2. Xếp mảng hội thoại chuẩn OpenAI
-        # Nhét system_prompt lên đầu, sau đó đến toàn bộ lịch sử hội thoại (T1 + T2)
         api_messages = [{"role": "system", "content": final_system_prompt}] + messages
 
         full_url = f"{self.api_url}/chat/completions"
@@ -109,32 +100,29 @@ class QwenService(BaseLLMService):
                 if "choices" in response_data and len(response_data["choices"]) > 0:
                     choice = response_data["choices"][0]
                     message = choice.get("message", {})
-                    
-                    # Extract content (may be empty if tool_calls present)
+
                     content = message.get("content", "") or ""
-                    
+
                     # [NATIVE TOOL CALLING] Parse tool_calls if present
                     tool_calls = None
                     if "tool_calls" in message and message["tool_calls"]:
                         tool_calls = []
                         for tc in message["tool_calls"]:
-                            # Parse arguments from JSON string to dict
                             args_str = tc.get("function", {}).get("arguments", "{}")
                             try:
                                 args_dict = json.loads(args_str)
                             except json.JSONDecodeError:
                                 self.logger.warning(f"⚠️ Failed to parse tool arguments: {args_str}")
                                 args_dict = {}
-                            
+
                             tool_calls.append({
                                 "id": tc.get("id", ""),
                                 "name": tc.get("function", {}).get("name", ""),
                                 "arguments": args_dict
                             })
-                        
+
                         self.logger.info(f"🛠️ Qwen returned {len(tool_calls)} tool calls: {[tc['name'] for tc in tool_calls]}")
 
-                    # Log token usage for debugging
                     self.logger.info(
                         f"Qwen API - Input tokens: {input_tokens}, "
                         f"Output tokens: {output_tokens}, Total: {total_tokens}"

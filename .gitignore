@@ -51,3 +51,7 @@ tests/__pycache__/
 tests/data/
 tests
 
+# Docker volumes (exclude data, keep structure)
+docker/volumes/**
+!docker/volumes/**/.gitkeep
+
