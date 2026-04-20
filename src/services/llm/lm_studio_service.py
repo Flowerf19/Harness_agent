@@ -121,8 +121,6 @@ class LMStudioService(BaseLLMService):
                             self.logger.info("🧠 Detected reasoning_content from reasoning model")
                             content = reasoning_content
 
-                    self.logger.info(f"📝 Final content preview: {content[:200] if content else 'EMPTY'}...")
-
                     # [NATIVE TOOL CALLING] Parse tool_calls if present
                     tool_calls = None
                     if "tool_calls" in message and message["tool_calls"]:
