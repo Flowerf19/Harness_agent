@@ -74,3 +74,10 @@ class Config:
     QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
     QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
     QDRANT_COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME", "episodic_memory")
+
+    # Tavily API configuration for Web Search
+    TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", None)
+    TAVILY_API_URL = os.getenv("TAVILY_API_URL", "https://api.tavily.com")
+    TAVILY_MAX_RESULTS = int(os.getenv("TAVILY_MAX_RESULTS", "5"))
+    TAVILY_SEARCH_DEPTH = os.getenv("TAVILY_SEARCH_DEPTH", "basic")
+    TAVILY_TIMEOUT = int(os.getenv("TAVILY_TIMEOUT", "30"))

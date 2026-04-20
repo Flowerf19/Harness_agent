@@ -55,7 +55,9 @@ from src.services.tools.mcp_server import MCPServer
 from src.services.tools.mcp_client import MCPClient
 from src.services.tools.mcp_transport import InMemoryTransport
 from src.services.tools.tool_discovery import discover_and_register_tools
-from src.services.tools.tool_manager import ToolManager  # Legacy adapter
+
+# --- External Services ---
+from src.services.external.tavily_client import TavilyClient
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +76,7 @@ class AppContainer:
         self.chat_coordinator = None
         self.redis_storage = None  # Track Redis storage for cleanup
         self.qdrant_storage = None  # Track Qdrant storage for cleanup
+        self.tavily_client = None  # Tavily web search client
 
     @classmethod
     def get_instance(cls):
@@ -168,6 +171,9 @@ class AppContainer:
         # ================================================
         # Architecture: Registry Pattern + MCP Client-Server
         
+        # 6.0 KHỞI TẠO TAVILY CLIENT (Web Search)
+        self.tavily_client = self._init_tavily_client()
+
         # 6.1 Tạo Tool Registry
         tool_registry = ToolRegistry()
         
@@ -177,6 +183,7 @@ class AppContainer:
             "episodic_manager": t2_manager,
             "core_manager": t3_manager,
             "base_memory_path": "memories",
+            "tavily_client": self.tavily_client,
         }
         
         # Auto-discover tools từ implementations directory
@@ -243,6 +250,10 @@ class AppContainer:
         if self.qdrant_storage:
             await self.qdrant_storage.close()
             logger.info("🔴 Qdrant connection closed")
+        # Close Tavily client session
+        if self.tavily_client:
+            await self.tavily_client.close()
+            logger.info("🔴 Tavily client closed")
 
     async def _get_t1_storage(self) -> BaseStorage:
         """
@@ -317,6 +328,27 @@ class AppContainer:
         except Exception as e:
             logger.error(f"❌ Qdrant connection failed: {e}")
             raise RuntimeError(f"Không thể kết nối Qdrant: {e}")
+
+    def _init_tavily_client(self) -> TavilyClient | None:
+        """
+        Initialize Tavily client for web search.
+
+        Returns None if TAVILY_API_KEY is not configured (graceful degradation).
+
+        Returns:
+            TavilyClient | None: Client instance or None if not configured
+        """
+        if not Config.TAVILY_API_KEY:
+            logger.info("📦 Tavily: API key not configured, web search disabled")
+            return None
+
+        try:
+            client = TavilyClient()
+            logger.info(f"✅ Tavily client initialized - web search enabled")
+            return client
+        except Exception as e:
+            logger.warning(f"⚠️ Tavily client initialization failed: {e}")
+            return None
 
 
 # Hàm tiện ích để gọi ở các file khác

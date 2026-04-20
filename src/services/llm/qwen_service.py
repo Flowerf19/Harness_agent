@@ -69,8 +69,10 @@ class QwenService(BaseLLMService):
         }
 
         # 3. [NATIVE TOOL CALLING] Thêm tools vào payload nếu enabled
-        if use_native_tools and self.tool_manager:
-            tool_schemas = self.tool_manager.get_native_tool_schemas()
+        if use_native_tools:
+            tool_schemas = []
+            if self.mcp_client:
+                tool_schemas = self.mcp_client.get_native_tool_schemas()
             if tool_schemas:
                 payload["tools"] = tool_schemas
                 self.logger.debug(f"🔧 Native tools enabled: {len(tool_schemas)} tools")

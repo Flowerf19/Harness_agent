@@ -8,9 +8,6 @@ Architecture: MCP Client-Server with Registry Pattern
 - MCPClient: Client for communicating with MCP server
 - ToolDiscovery: Auto-discovery system for tools
 - Transport: Communication layer (inmemory, stdio, http)
-
-Legacy:
-- ToolManager: Deprecated adapter (use MCPClient instead)
 """
 
 # Core components
@@ -35,9 +32,6 @@ from .mcp_transport import (
     create_transport,
 )
 from .tool_discovery import ToolDiscovery, discover_and_register_tools
-
-# Legacy (deprecated)
-from .tool_manager import ToolManager
 
 # Tool implementations
 from .implementations import (
@@ -72,8 +66,6 @@ __all__ = [
     # Discovery
     "ToolDiscovery",
     "discover_and_register_tools",
-    # Legacy
-    "ToolManager",
     # Implementations
     "SearchMemoryTool",
     "UpdateUserProfileTool",

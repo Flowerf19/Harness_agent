@@ -4,13 +4,13 @@ version: 1.0
 date_created: 2026-04-20
 last_updated: 2026-04-20
 owner: Flowerf
-status: 'Planned'
+status: 'Completed'
 tags: ['feature', 'mcp-tool', 'web-search', 'tavily', 'integration']
 ---
 
 # Introduction
 
-![Status: Planned](https://img.shields.io/badge/status-Planned-blue)
+![Status: Completed](https://img.shields.io/badge/status-Completed-green)
 
 Plan này thêm **Tavily Web Search Tool** vào Discord Bot - một MCP tool cho phép bot:
 1. **Web Search**: Tìm kiếm thông tin real-time từ internet
@@ -85,12 +85,12 @@ Plan này thêm **Tavily Web Search Tool** vào Discord Bot - một MCP tool cho
 
 | Task ID | Description | Status |
 |---------|-------------|--------|
-| TASK-001 | Thêm `TAVILY_API_KEY` vào `src/config/settings.py` | Pending |
-| TASK-002 | Thêm `TAVILY_API_URL` (default: `https://api.tavily.com`) vào `settings.py` | Pending |
-| TASK-003 | Thêm `TAVILY_MAX_RESULTS` (default: 5) vào `settings.py` | Pending |
-| TASK-004 | Thêm `TAVILY_SEARCH_DEPTH` (default: "basic") vào `settings.py` | Pending |
-| TASK-005 | Thêm `TAVILY_TIMEOUT` (default: 30) vào `settings.py` | Pending |
-| TASK-006 | Thêm các env vars tương ứng vào `.env.example` | Pending |
+| TASK-001 | Thêm `TAVILY_API_KEY` vào `src/config/settings.py` | ✅ |
+| TASK-002 | Thêm `TAVILY_API_URL` (default: `https://api.tavily.com`) vào `settings.py` | ✅ |
+| TASK-003 | Thêm `TAVILY_MAX_RESULTS` (default: 5) vào `settings.py` | ✅ |
+| TASK-004 | Thêm `TAVILY_SEARCH_DEPTH` (default: "basic") vào `settings.py` | ✅ |
+| TASK-005 | Thêm `TAVILY_TIMEOUT` (default: 30) vào `settings.py` | ✅ |
+| TASK-006 | Thêm các env vars tương ứng vào `.env.example` | ✅ |
 
 ### Implementation Phase 2: TavilyClient Service
 
@@ -98,16 +98,16 @@ Plan này thêm **Tavily Web Search Tool** vào Discord Bot - một MCP tool cho
 
 | Task ID | Description | Status |
 |---------|-------------|--------|
-| TASK-007 | Tạo thư mục `src/services/external/` nếu chưa có | Pending |
-| TASK-008 | Tạo `src/services/external/__init__.py` | Pending |
-| TASK-009 | Tạo `src/services/external/tavily_client.py` với class `TavilyClient` | Pending |
-| TASK-010 | Implement `__init__()` với config injection | Pending |
-| TASK-011 | Implement `async search(query: str, **options) -> dict` method | Pending |
-| TASK-012 | Implement error handling với `TavilyApiError` exception | Pending |
-| TASK-013 | Add logging cho API calls và responses | Pending |
-| TASK-014 | Add timeout handling với aiohttp | Pending |
-| TASK-015 | Add response validation | Pending |
-| TASK-016 | Add `_is_configured() -> bool` helper method | Pending |
+| TASK-007 | Tạo thư mục `src/services/external/` nếu chưa có | ✅ |
+| TASK-008 | Tạo `src/services/external/__init__.py` | ✅ |
+| TASK-009 | Tạo `src/services/external/tavily_client.py` với class `TavilyClient` | ✅ |
+| TASK-010 | Implement `__init__()` với config injection | ✅ |
+| TASK-011 | Implement `async search(query: str, **options) -> dict` method | ✅ |
+| TASK-012 | Implement error handling với `TavilyApiError` exception | ✅ |
+| TASK-013 | Add logging cho API calls và responses | ✅ |
+| TASK-014 | Add timeout handling với aiohttp | ✅ |
+| TASK-015 | Add response validation | ✅ |
+| TASK-016 | Add `_is_configured() -> bool` helper method | ✅ |
 
 ### Implementation Phase 3: TavilySearchTool Implementation
 
@@ -115,18 +115,18 @@ Plan này thêm **Tavily Web Search Tool** vào Discord Bot - một MCP tool cho
 
 | Task ID | Description | Status |
 |---------|-------------|--------|
-| TASK-017 | Tạo file `src/services/tools/implementations/tavily_search_tool.py` | Pending |
-| TASK-018 | Implement class `TavilySearchTool(BaseTool)` | Pending |
-| TASK-019 | Implement `name` property → `"web_search"` | Pending |
-| TASK-020 | Implement `description` property (Vietnamese, giải thích cho LLM khi nào dùng) | Pending |
-| TASK-021 | Implement `parameters_schema` property với JSON Schema | Pending |
-| TASK-022 | Implement `__init__(self, tavily_client: TavilyClient)` | Pending |
-| TASK-023 | Implement `async execute(query: str, search_depth: str = "basic", max_results: int = 5) -> str` | Pending |
-| TASK-024 | Add validation cho parameters | Pending |
-| TASK-025 | Add graceful handling khi API unavailable | Pending |
-| TASK-026 | Format response thành human-readable string | Pending |
-| TASK-027 | Add logging cho tool execution | Pending |
-| TASK-028 | Add error handling với ToolExecutionError | Pending |
+| TASK-017 | Tạo file `src/services/tools/implementations/tavily_search_tool.py` | ✅ |
+| TASK-018 | Implement class `TavilySearchTool(BaseTool)` | ✅ |
+| TASK-019 | Implement `name` property → `"web_search"` | ✅ |
+| TASK-020 | Implement `description` property (Vietnamese, giải thích cho LLM khi nào dùng) | ✅ |
+| TASK-021 | Implement `parameters_schema` property với JSON Schema | ✅ |
+| TASK-022 | Implement `__init__(self, tavily_client: TavilyClient)` | ✅ |
+| TASK-023 | Implement `async execute(query: str, search_depth: str = "basic", max_results: int = 5) -> str` | ✅ |
+| TASK-024 | Add validation cho parameters | ✅ |
+| TASK-025 | Add graceful handling khi API unavailable | ✅ |
+| TASK-026 | Format response thành human-readable string | ✅ |
+| TASK-027 | Add logging cho tool execution | ✅ |
+| TASK-028 | Add error handling với ToolExecutionError | ✅ |
 
 ### Implementation Phase 4: Dependency Injection Setup
 
@@ -134,11 +134,11 @@ Plan này thêm **Tavily Web Search Tool** vào Discord Bot - một MCP tool cho
 
 | Task ID | Description | Status |
 |---------|-------------|--------|
-| TASK-029 | Đọc và hiểu `src/services/dependencies.py` | Pending |
-| TASK-030 | Thêm `_init_tavily_client()` helper function | Pending |
-| TASK-031 | Initialize TavilyClient trong `initialize_all()` | Pending |
-| TASK-032 | Pass TavilyClient vào TavilySearchTool constructor | Pending |
-| TASK-033 | Add null handling khi TAVILY_API_KEY not configured | Pending |
+| TASK-029 | Đọc và hiểu `src/services/dependencies.py` | ✅ |
+| TASK-030 | Thêm `_init_tavily_client()` helper function | ✅ |
+| TASK-031 | Initialize TavilyClient trong `initialize_all()` | ✅ |
+| TASK-032 | Pass TavilyClient vào TavilySearchTool constructor | ✅ |
+| TASK-033 | Add null handling khi TAVILY_API_KEY not configured | ✅ |
 
 ### Implementation Phase 5: Tool Registration & Discovery
 
@@ -146,11 +146,11 @@ Plan này thêm **Tavily Web Search Tool** vào Discord Bot - một MCP tool cho
 
 | Task ID | Description | Status |
 |---------|-------------|--------|
-| TASK-034 | Import TavilySearchTool trong `src/services/tools/implementations/__init__.py` | Pending |
-| TASK-035 | Add vào `__all__` list | Pending |
-| TASK-036 | Verify ToolDiscovery auto-imports tool từ implementations directory | Pending |
-| TASK-037 | Test tool registration trong ToolRegistry | Pending |
-| TASK-038 | Verify tool schema được generate đúng (OpenAI và MCP format) | Pending |
+| TASK-034 | Import TavilySearchTool trong `src/services/tools/implementations/__init__.py` | ✅ |
+| TASK-035 | Add vào `__all__` list | ✅ |
+| TASK-036 | Verify ToolDiscovery auto-imports tool từ implementations directory | ✅ |
+| TASK-037 | Test tool registration trong ToolRegistry | ✅ |
+| TASK-038 | Verify tool schema được generate đúng (OpenAI và MCP format) | ✅ |
 
 ### Implementation Phase 6: Testing & Validation
 
@@ -164,8 +164,8 @@ Plan này thêm **Tavily Web Search Tool** vào Discord Bot - một MCP tool cho
 | TASK-042 | Write unit test cho TavilySearchTool.execute() | Pending |
 | TASK-043 | Write integration test với mock API | Pending |
 | TASK-044 | Write test cho error scenarios (API unavailable, timeout, invalid key) | Pending |
-| TASK-045 | Manual test với real Tavily API | Pending |
-| TASK-046 | Test graceful degradation khi API key missing | Pending |
+| TASK-045 | Manual test với real Tavily API | ✅ |
+| TASK-046 | Test graceful degradation khi API key missing | ✅ |
 | TASK-047 | Test với Discord bot end-to-end | Pending |
 
 ### Implementation Phase 7: Documentation

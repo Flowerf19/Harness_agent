@@ -10,8 +10,7 @@ from langsmith import traceable
 from src.services.llm.base_llm_service import BaseLLMService
 from src.services.llm.llm_response import LLMResponse
 from src.services.memories.memory_manager import MemoryManager
-from src.services.tools.tool_manager import ToolManager  # Legacy
-from src.services.tools.mcp_client import MCPClient  # New MCP
+from src.services.tools.mcp_client import MCPClient
 
 logger = logging.getLogger(__name__)
 
@@ -174,21 +173,11 @@ class ChatCoordinator:
                         tool_call_id = tc.get("id", str(uuid.uuid4()))
                         
                         try:
-                            # [MỚI] Sử dụng MCP Client nếu có, fallback to ToolManager
-                            if self.mcp_client:
-                                # MCP Architecture
-                                tool_result = await asyncio.wait_for(
-                                    self.mcp_client.execute_tool(tool_name, tool_args),
-                                    timeout=TOOL_EXECUTION_TIMEOUT
-                                )
-                            elif self.tool_manager:
-                                # Legacy ToolManager
-                                tool_result = await asyncio.wait_for(
-                                    self.tool_manager.execute_tool(tool_name, tool_args),
-                                    timeout=TOOL_EXECUTION_TIMEOUT
-                                )
-                            else:
-                                tool_result = f"Lỗi: Không có tool system configured."
+                            # MCP Architecture
+                            tool_result = await asyncio.wait_for(
+                                self.mcp_client.execute_tool(tool_name, tool_args),
+                                timeout=TOOL_EXECUTION_TIMEOUT
+                            )
                             
                             logger.info(f"✅ Tool '{tool_name}' executed successfully")
                             
