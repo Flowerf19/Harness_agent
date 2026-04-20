@@ -52,8 +52,8 @@ flowchart TB
         LM[LMStudioService]
     end
     
-    subgraph Tools["Tools Service"]
-        TM[ToolManager]
+    subgraph Tools["Tools Service (MCP)"]
+        MCP[MCPClient]
     end
     
     subgraph Embedding["Embedding Service"]
@@ -64,7 +64,7 @@ flowchart TB
     CC --> T1
     CC --> T2
     CC --> LM
-    CC --> TM
+    CC --> MCP
     CC --> T3
     T1 -->|Event: CRITICAL_INFO| T3
     T1 -->|Event: TOKEN_LIMIT| T2
@@ -162,7 +162,7 @@ sequenceDiagram
     participant U as User
     participant CG as ChatGateway
     participant CC as ChatCoordinator
-    participant TM as ToolManager
+    participant MCP as MCPClient
     participant MM as MemoryManager
     participant T1 as Active Memory
     participant T2 as Episodic Memory
@@ -205,8 +205,8 @@ sequenceDiagram
     
     alt Tool Call Detected
         LLM-->>CC: Tool Call Request
-        CC->>TM: execute_tool(tool_name, args)
-        TM-->>CC: Tool Result
+        CC->>MCP: execute_tool(tool_name, args)
+        MCP-->>CC: Tool Result
         CC->>LLM: generate_response(with tool result)
     end
     
@@ -433,7 +433,7 @@ flowchart TB
         end
         
         subgraph Tools["Tools"]
-            TM[ToolManager]
+            MCP[MCPClient]
         end
         
         subgraph Embedding["Embedding"]
@@ -474,7 +474,7 @@ flowchart TB
     ES --> SE
     LS --> SU
     LS --> EE
-    LS --> TM
+    LS --> MCP
     
     RS --> AMS
     EP --> AMS
@@ -489,7 +489,7 @@ flowchart TB
     ED --> MM
     
     MM --> CC
-    TM --> CC
+    MCP --> CC
     LS --> CC
 ```
 

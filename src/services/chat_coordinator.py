@@ -22,7 +22,7 @@ class ChatCoordinator:
     """
     Nhạc Trưởng Giao Tiếp (Orchestrator).
     Đóng vai trò cầu nối duy nhất giữa Discord Gateway (UI) và Hệ thống Core (Memory + LLM + Tools).
-    
+
     [MỚI] Hỗ trợ Native Function Calling (API Tool Calling):
     - Sử dụng llm_response.tool_calls thay vì regex parsing
     - Hỗ trợ multiple tool calls trong 1 response
@@ -34,21 +34,19 @@ class ChatCoordinator:
         self,
         memory_manager: MemoryManager,
         llm_service: BaseLLMService,
-        tool_manager: ToolManager = None,  # Legacy (deprecated)
-        mcp_client: Optional[MCPClient] = None,  # New MCP
+        mcp_client: Optional[MCPClient] = None,
         use_native_tools: bool = True,  # [MỚI] Enable native tool calling by default
     ):
         self.memory = memory_manager
         self.llm = llm_service
-        self.tool_manager = tool_manager  # Legacy
-        self.mcp_client = mcp_client      # New MCP
+        self.mcp_client = mcp_client
         self.use_native_tools = use_native_tools
-        
+
         # Detect LLM service type for context message formatting
         self._llm_type = self._detect_llm_type()
-        
+
         # Log initialization
-        tool_mode = "MCP Client" if mcp_client else "ToolManager (legacy)" if tool_manager else "No tools"
+        tool_mode = "MCP Client" if mcp_client else "No tools"
         logger.info(f"🔧 ChatCoordinator initialized: use_native_tools={self.use_native_tools}, llm_type={self._llm_type}, tool_mode={tool_mode}")
 
     def _detect_llm_type(self) -> str:
@@ -64,10 +62,10 @@ class ChatCoordinator:
     def _format_tool_call_message(self, tool_calls: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Format assistant message with tool calls for context.
-        
+
         Args:
             tool_calls: List of tool call dicts with id, name, arguments
-        
+
         Returns:
             Message dict in proper format for the LLM API
         """
@@ -100,12 +98,12 @@ class ChatCoordinator:
     def _format_tool_result_message(self, tool_call_id: str, tool_name: str, result: str) -> Dict[str, Any]:
         """
         Format tool result message for context.
-        
+
         Args:
             tool_call_id: ID of the tool call (for OpenAI format)
             tool_name: Name of the tool
             result: Result string from tool execution
-        
+
         Returns:
             Message dict in proper format for the LLM API
         """
@@ -151,7 +149,7 @@ class ChatCoordinator:
                 # 3. Giao cho LLM sinh câu trả lời
                 # [MỚI] Pass use_native_tools flag
                 llm_response = await self.llm.generate_response(
-                    messages=context_msgs, 
+                    messages=context_msgs,
                     system_prompt=sys_prompt,
                     use_native_tools=self.use_native_tools
                 )
@@ -161,41 +159,41 @@ class ChatCoordinator:
                     # NẾU LLM MUỐN DÙNG TOOL -> Khoan gửi cho user!
                     tool_calls = llm_response.tool_calls
                     logger.info(f"🛠️ Agent muốn dùng {len(tool_calls)} tools: {[tc['name'] for tc in tool_calls]} (Lần lặp {i+1}/{max_iterations})")
-                    
+
                     # Format assistant message with tool calls
                     tool_call_msg = self._format_tool_call_message(tool_calls)
                     context_msgs.append(tool_call_msg)
-                    
+
                     # [MỚI] Hỗ trợ multiple tool calls - chạy sequential
                     for tc in tool_calls:
                         tool_name = tc["name"]
                         tool_args = tc["arguments"]
                         tool_call_id = tc.get("id", str(uuid.uuid4()))
-                        
+
                         try:
                             # MCP Architecture
                             tool_result = await asyncio.wait_for(
                                 self.mcp_client.execute_tool(tool_name, tool_args),
                                 timeout=TOOL_EXECUTION_TIMEOUT
                             )
-                            
+
                             logger.info(f"✅ Tool '{tool_name}' executed successfully")
-                            
+
                         except asyncio.TimeoutError:
                             logger.warning(f"⚠️ Tool '{tool_name}' timeout after {TOOL_EXECUTION_TIMEOUT}s")
                             tool_result = f"Lỗi: Tool '{tool_name}' đã timeout sau {TOOL_EXECUTION_TIMEOUT} giây."
-                            
+
                         except Exception as tool_err:
                             logger.error(f"❌ Lỗi khi chạy tool '{tool_name}': {tool_err}")
                             tool_result = f"Lỗi hệ thống khi chạy tool '{tool_name}': {tool_err}"
-                        
+
                         # Format tool result message
                         tool_result_msg = self._format_tool_result_message(tool_call_id, tool_name, tool_result)
                         context_msgs.append(tool_result_msg)
-                    
+
                     # Quay lại đầu vòng lặp để LLM đọc kết quả
                     continue
-                
+
                 else:
                     # KHÔNG CÓ TOOL CALL -> Đây là câu trả lời cuối cùng
                     break

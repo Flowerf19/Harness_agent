@@ -112,7 +112,7 @@ class AppContainer:
 
         # 2. LẮP RÁP BỘ NHỚ TẦNG 1 (Active Memory)
         event_bus = EventDispatcher()
-        
+
         # === 🔴 STORAGE FACTORY: Redis vs RAM ===
         t1_storage = await self._get_t1_storage()
         # ========================================
@@ -139,7 +139,7 @@ class AppContainer:
         # 3. LẮP RÁP BỘ NHỚ TẦNG 3 (Core Memory)
         # Tầng 3 chỉ cần Chat LLM để làm thư ký tóm tắt, không cần Embedding
 
-        t3_storage = MarkdownStorage() 
+        t3_storage = MarkdownStorage()
         t3_updater = SmartUpdater(llm_client=self.llm_service, storage=t3_storage)
         t3_manager = CoreManager(storage=t3_storage, smart_updater=t3_updater)
 
@@ -170,13 +170,13 @@ class AppContainer:
         # 6. KHỞI TẠO MCP TOOL SYSTEM (Đôi tay của Agent)
         # ================================================
         # Architecture: Registry Pattern + MCP Client-Server
-        
+
         # 6.0 KHỞI TẠO TAVILY CLIENT (Web Search)
         self.tavily_client = self._init_tavily_client()
 
         # 6.1 Tạo Tool Registry
         tool_registry = ToolRegistry()
-        
+
         # 6.2 Khám phá và đăng ký tools tự động
         # Dependencies để inject vào các tools
         tool_dependencies = {
@@ -185,7 +185,7 @@ class AppContainer:
             "base_memory_path": "memories",
             "tavily_client": self.tavily_client,
         }
-        
+
         # Auto-discover tools từ implementations directory
         tools_dir = "src/services/tools/implementations"
         discovered_tools = discover_and_register_tools(
@@ -194,7 +194,7 @@ class AppContainer:
             dependencies=tool_dependencies,
         )
         logger.info(f"🔧 MCP: Đã khám phá {len(discovered_tools)} tools")
-        
+
         # 6.3 Tạo MCP Server
         mcp_server = MCPServer(
             registry=tool_registry,
@@ -202,35 +202,24 @@ class AppContainer:
             server_version="1.0.0",
             tool_timeout=60,  # Timeout 60s cho tool execution
         )
-        
+
         # 6.4 Tạo MCP Client (via InMemoryTransport)
         mcp_transport = InMemoryTransport(mcp_server)
         mcp_client = MCPClient(transport=mcp_transport)
-        
+
         # 6.5 Cache tool schemas (để LLM services dùng ngay)
         await mcp_client.list_tools()
-        
-        # 6.6 [LEGACY] Tạo ToolManager adapter cho backward compatibility
-        # Deprecated: Use mcp_client instead
-        tool_manager = ToolManager(
-            episodic_manager=t2_manager,
-            core_manager=t3_manager,
-            base_memory_path="memories",
-        )
-        
-        # 6.7 Inject MCP Client vào LLM Service
-        # LLM Service sẽ dùng mcp_client để lấy tool schemas
-        self.llm_service.set_tool_manager(tool_manager)  # Legacy
-        self.llm_service.set_mcp_client(mcp_client)      # New MCP
-        
+
+        # 6.6 Inject MCP Client vào LLM Service
+        self.llm_service.set_mcp_client(mcp_client)
+
         # 7. KHỞI TẠO NHẠC TRƯỞNG GIAO TIẾP
         self.chat_coordinator = ChatCoordinator(
             memory_manager=self.memory_manager,
             llm_service=self.llm_service,
-            tool_manager=tool_manager,  # Legacy (deprecated)
-            mcp_client=mcp_client,      # New MCP
+            mcp_client=mcp_client,
         )
-        
+
         # Store MCP components for later access
         self.mcp_client = mcp_client
         self.mcp_server = mcp_server
@@ -258,32 +247,32 @@ class AppContainer:
     async def _get_t1_storage(self) -> BaseStorage:
         """
         Factory method: Chọn storage implementation cho Tầng 1.
-        
+
         Strategy:
         - Nếu REDIS_ENABLED=true: Thử kết nối Redis
         - Nếu Redis fail hoặc REDIS_ENABLED=false: Fallback về RamStorage
-        
+
         Returns:
             BaseStorage: RedisStorage hoặc RamStorage instance
         """
         redis_enabled = getattr(Config, "REDIS_ENABLED", False)
-        
+
         if not redis_enabled:
             logger.info("📦 T1 Storage: Using RamStorage (Redis disabled)")
             return LocalMemoryDB()
-        
+
         # Try Redis connection
         redis_url = getattr(Config, "REDIS_URL", "redis://localhost:6379")
         redis_password = getattr(Config, "REDIS_PASSWORD", None)
         redis_db = getattr(Config, "REDIS_DB", 0)
-        
+
         try:
             storage = create_redis_storage(
                 redis_url=redis_url,
                 redis_password=redis_password,
                 redis_db=redis_db,
             )
-            
+
             # Health check
             if await storage.health_check():
                 self.redis_storage = storage  # Track for cleanup
@@ -293,7 +282,7 @@ class AppContainer:
                 logger.warning("🔴 Redis health check failed, falling back to RamStorage")
                 await storage.close()
                 return LocalMemoryDB()
-                
+
         except Exception as e:
             logger.warning(f"🔴 Redis connection failed: {e}, falling back to RamStorage")
             return LocalMemoryDB()
