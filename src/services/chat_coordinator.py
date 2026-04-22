@@ -45,9 +45,12 @@ class ChatCoordinator:
         # Detect LLM service type for context message formatting
         self._llm_type = self._detect_llm_type()
 
+        # Get model name from LLM service
+        self._model_name = getattr(self.llm, 'model', 'unknown')
+
         # Log initialization
         tool_mode = "MCP Client" if mcp_client else "No tools"
-        logger.info(f"🔧 ChatCoordinator initialized: use_native_tools={self.use_native_tools}, llm_type={self._llm_type}, tool_mode={tool_mode}")
+        logger.info(f"🔧 ChatCoordinator initialized: use_native_tools={self.use_native_tools}, llm_type={self._llm_type}, model={self._model_name}, tool_mode={tool_mode}")
 
     def _detect_llm_type(self) -> str:
         """Detect LLM service type for proper context message formatting."""
@@ -143,8 +146,8 @@ class ChatCoordinator:
                 user_id=user_id, current_query=content
             )
 
-            # VÒNG LẶP AGENT (Tối đa 3 lần lặp để tránh bot kẹt trong vòng lặp vô tận)
-            max_iterations = 3
+            # VÒNG LẶP AGENT (Tối đa 10 lần lặp để tránh bot kẹt trong vòng lặp vô tận)
+            max_iterations = 10
             for i in range(max_iterations):
                 # 3. Giao cho LLM sinh câu trả lời
                 # [MỚI] Pass use_native_tools flag
@@ -165,6 +168,7 @@ class ChatCoordinator:
                     context_msgs.append(tool_call_msg)
 
                     # [MỚI] Hỗ trợ multiple tool calls - chạy sequential
+                    remaining_calls = max_iterations - i - 1  # Số lần gọi còn lại
                     for tc in tool_calls:
                         tool_name = tc["name"]
                         tool_args = tc["arguments"]
@@ -187,8 +191,11 @@ class ChatCoordinator:
                             logger.error(f"❌ Lỗi khi chạy tool '{tool_name}': {tool_err}")
                             tool_result = f"Lỗi hệ thống khi chạy tool '{tool_name}': {tool_err}"
 
+                        # [MỚI] Thêm info về remaining calls vào tool result
+                        tool_result_with_info = f"{tool_result}\n\n[INFO: Còn {remaining_calls} lần gọi tool. Nếu cần thêm tool, hãy gọi ngay.]"
+
                         # Format tool result message
-                        tool_result_msg = self._format_tool_result_message(tool_call_id, tool_name, tool_result)
+                        tool_result_msg = self._format_tool_result_message(tool_call_id, tool_name, tool_result_with_info)
                         context_msgs.append(tool_result_msg)
 
                     # Quay lại đầu vòng lặp để LLM đọc kết quả

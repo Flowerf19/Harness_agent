@@ -249,8 +249,18 @@ src/
 │   │   ├── embedding_service.py        # Local embedding model
 │   │   └── llm_response.py             # Response wrapper
 │   │
-│   ├── tools/                          # Tool System
-│   │   └── tool_manager.py             # Native tool calling manager
+│   ├── tools/                          # Tool System (MCP Architecture)
+│   │   ├── base_tool.py                # Abstract base class
+│   │   ├── tool_registry.py            # Tool registry
+│   │   ├── mcp_server.py               # MCP Server (JSON-RPC 2.0)
+│   │   ├── mcp_client.py               # MCP Client
+│   │   ├── mcp_transport.py            # Communication layer
+│   │   ├── tool_discovery.py           # Auto-discovery
+│   │   └── implementations/            # Tool implementations
+│   │       ├── search_memory_tool.py
+│   │       ├── update_profile_tool.py
+│   │       ├── update_personality_tool.py
+│   │       └── web_search_tool.py
 │   │
 │   └── memories/                       # 3-Tier Memory System
 │       ├── memory_manager.py           # Master orchestrator
