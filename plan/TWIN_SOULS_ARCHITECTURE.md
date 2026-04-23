@@ -147,14 +147,30 @@ class A2AMessage(BaseModel):
     payload: dict
     timestamp: datetime
     reply_to: str | None = None  # For request-response pattern
+    correlation_id: str | None = None  # For request-response matching
 
-# T2-related message types (Phase 1)
-T2_MESSAGE_TYPES = [
-    "t1_overflow",      # Bay → Evernight: T1 buffer overflow, trigger consolidation
-    "t2_consolidated",  # Evernight → Bay: Consolidation done, summary ready
-    "t2_search_request", # Bay → Evernight: Search T2 memory
-    "t2_search_result", # Evernight → Bay: Search results
-]
+# All A2A message types
+A2A_MESSAGE_TYPES = {
+    # T2 Memory (Phase 1)
+    "t1_overflow": {"from": "bay", "to": "evernight", "pattern": "fire"},
+    "t2_consolidated": {"from": "evernight", "to": "bay", "pattern": "fire"},
+    "t2_search_request": {"from": "bay", "to": "evernight", "pattern": "request"},
+    "t2_search_result": {"from": "evernight", "to": "bay", "pattern": "response"},
+    "t2_consolidation_failed": {"from": "evernight", "to": "bay", "pattern": "fire"},
+
+    # Health & Monitoring
+    "health_check": {"from": "bay", "to": "evernight", "pattern": "request"},
+    "health_response": {"from": "evernight", "to": "bay", "pattern": "response"},
+    "error_notification": {"from": "evernight", "to": "bay", "pattern": "fire"},
+
+    # Admin Control
+    "manual_trigger": {"from": "bay", "to": "evernight", "pattern": "fire"},
+    "shutdown_request": {"from": "bay", "to": "evernight", "pattern": "fire"},
+
+    # Future: Error Recovery
+    "recovery_request": {"from": "bay", "to": "evernight", "pattern": "request"},
+    "recovery_result": {"from": "evernight", "to": "bay", "pattern": "response"},
+}
 ```
 
 ### A2A Base Class
@@ -164,28 +180,50 @@ T2_MESSAGE_TYPES = [
 
 import asyncio
 import json
+import uuid
 from redis.asyncio import Redis
 from .channels import A2A_CHANNELS
 from .messages import A2AMessage
 
 class A2AProtocol:
-    """Base A2A communication class."""
+    """Base A2A communication class with request-response support."""
 
     def __init__(self, redis: Redis, agent_name: str):
         self.redis = redis
         self.agent_name = agent_name
         self.handlers = {}  # message_type → handler function
+        self.pending_requests = {}  # correlation_id → asyncio.Future
+        self._subscriber_task = None
 
-    async def publish(self, receiver: str, msg_type: str, payload: dict):
-        """Send message to another agent."""
-        channel = A2A_CHANNELS[f"{self.agent_name}_to_{receiver}"]
+    async def publish(self, receiver: str, msg_type: str, payload: dict, timeout: float = 5.0):
+        """Send message. Returns response for request pattern, None for fire."""
+        msg_def = A2A_MESSAGE_TYPES.get(msg_type)
+        pattern = msg_def.get("pattern", "fire") if msg_def else "fire"
+
+        correlation_id = str(uuid.uuid4())
         message = A2AMessage(
             sender=self.agent_name,
             receiver=receiver,
             type=msg_type,
             payload=payload,
+            correlation_id=correlation_id,
         )
+
+        channel = A2A_CHANNELS[f"{self.agent_name}_to_{receiver}"]
         await self.redis.publish(channel, message.model_dump_json())
+
+        if pattern == "request":
+            # Wait for response with timeout
+            future = asyncio.get_event_loop().create_future()
+            self.pending_requests[correlation_id] = future
+            try:
+                response = await asyncio.wait_for(future, timeout=timeout)
+                return response
+            except asyncio.TimeoutError:
+                del self.pending_requests[correlation_id]
+                raise TimeoutError(f"No response for {msg_type} (correlation_id={correlation_id})")
+
+        return None
 
     async def subscribe(self):
         """Listen for messages from other agents."""
@@ -199,19 +237,53 @@ class A2AProtocol:
                 await self._handle_message(data)
 
     async def _handle_message(self, message: A2AMessage):
-        """Route message to appropriate handler."""
+        """Route message to appropriate handler or resolve pending request."""
+        # Check if this is a response to pending request
+        if message.correlation_id in self.pending_requests:
+            future = self.pending_requests[message.correlation_id]
+            future.set_result(message)
+            del self.pending_requests[message.correlation_id]
+            return
+
+        # Otherwise, call registered handler
         handler = self.handlers.get(message.type)
         if handler:
-            await handler(message)
+            response = await handler(message)
+            # If handler returns data and message was request, send response
+            if response and message.reply_to:
+                await self.publish(
+                    receiver=message.sender,
+                    msg_type=f"{message.type}_result",  # e.g., t2_search_result
+                    payload=response,
+                    correlation_id=message.correlation_id,
+                )
 
     def register_handler(self, msg_type: str, handler: callable):
         """Register handler for message type."""
         self.handlers[msg_type] = handler
 ```
 
+### Request-Response Example
+
+```python
+# Bay requests T2 search from Evernight
+async def search_t2(user_id: str, query: str) -> str:
+    try:
+        response = await a2a.publish(
+            receiver="evernight",
+            msg_type="t2_search_request",
+            payload={"user_id": user_id, "query": query},
+            timeout=5.0  # 5 seconds max
+        )
+        return response.payload.get("results", "")
+    except TimeoutError:
+        # Fallback to local T2 (adapter pattern)
+        return await local_t2_adapter.search(user_id, query)
+```
+
 ---
 
-## Concept: "Dream Agent" = Memory Consolidation
+## Concept: "Evernight Agent" = Memory Consolidation
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
@@ -223,8 +295,8 @@ class A2AProtocol:
 │  • Unimportant details → forgotten                                 │
 │  • Important moments → strengthened                                │
 │                                                                     │
-│  Bot mimics this with "Dream Agent":                               │
-│  • End of day → Dream Agent wakes up                               │
+│  Bot mimics this with "Evernight Agent":                           │
+│  • End of day → Evernight wakes up                                 │
 │  • Summarizes all conversations with each user                     │
 │  • Stores daily summary to T2 (Qdrant)                             │
 │  • Applies TTL decay for natural forgetting                        │
@@ -919,24 +991,53 @@ async def search_memory(query, user_id, filters=None):
 ## Implementation Tasks
 
 ### Phase 0: Refactor to Twin Souls Structure (FOUNDATION)
-- [ ] Create `src/agents/` directory structure
-- [ ] Move current `src/` to `src/agents/bay/`:
-  - [ ] `bot.py` → `bay/agent.py`
-  - [ ] `src/cogs/` → `bay/discord/`
-  - [ ] `src/services/` → `bay/services/` (T1, T3, coordinator, LLM)
-  - [ ] `src/config/` → `bay/config.py` (agent-specific)
-  - [ ] `__main__.py` → `bay/entrypoint.py`
+
+#### Phase 0a: Create Structure + Shared Layer (NO BREAKING CHANGES)
+- [ ] Create `src/agents/` directory structure (empty folders)
 - [ ] Create `src/agents/shared/`:
-  - [ ] Move embedding service → `shared/embedding/`
-  - [ ] Move Qdrant storage → `shared/qdrant/`
-  - [ ] Move MCP tools → `shared/tools/`
-  - [ ] Move models → `shared/models/`
+  - [ ] `shared/embedding/` - Copy (not move) embedding service
+  - [ ] `shared/qdrant/` - Copy Qdrant connection helper
+  - [ ] `shared/models/` - Create base models
+  - [ ] `shared/tools/` - Move MCP tools (both agents use)
+  - [ ] `shared/config.py` - Shared env vars (Redis, Qdrant URLs)
 - [ ] Create `src/agents/shared/a2a/`:
   - [ ] `channels.py` - Redis channel definitions
-  - [ ] `messages.py` - A2A message schema
-  - [ ] `protocol.py` - A2A base class
-- [ ] Update all imports to reflect new structure
-- [ ] Test Bay runs correctly after refactor
+  - [ ] `messages.py` - A2A message schema (ALL message types)
+  - [ ] `protocol.py` - A2A base class with request-response pattern
+- [ ] Create `src/agents/bay/` structure (keep current src/ working)
+  - [ ] `bay/__init__.py` - Import aliases to current modules
+  - [ ] `bay/config.py` - Bay-specific config wrapper
+- [ ] Tests pass with current structure unchanged
+
+#### Phase 0b: Gradual Migration (ONE MODULE AT A TIME)
+- [ ] Move `src/cogs/` → `src/agents/bay/discord/` (update imports)
+- [ ] Move `src/services/chat_coordinator.py` → `bay/services/`
+- [ ] Move T1 memory modules → `bay/services/t1_memory/`
+- [ ] Move T3 memory modules → `bay/services/t3_memory/`
+- [ ] Move LLM services → `bay/services/llm/`
+- [ ] **Keep EpisodicMemory WORKING** (don't remove yet)
+- [ ] Each migration: tests pass before next
+
+#### Phase 0c: Create T2RetrievalAdapter (BRIDGE)
+- [ ] Create `shared/t2_adapter.py`:
+  ```python
+  class T2RetrievalAdapter:
+      """Bridge between old EpisodicManager and Evernight."""
+
+      def __init__(self, mode: Literal["local", "a2a"]):
+          self.mode = mode
+          self.local_manager = None  # EpisodicManager (old)
+          self.a2a_client = None     # A2A client (new)
+
+      async def search(self, user_id, query) -> str:
+          if self.mode == "local":
+              return await self.local_manager.retrieve_past_context(...)
+          else:
+              return await self.a2a_client.request_t2_search(...)
+  ```
+- [ ] Update `SearchMemoryTool` to use adapter
+- [ ] Update `MemoryManager` to use adapter
+- [ ] Tests pass with adapter in "local" mode
 
 ### Phase 1: Create Evernight Agent Service
 - [ ] Create `src/agents/evernight/` directory
@@ -1075,7 +1176,38 @@ scheduler.start()
 | Phase 4 | A2A Integration | Medium |
 | Phase 5 | Cleanup & Testing | Low |
 
-**Recommended:** Phase 0 in 1 session, then Phase 1-5 incrementally
+**Recommended:** Phase 0a-0c in 1-2 sessions, then Phase 1-5 incrementally
+
+---
+
+## Evaluation & Missing Considerations (Self + Agent Review)
+
+### Issues Identified & Fixed ✅
+
+| Issue | Fix Applied |
+|-------|-------------|
+| Phase 0 too aggressive | Split into 0a (create), 0b (migrate), 0c (adapter) |
+| No A2A request-response | Added correlation_id + timeout pattern |
+| Missing A2A message types | Added health_check, error_notification, manual_trigger |
+| Old T2 breaks before new ready | T2RetrievalAdapter with "local" fallback |
+| Dream Agent → Evernight rename | Updated all references |
+
+### Still Missing (Define During Implementation)
+
+| Category | Missing Item | Priority |
+|----------|--------------|----------|
+| **Topic Extraction** | Precise criteria for "depth ≥2 exchanges" | High |
+| **Topic Extraction** | Who assigns importance score? (LLM prompt needed) | High |
+| **Qdrant Migration** | Plan for existing EpisodicRecords → TopicChunks | Medium |
+| **Deployment** | Docker config: separate container? shared? | Medium |
+| **Testing** | A2A mock, TTL decay tests, adapter tests | Medium |
+| **Error Handling** | Evernight retry policy (how many retries? backoff?) | Low |
+
+### Security Considerations
+
+- Redis A2A: No auth currently → add password when production
+- Qdrant API key: Both agents need access → shared config
+- A2A message validation: Pydantic schema enforces structure
 
 ---
 

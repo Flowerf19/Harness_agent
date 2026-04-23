@@ -454,7 +454,6 @@ flowchart TB
             ED[EventDispatcher]
             RS[LocalMemoryDB]
             RE[RuleEngine]
-            SE[SemanticEngine]
             EP[EvaluationPipeline]
             TC[TokenCounter]
             SC[SmartCleanup]

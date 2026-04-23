@@ -18,9 +18,6 @@ from src.services.memories.activate_memory.activate_memory_service import (
 )
 from src.services.memories.activate_memory.evaluation.pipeline import EvaluationPipeline
 from src.services.memories.activate_memory.evaluation.rule_engine import RuleEngine
-from src.services.memories.activate_memory.evaluation.sematic_enegine import (
-    SemanticEngine,
-)
 
 # --- Memory System ---
 from src.services.memories.activate_memory.events.event_dispatcher import (
@@ -117,9 +114,8 @@ class AppContainer:
         t1_storage = await self._get_t1_storage()
         # ========================================
 
-        # Cắm Embedding Service xịn xò vào Semantic Engine thay vì cắm nhầm Chat LLM
-        t1_semantic = SemanticEngine(embedding_service=self.embedding_service)
-        t1_pipeline = EvaluationPipeline(RuleEngine(), t1_semantic)
+        # T1 Pipeline chỉ dùng RuleEngine (không dùng embedding)
+        t1_pipeline = EvaluationPipeline(RuleEngine())
 
         # Khởi tạo các thành phần phụ trợ cho Tầng 1
         t1_token_counter = TokenCounter()

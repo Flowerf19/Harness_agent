@@ -1,5 +1,4 @@
 """
-Arize Phoenix Tool Kit Configuration
 Cấu hình cho SDK tracing và LLM services.
 """
 import os
