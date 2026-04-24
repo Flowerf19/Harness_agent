@@ -12,6 +12,11 @@ PHOENIX_COLLECTOR_ENDPOINT = os.getenv(
 )
 
 # ============================================================
+# HuggingFace Configuration
+# ============================================================
+HF_TOKEN = os.getenv("HF_TOKEN", "")
+
+# ============================================================
 # Tool LLM Configuration (LM Studio / Ollama / OpenAI compatible)
 # ============================================================
 TOOL_LLM_ENDPOINT = os.getenv(
