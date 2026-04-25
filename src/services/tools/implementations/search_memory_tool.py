@@ -1,17 +1,12 @@
 """
-SearchMemoryTool - Query Episodic Memory (T2).
+SearchMemoryTool - Query Wiki Pages (T2).
 
-Tool for searching past events and preferences from vector database.
-Uses EpisodicManager for semantic search.
-
-Migration from ToolManager._search_memory():
-- Same logic, now encapsulated in a class
-- Dependency injection via constructor
-- Self-contained schema definition
+Tool for searching consolidated topics from Wiki Pages in Qdrant.
+Uses WikiStorage for semantic search with embeddings.
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from src.services.tools.base_tool import BaseTool, ToolExecutionError
 
@@ -20,50 +15,56 @@ logger = logging.getLogger(__name__)
 
 class SearchMemoryTool(BaseTool):
     """
-    Tool for searching Episodic Memory (T2).
+    Tool for searching Wiki Pages (T2 consolidated memory).
 
-    Searches past events, preferences, and context from vector database.
-    Uses semantic search with Qwen3-Embedding-0.6B.
+    Searches consolidated topics, preferences, and facts from Wiki Pages.
+    Uses semantic search with LocalEmbeddingService.
 
     Attributes:
-        episodic_manager: EpisodicManager instance for T2 access
+        wiki_storage: WikiStorage instance for T2 Wiki Pages
+        embedding_service: LocalEmbeddingService for query embedding
 
     Example:
-        tool = SearchMemoryTool(episodic_manager)
-        result = await tool.execute(user_id="123", query="sở thích")
-
-    TODO: Extend to also query WikiPages (T2 consolidated memory).
-    When wiki_storage is injected, search should query both EpisodicManager
-    for detailed event records and WikiStorage for consolidated topic summaries.
-    See: src/agents/evernight/services/wiki_storage.py
+        tool = SearchMemoryTool(wiki_storage, embedding_service)
+        result = await tool.execute(user_id="123", query="anime preferences")
     """
-    
-    def __init__(self, episodic_manager: Optional[Any] = None):
+
+    def __init__(
+        self,
+        wiki_storage: Optional[Any] = None,
+        embedding_service: Optional[Any] = None,
+    ):
         """
         Initialize SearchMemoryTool.
-        
+
         Args:
-            episodic_manager: EpisodicManager (T2) for memory search
+            wiki_storage: WikiStorage for T2 Wiki Pages search
+            embedding_service: LocalEmbeddingService for query embedding
         """
-        self.episodic_manager = episodic_manager
-        logger.info(f"SearchMemoryTool initialized with episodic_manager={episodic_manager is not None}")
-    
+        self.wiki_storage = wiki_storage
+        self.embedding_service = embedding_service
+        logger.info(
+            f"SearchMemoryTool initialized with "
+            f"wiki_storage={wiki_storage is not None}, "
+            f"embedding_service={embedding_service is not None}"
+        )
+
     # ==========================================
     # BASE TOOL PROPERTIES
     # ==========================================
-    
+
     @property
     def name(self) -> str:
         return "search_memory"
-    
+
     @property
     def description(self) -> str:
         return (
-            "Tìm kiếm ký ức cũ của user từ Episodic Memory (T2). "
+            "Tìm kiếm ký ức của user từ Wiki Pages (T2). "
             "Dùng khi user nhắc chuyện quá khứ, hỏi về sở thích/sự kiện cũ, "
             "hoặc cần context từ lịch sử hội thoại."
         )
-    
+
     @property
     def parameters_schema(self) -> Dict[str, Any]:
         return {
@@ -75,55 +76,102 @@ class SearchMemoryTool(BaseTool):
                 },
                 "query": {
                     "type": "string",
-                    "description": "Từ khóa hoặc câu hỏi để tìm kiếm trong ký ức. VD: 'sở thích', 'chuyện hôm qua'"
+                    "description": "Từ khóa hoặc câu hỏi để tìm kiếm trong ký ức. VD: 'sở thích', 'anime', 'chuyện hôm qua'"
                 }
             },
             "required": ["user_id", "query"]
         }
-    
+
     # ==========================================
     # EXECUTION
     # ==========================================
-    
+
     async def execute(self, user_id: str, query: str) -> str:
         """
-        Search Episodic Memory for past context.
-        
+        Search Wiki Pages for past context.
+
         Args:
             user_id: Discord user ID (must be numeric)
             query: Search query string
-            
+
         Returns:
-            str: Search results or error message
+            str: Search results formatted for LLM consumption
         """
         # Validate inputs
         if not user_id or not query:
             return "Lỗi: Thiếu user_id hoặc query."
-        
+
         # Validate user_id format (Discord ID must be numeric)
         if not user_id.isdigit():
             logger.warning(f"⚠️ Invalid user_id: {user_id} - không phải số")
             return f"Lỗi: user_id '{user_id}' không hợp lệ. user_id phải là số ID của Discord user."
-        
-        # Check if episodic_manager is available
-        if not self.episodic_manager:
-            return "Lỗi: Hệ thống Episodic Memory chưa sẵn sàng."
-        
+
+        # Check if wiki_storage is available
+        if not self.wiki_storage:
+            return "Lỗi: Hệ thống Wiki Memory chưa sẵn sàng."
+
+        # Check if embedding_service is available
+        if not self.embedding_service:
+            return "Lỗi: Embedding service chưa sẵn sàng."
+
         # Execute search
         try:
-            results = await self.episodic_manager.retrieve_past_context(
+            # Generate embedding for query
+            query_vector = await self.embedding_service.get_embedding(query)
+            if not query_vector:
+                return "Lỗi: Không thể tạo embedding cho query."
+
+            # Search Wiki Pages
+            results = await self.wiki_storage.search_similar(
                 user_id=user_id,
-                current_query=query
+                query_vector=query_vector,
+                top_k=5,
+                min_relevance=0.3,
             )
-            
+
             if not results:
                 return f"Không tìm thấy ký ức nào liên quan đến '{query}'."
-            
-            return f"Đã tìm thấy các ký ức sau:\n{results}"
-            
+
+            # Format results for LLM
+            formatted_results = self._format_results(results, query)
+
+            return formatted_results
+
         except Exception as e:
-            logger.error(f"Lỗi khi tìm kiếm episodic memory: {e}")
+            logger.error(f"Lỗi khi tìm kiếm Wiki Pages: {e}")
             raise ToolExecutionError(self.name, f"Lỗi khi tìm kiếm ký ức: {e}", original_error=e)
-    
+
+    def _format_results(self, results: List[Any], query: str) -> str:
+        """
+        Format Wiki Pages results for LLM consumption.
+
+        Args:
+            results: List of WikiPagePayload objects
+            query: Original search query
+
+        Returns:
+            str: Formatted results string
+        """
+        lines = [f"Đã tìm thấy {len(results)} Wiki Pages liên quan đến '{query}':\n"]
+
+        for i, page in enumerate(results, 1):
+            lines.append(f"\n{i}. **{page.canonical_topic}** (Category: {page.category})")
+            lines.append(f"   Summary: {page.current_summary}")
+
+            if page.key_points:
+                lines.append("   Key Points:")
+                for point in page.key_points[:5]:
+                    lines.append(f"   - {point}")
+
+            # Include importance if high
+            if page.importance >= 4:
+                lines.append(f"   ⭐ Importance: {page.importance}/5")
+
+        return "\n".join(lines)
+
     def __repr__(self) -> str:
-        return f"<SearchMemoryTool: episodic_manager={self.episodic_manager is not None}>"
+        return (
+            f"<SearchMemoryTool: "
+            f"wiki_storage={self.wiki_storage is not None}, "
+            f"embedding={self.embedding_service is not None}>"
+        )

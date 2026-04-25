@@ -42,7 +42,7 @@ flowchart TB
     
     subgraph Memory["Memory System - 3 Tầng"]
         T1[Tầng 1: Active Memory<br/>RAM - Hội thoại hiện tại]
-        T2[Tầng 2: Episodic Memory<br/>Vector DB - Ký ức dài hạn]
+        T2[Tầng 2: Wiki Pages<br/>Qdrant - Consolidated Facts]
         T3[Tầng 3: Core Memory<br/>Markdown DB - Profile người dùng]
     end
     
@@ -66,7 +66,6 @@ flowchart TB
     CC --> LM
     CC --> MCP
     CC --> T3
-    T1 -->|Event: CRITICAL_INFO| T3
     T1 -->|Event: TOKEN_LIMIT| T2
     CC --> GS
     CC --> QS
@@ -85,11 +84,11 @@ flowchart LR
         A3 --> A4[RAM Storage]
         A4 --> A5[Context Builder]
         
-        A2 -->|Score >= Threshold| A6[Event: CRITICAL_INFO]
+        A2 -->|Tokens >= 2000| A6[Event: TOKEN_LIMIT]
         A3 -->|Tokens >= Limit| A7[Event: TOKEN_LIMIT]
     end
     
-    subgraph T2["Tầng 2: Episodic Memory (Vector DB)"]
+    subgraph T2["Tầng 2: Wiki Pages (Qdrant)"]
         direction TB
         B1[Event Extractor] --> B2[Vector Engine]
         B2 --> B3[Local Vector DB]
@@ -107,22 +106,22 @@ flowchart LR
 ```
 
 #### Tầng 1: Active Memory (RAM)
-- **Mục đích**: Lưu trữ hội thoại hiện tại trong RAM
-- **Đánh giá tin nhắn**: Rule Engine + Semantic Engine
-- **Quản lý token**: Tự động cleanup khi vượt giới hạn
-- **Events**: Phát sự kiện khi phát hiện thông tin quan trọng hoặc RAM đầy
+- **Mục đích**: Lưu trữ hội thoại hiện tại trong Redis
+- **Quản lý token**: Tự động cleanup khi vượt giới hạn (2000 tokens)
+- **Events**: Phát `TOKEN_LIMIT_REACHED` khi RAM đầy → OverflowQueue
 
-#### Tầng 2: Episodic Memory (Vector DB)
-- **Mục đích**: Lưu trữ ký ức dài hạn dưới dạng vector embeddings
-- **Trích xuất sự kiện**: Dùng LLM để tóm tắt và trích xuất thông tin
-- **Tìm kiếm ngữ nghĩa**: Vector similarity search với threshold 0.4
-- **Embedding**: Qwen3-EmbMarkdown DB)
+#### Tầng 2: Wiki Pages (Qdrant Vector DB)
+- **Mục đích**: Consolidated facts về user (preferences, events, relationships)
+- **Consolidation**: EvernightAgent extracts topics from overflow → Wiki Pages
+- **Upsert pattern**: Same topic = Same page_id = Merge/Update
+- **Embedding**: Qwen3-Embedding-0.6B (1024 dims)
+- **Storage**: Qdrant collection `wiki_pages`
+
+#### Tầng 3: Core Memory (IDENTITY.md)
 - **Mục đích**: Lưu profile người dùng (tên, sở thích, mối quan hệ...)
 - **Cập nhật thông minh**: Smart Updater dùng LLM để cập nhật profile
 - **System Prompt**: Tự động inject vào prompt cho LLM
-- **Storage**: Markdown files trong `memories/users/` mối quan hệ...)
-- **Cập nhật thông minh**: Smart Updater dùng LLM để cập nhật profile
-- **System Prompt**: Tự động inject vào prompt cho LLM
+- **Storage**: Markdown files trong `memories/users/`
 
 ## 🤖 Agent Memories & Identity
 

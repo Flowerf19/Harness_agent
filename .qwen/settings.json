@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(ls *)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(sudo *)"
     ]
   },
   "$version": 3

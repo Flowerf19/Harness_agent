@@ -70,10 +70,10 @@ class Config:
     REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
     REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 
-    # Qdrant configuration for Episodic Memory (Tier 2) storage
+    # Qdrant configuration for Wiki Pages (Tier 2) storage
     QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
     QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
-    QDRANT_COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME", "episodic_memory")
+    # Note: WikiStorage uses hardcoded collection "wiki_pages" (defined in wiki_storage.py)
 
     # Tavily API configuration for Web Search
     TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", None)

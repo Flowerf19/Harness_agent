@@ -5,6 +5,7 @@ import logging
 
 from dotenv import load_dotenv
 
+from src.agents.evernight.services.wiki_storage import WikiStorage
 from src.config.settings import Config
 
 # --- Coordinator ---
@@ -41,6 +42,7 @@ from src.services.memories.memory_manager import MemoryManager
 # These imports are moved inside initialize() method
 
 # --- Tasks ---
+from src.services.queue.overflow_queue import OverflowQueue
 from src.tasks.nightly_trigger import NightlyTrigger
 
 # --- Tools System (MCP Architecture) ---
@@ -125,10 +127,8 @@ class AppContainer:
         # ========================================
         # Lazy imports to avoid circular dependency
         from src.agents.evernight.agent import EvernightAgent
-        from src.agents.evernight.services.wiki_storage import WikiStorage
         from src.agents.evernight.services.wiki_merge import WikiMergeService
         from src.agents.evernight.spawner import EvernightSpawner
-        from src.services.queue.overflow_queue import OverflowQueue
 
         wiki_storage = await self._get_wiki_storage()
         wiki_merge = WikiMergeService(llm_client=self.llm_service)
@@ -162,6 +162,8 @@ class AppContainer:
 
         tool_dependencies = {
             "core_manager": t3_manager,
+            "wiki_storage": wiki_storage,
+            "embedding_service": self.embedding_service,
             "base_memory_path": "memories",
             "tavily_client": self.tavily_client,
         }
@@ -318,7 +320,7 @@ class AppContainer:
                 db=redis_db,
                 decode_responses=True,
             )
-            logger.info(f"🔴 Overflow Queue: Created new Redis client")
+            logger.info("🔴 Overflow Queue: Created new Redis client")
             return OverflowQueue(redis_client=self.redis_client)
 
         except Exception as e:

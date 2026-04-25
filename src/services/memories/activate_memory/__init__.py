@@ -5,11 +5,10 @@ from .constants import (
     STRUCTURAL_OVERHEAD_TOKENS,
     TARGET_SAFE_TOKENS,
 )
-from .models import MemoryEntry, MessageCategory, get_utc_now
+from .models import MemoryEntry, get_utc_now
 
 __all__ = [
     # Models
-    "MessageCategory",
     "MemoryEntry",
     "get_utc_now",
     # Constants

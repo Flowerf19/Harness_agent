@@ -10,11 +10,8 @@ logger = logging.getLogger(__name__)
 
 
 class ActiveMemoryEvent(str, Enum):
-    CRITICAL_INFO_DETECTED = (
-        "critical_info_detected"  # Kích hoạt khi có Semantic > 0.85
-    )
-    TOKEN_LIMIT_REACHED = "token_limit_reached"  # Kích hoạt khi RAM > MAX_TOKENS
-    SESSION_TIMEOUT = "session_timeout"  # Kích hoạt khi user im lặng 30 phút
+    """Events for T1 Active Memory overflow handling."""
+    TOKEN_LIMIT_REACHED = "token_limit_reached"  # Kích hoạt khi RAM > MAX_TOKENS → OverflowQueue
 
 
 class EventDispatcher:

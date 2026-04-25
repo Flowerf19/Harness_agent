@@ -13,9 +13,9 @@ Auto-Discovery:
 - Registers them in ToolRegistry
 
 Available Tools:
-- SearchMemoryTool: Query Episodic Memory (T2)
-- UpdateUserProfileTool: Update Core Memory (T3)
-- UpdatePersonalityTool: Update IDENTITY.md
+- SearchMemoryTool: Query Wiki Pages (T2 consolidated memory)
+- UpdateUserProfileTool: Update Core Memory (T3 IDENTITY.md)
+- UpdatePersonalityTool: Update bot personality
 - TavilySearchTool: Web search via Tavily API
 """
 
