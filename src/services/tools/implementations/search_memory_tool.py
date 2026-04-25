@@ -21,16 +21,21 @@ logger = logging.getLogger(__name__)
 class SearchMemoryTool(BaseTool):
     """
     Tool for searching Episodic Memory (T2).
-    
+
     Searches past events, preferences, and context from vector database.
     Uses semantic search with Qwen3-Embedding-0.6B.
-    
+
     Attributes:
         episodic_manager: EpisodicManager instance for T2 access
-    
+
     Example:
         tool = SearchMemoryTool(episodic_manager)
         result = await tool.execute(user_id="123", query="sở thích")
+
+    TODO: Extend to also query WikiPages (T2 consolidated memory).
+    When wiki_storage is injected, search should query both EpisodicManager
+    for detailed event records and WikiStorage for consolidated topic summaries.
+    See: src/agents/evernight/services/wiki_storage.py
     """
     
     def __init__(self, episodic_manager: Optional[Any] = None):

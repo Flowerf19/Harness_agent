@@ -3,8 +3,7 @@ from typing import Dict, List
 
 from langsmith import traceable
 
-from .constants import CRITICAL_INFO_THRESHOLD, MAX_WORKING_TOKENS
-from .evaluation.pipeline import EvaluationPipeline
+from .constants import MAX_WORKING_TOKENS
 from .events.event_dispatcher import ActiveMemoryEvent, EventDispatcher
 from .management.context_builder import ContextBuilder
 from .management.smart_cleanup import SmartCleanup
@@ -24,7 +23,6 @@ class ActiveMemoryService:
     def __init__(
         self,
         storage: BaseStorage,
-        pipeline: EvaluationPipeline,
         token_counter: TokenCounter,
         smart_cleanup: SmartCleanup,
         context_builder: ContextBuilder,
@@ -32,7 +30,6 @@ class ActiveMemoryService:
     ):
         # Dependency Injection: Nhận mọi đồ nghề từ ngoài vào
         self.storage = storage
-        self.pipeline = pipeline
         self.token_counter = token_counter
         self.smart_cleanup = smart_cleanup
         self.context_builder = context_builder
@@ -44,10 +41,10 @@ class ActiveMemoryService:
     async def add_message(self, user_id: str, role: str, content: str) -> MemoryEntry:
         """Luồng chính: Xử lý khi có tin nhắn mới."""
 
-        # 1. Đánh giá tin nhắn (Luật Cứng + Semantic AI)
-        score, category, extracted_content = await self.pipeline.evaluate_message(
-            content, role
-        )
+        # 1. Giá trị mặc định (pipeline đã bị loại bỏ)
+        score = 0.0
+        category = MessageCategory.GENERAL
+        extracted_content = None
 
         # Nếu có nội dung trích xuất từ lệnh (!note), ta chỉ lưu phần đó
         content_to_save = extracted_content if extracted_content else content
@@ -70,27 +67,7 @@ class ActiveMemoryService:
 
         # === 5. KIỂM TRA & BẮT SỰ KIỆN ===
 
-        # A. Bắt sự kiện Tức thời (Semantic Trigger)
-        if (
-            score >= CRITICAL_INFO_THRESHOLD
-            or category == MessageCategory.FACT
-            or category == MessageCategory.EXPLICIT_COMMAND
-        ):
-            # Lấy context (các tin nhắn trước đó) để LLM hiểu ngữ cảnh đầy đủ
-            recent_entries = await self.storage.get_entries(user_id)
-            # Lấy tối đa 5 tin nhắn gần nhất (bao gồm tin nhắn hiện tại)
-            context_entries = (
-                recent_entries[-5:] if len(recent_entries) >= 5 else recent_entries
-            )
-
-            # Gửi entry kèm context cho Tầng 3
-            self.events.emit(
-                ActiveMemoryEvent.CRITICAL_INFO_DETECTED,
-                user_id,
-                data={"entry": entry, "context": context_entries},
-            )
-
-        # B. Bắt sự kiện Token (Token Trigger)
+        # Bắt sự kiện Token (Token Trigger)
         current_tokens = await self.storage.get_total_tokens(user_id)
         if current_tokens >= MAX_WORKING_TOKENS:
             # Lấy bản sao lưu (Snapshot) hiện tại ném cho sự kiện

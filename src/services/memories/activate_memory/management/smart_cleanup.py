@@ -2,7 +2,7 @@ import logging
 
 from langsmith import traceable
 
-from ..constants import CRITICAL_INFO_THRESHOLD, TARGET_SAFE_TOKENS
+from ..constants import TARGET_SAFE_TOKENS
 from ..storage.base_storage import BaseStorage
 
 logger = logging.getLogger(__name__)
@@ -43,16 +43,11 @@ class SmartCleanup:
         protected_recent = entries[-3:] if len(entries) >= 3 else entries
         protected_ids = {e.entry_id for e in protected_recent}
 
-        # 2. BẢO VỆ: Các tin nhắn có điểm cực cao (Trí nhớ dài hạn trong phiên)
-        for e in entries:
-            if e.importance_score >= CRITICAL_INFO_THRESHOLD:
-                protected_ids.add(e.entry_id)
-
-        # 3. CHỌN LỌC ĐỂ XÓA: Những tin không được bảo vệ
+        # 2. CHỌN LỌC ĐỂ XÓA: Những tin không được bảo vệ
         prunable_entries = [e for e in entries if e.entry_id not in protected_ids]
 
-        # Sắp xếp ưu tiên xóa: Điểm thấp xóa trước, nếu điểm bằng nhau thì Cũ xóa trước
-        prunable_entries.sort(key=lambda x: (x.importance_score, x.timestamp))
+        # Sắp xếp ưu tiên xóa: Cũ xóa trước
+        prunable_entries.sort(key=lambda x: x.timestamp)
 
         ids_to_delete = []
         tokens_deleted = 0

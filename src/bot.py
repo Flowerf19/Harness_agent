@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from dotenv import load_dotenv
@@ -35,9 +36,15 @@ class CoreBot(commands.Bot):
         logger.info("⚙️ Đang mồi nổ hệ thống (Setup Hook)...")
 
         # 1. Kích hoạt Trạm Điện: Khởi tạo toàn bộ LLM và Memory 3 Tầng
-        await AppContainer.get_instance().initialize()
+        container = AppContainer.get_instance()
+        await container.initialize()
 
-        # 2. Load các Trạm kiểm soát Discord (Cogs)
+        # 2. Khởi động NightlyTrigger (background task)
+        if container.nightly_trigger:
+            asyncio.create_task(container.nightly_trigger.start())
+            logger.info("🌙 NightlyTrigger: Đã khởi động scheduled task (2 AM)")
+
+        # 3. Load các Trạm kiểm soát Discord (Cogs)
         try:
             # Load file giao tiếp chính (Ta sẽ viết file này thay cho llm_message cũ)
             await self.load_extension("src.cogs.chat_gateway")

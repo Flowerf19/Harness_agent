@@ -7,11 +7,5 @@ STRUCTURAL_OVERHEAD_TOKENS = (
 )
 TARGET_SAFE_TOKENS = 1000  # Sau khi dọn dẹp, RAM nên giảm về mức an toàn này
 
-# --- Semantic Thresholds ---
-SEMANTIC_ACTIVATION_THRESHOLD = 0.40  # Ngưỡng Cosine thấp nhất để Qwen gán Category
-CRITICAL_INFO_THRESHOLD = (
-    0.45  # Ngưỡng Cosine cao để bắn thẳng xuống Tầng 3 (Core Persona)
-)
-
 # --- Timeouts ---
 SESSION_TIMEOUT_MINUTES = 30  # Im lặng bao lâu thì coi là hết 1 phiên chat

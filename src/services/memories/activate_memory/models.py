@@ -8,13 +8,6 @@ from pydantic import BaseModel, Field
 
 class MessageCategory(str, Enum):
     GENERAL = "general"
-    FACT = "fact"
-    GOAL = "goal"
-    PREFERENCE = "preference"
-    RELATIONSHIP = "relationship"
-    QUERY = "query"
-    SENSITIVE = "sensitive"
-    EXPLICIT_COMMAND = "explicit_cmd"
 
 
 def get_utc_now() -> datetime:
