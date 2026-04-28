@@ -218,12 +218,10 @@ class ToolRegistry:
         if validation_error:
             logger.warning(f"⚠️ Tool '{tool_name}' validation failed: {validation_error}")
             raise ToolExecutionError(tool_name, validation_error)
-        
-        # 3. Execute tool
-        logger.info(f"🛠️ Executing tool: {tool_name} with args: {arguments}")
+
+        # 3. Execute tool (logging done by caller - MCPServer)
         try:
             result = await tool.execute(**arguments)
-            logger.info(f"✅ Tool '{tool_name}' executed successfully")
             return result
         except Exception as e:
             logger.error(f"❌ Tool '{tool_name}' execution failed: {e}")

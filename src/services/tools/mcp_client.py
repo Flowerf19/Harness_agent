@@ -249,9 +249,7 @@ class MCPClient:
         # Auto-initialize if needed
         if self.auto_initialize and not self._initialized:
             await self.initialize()
-        
-        logger.info(f"🛠️ Calling tool: {tool_name} with args: {arguments}")
-        
+
         # Build request
         request = MCPRequest(
             method=MCPMethods.TOOLS_CALL,
