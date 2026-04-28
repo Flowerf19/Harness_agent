@@ -44,8 +44,8 @@ class OverflowQueue:
             snapshot_dicts = []
             for entry in snapshot:
                 if hasattr(entry, "model_dump"):
-                    # Pydantic v2: use model_dump()
-                    snapshot_dicts.append(entry.model_dump())
+                    # Pydantic v2: use model_dump(mode='json') to serialize datetime
+                    snapshot_dicts.append(entry.model_dump(mode='json'))
                 elif hasattr(entry, "dict"):
                     # Pydantic v1: use dict()
                     snapshot_dicts.append(entry.dict())

@@ -54,12 +54,7 @@ class TavilySearchTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return (
-            "Tìm kiếm thông tin real-time trên internet. "
-            "Dùng khi cần thông tin mới nhất, tin tức, sự kiện hiện tại, "
-            "hoặc kiến thức ngoài training data. "
-            "Ví dụ: 'tin tức AI hôm nay', 'giá Bitcoin hiện tại', 'thời tiết Hà Nội'."
-        )
+        return "Tìm tin tức real-time trên internet. Chi tiết cách dùng xem TOOL.md."
 
     @property
     def parameters_schema(self) -> Dict[str, Any]:

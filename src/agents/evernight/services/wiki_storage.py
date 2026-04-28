@@ -142,6 +142,125 @@ class WikiStorage:
             logger.error(f"❌ WikiStorage: Error upserting page: {e}")
             return False
 
+    async def list_all_for_user(
+        self,
+        user_id: str,
+        limit: int = 100,
+    ) -> List[WikiPagePayload]:
+        """
+        Fetch all WikiPages for a user.
+
+        Args:
+            user_id: Discord user ID to filter by
+            limit: Maximum number of results
+
+        Returns:
+            List of WikiPagePayload
+        """
+        try:
+            results, _ = await self._client.scroll(
+                collection_name=self.COLLECTION_NAME,
+                scroll_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="user_id",
+                            match=models.MatchValue(value=user_id),
+                        )
+                    ]
+                ),
+                limit=limit,
+                with_payload=True,
+                with_vectors=False,
+            )
+
+            pages = []
+            for point in results:
+                page = self._point_to_page(point)
+                if page is not None:
+                    pages.append(page)
+
+            return pages
+
+        except Exception as e:
+            logger.error(f"❌ WikiStorage: Error listing pages for user {user_id}: {e}")
+            return []
+
+    async def search_by_time(
+        self,
+        user_id: str,
+        days: int = 7,
+        top_k: int = 10,
+    ) -> List[WikiPagePayload]:
+        """
+        Search by last_updated within X days.
+
+        Args:
+            user_id: Discord user ID to filter by
+            days: Number of days to look back
+            top_k: Maximum number of results
+
+        Returns:
+            List of WikiPagePayload sorted by last_updated descending
+        """
+        try:
+            current_time = datetime.now(timezone.utc)
+
+            # Fetch all pages for user
+            all_pages = await self.list_all_for_user(user_id)
+
+            # Filter by time
+            filtered_pages = []
+            for page in all_pages:
+                days_since_update = (current_time - page.last_updated).days
+                if days_since_update <= days:
+                    filtered_pages.append(page)
+
+            # Sort by last_updated descending
+            filtered_pages.sort(key=lambda p: p.last_updated, reverse=True)
+
+            return filtered_pages[:top_k]
+
+        except Exception as e:
+            logger.error(f"❌ WikiStorage: Error searching by time: {e}")
+            return []
+
+    async def search_by_topic(
+        self,
+        user_id: str,
+        topic_keyword: str,
+        top_k: int = 10,
+    ) -> List[WikiPagePayload]:
+        """
+        Search by canonical_topic contains keyword (case-insensitive).
+
+        Args:
+            user_id: Discord user ID to filter by
+            topic_keyword: Keyword to search in canonical_topic
+            top_k: Maximum number of results
+
+        Returns:
+            List of WikiPagePayload sorted by importance descending
+        """
+        try:
+            # Fetch all pages for user
+            all_pages = await self.list_all_for_user(user_id)
+
+            # Filter by topic keyword (case-insensitive)
+            keyword_lower = topic_keyword.lower()
+            filtered_pages = [
+                page for page in all_pages
+                if keyword_lower in page.canonical_topic.lower()
+            ]
+
+            # Sort by importance descending
+            filtered_pages.sort(key=lambda p: p.importance, reverse=True)
+
+            return filtered_pages[:top_k]
+
+        except Exception as e:
+            logger.error(f"❌ WikiStorage: Error searching by topic: {e}")
+            return []
+
     async def search_similar(
         self,
         user_id: str,

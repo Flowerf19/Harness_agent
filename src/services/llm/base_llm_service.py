@@ -26,6 +26,7 @@ class BaseLLMService(abc.ABC):
         # File này sẽ làm nền tảng, còn Core Memory (T3) sẽ bổ sung phần Dynamic Persona
         self.static_identity = self._load_prompt("IDENTITY.md", "memories")
         self.static_soul = self._load_prompt("SOUL.md", "memories")
+        self.static_tools = self._load_prompt("TOOL.md", "memories")
 
     def set_mcp_client(self, mcp_client) -> None:
         """[MỚI] Inject MCP Client vào LLM Service."""
@@ -72,7 +73,11 @@ class BaseLLMService(abc.ABC):
         if self.static_soul:
             parts.append(f"=== HƯỚNG DẪN HỘI THOẠI ===\n{self.static_soul}")
 
-        # 2. Nhét hồ sơ người dùng (Từ Tầng 3 gửi sang) vào sau
+        # 2. Nhét hướng dẫn sử dụng Tool (TOOL.md)
+        if self.static_tools:
+            parts.append(f"=== HƯỚNG DẪN SỬ DỤNG TOOL ===\n{self.static_tools}")
+
+        # 3. Nhét hồ sơ người dùng (Từ Tầng 3 gửi sang) vào sau
         if dynamic_core_prompt:
             parts.append(dynamic_core_prompt)
 

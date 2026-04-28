@@ -59,11 +59,7 @@ class SearchMemoryTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return (
-            "Tìm kiếm ký ức của user từ Wiki Pages (T2). "
-            "Dùng khi user nhắc chuyện quá khứ, hỏi về sở thích/sự kiện cũ, "
-            "hoặc cần context từ lịch sử hội thoại."
-        )
+        return "Tìm ký ức trong Wiki Pages (T2). Chi tiết cách dùng xem TOOL.md."
 
     @property
     def parameters_schema(self) -> Dict[str, Any]:
@@ -74,34 +70,58 @@ class SearchMemoryTool(BaseTool):
                     "type": "string",
                     "description": "Discord user ID (số) của user đang chat. VD: '726302130318868500'"
                 },
+                "mode": {
+                    "type": "string",
+                    "enum": ["semantic", "time", "topic"],
+                    "default": "semantic",
+                    "description": "Search mode: semantic (query content), time (recent updates), topic (keyword match)"
+                },
                 "query": {
                     "type": "string",
-                    "description": "Từ khóa hoặc câu hỏi để tìm kiếm trong ký ức. VD: 'sở thích', 'anime', 'chuyện hôm qua'"
+                    "description": "Query for semantic search (used when mode='semantic'). VD: 'sở thích', 'anime'"
+                },
+                "days": {
+                    "type": "integer",
+                    "default": 7,
+                    "description": "Days to look back (used when mode='time'). VD: 7 for last week"
+                },
+                "topic": {
+                    "type": "string",
+                    "description": "Topic keyword to search (used when mode='topic'). VD: 'anime', 'game'"
                 }
             },
-            "required": ["user_id", "query"]
+            "required": ["user_id"]
         }
 
     # ==========================================
     # EXECUTION
     # ==========================================
 
-    async def execute(self, user_id: str, query: str) -> str:
+    async def execute(
+        self,
+        user_id: str,
+        mode: str = "semantic",
+        query: Optional[str] = None,
+        days: int = 7,
+        topic: Optional[str] = None,
+    ) -> str:
         """
         Search Wiki Pages for past context.
 
         Args:
             user_id: Discord user ID (must be numeric)
-            query: Search query string
+            mode: Search mode - "semantic", "time", or "topic"
+            query: Search query (for semantic mode)
+            days: Days to look back (for time mode)
+            topic: Topic keyword (for topic mode)
 
         Returns:
             str: Search results formatted for LLM consumption
         """
-        # Validate inputs
-        if not user_id or not query:
-            return "Lỗi: Thiếu user_id hoặc query."
+        # Validate user_id
+        if not user_id:
+            return "Lỗi: Thiếu user_id."
 
-        # Validate user_id format (Discord ID must be numeric)
         if not user_id.isdigit():
             logger.warning(f"⚠️ Invalid user_id: {user_id} - không phải số")
             return f"Lỗi: user_id '{user_id}' không hợp lệ. user_id phải là số ID của Discord user."
@@ -110,18 +130,29 @@ class SearchMemoryTool(BaseTool):
         if not self.wiki_storage:
             return "Lỗi: Hệ thống Wiki Memory chưa sẵn sàng."
 
-        # Check if embedding_service is available
-        if not self.embedding_service:
-            return "Lỗi: Embedding service chưa sẵn sàng."
+        # Dispatch based on mode
+        if mode == "semantic":
+            return await self._search_semantic(user_id, query)
+        elif mode == "time":
+            return await self._search_by_time(user_id, days)
+        elif mode == "topic":
+            return await self._search_by_topic(user_id, topic)
+        else:
+            return f"Lỗi: Mode '{mode}' không hợp lệ. Dùng: semantic, time, hoặc topic."
 
-        # Execute search
+    async def _search_semantic(self, user_id: str, query: Optional[str]) -> str:
+        """Semantic search using embeddings."""
+        if not query:
+            return "Lỗi: Mode 'semantic' cần parameter 'query'."
+
+        if not self.embedding_service:
+            return "Lỗi: Embedding service chưa sẵn sàng cho semantic search."
+
         try:
-            # Generate embedding for query
             query_vector = await self.embedding_service.get_embedding(query)
             if not query_vector:
                 return "Lỗi: Không thể tạo embedding cho query."
 
-            # Search Wiki Pages
             results = await self.wiki_storage.search_similar(
                 user_id=user_id,
                 query_vector=query_vector,
@@ -132,27 +163,71 @@ class SearchMemoryTool(BaseTool):
             if not results:
                 return f"Không tìm thấy ký ức nào liên quan đến '{query}'."
 
-            # Format results for LLM
-            formatted_results = self._format_results(results, query)
-
-            return formatted_results
+            return self._format_results(results, f"semantic: {query}")
 
         except Exception as e:
-            logger.error(f"Lỗi khi tìm kiếm Wiki Pages: {e}")
-            raise ToolExecutionError(self.name, f"Lỗi khi tìm kiếm ký ức: {e}", original_error=e)
+            logger.error(f"Lỗi khi tìm kiếm semantic: {e}")
+            raise ToolExecutionError(self.name, f"Lỗi khi tìm kiếm: {e}", original_error=e)
 
-    def _format_results(self, results: List[Any], query: str) -> str:
+    async def _search_by_time(self, user_id: str, days: int) -> str:
+        """Time-based search - recent updates."""
+        try:
+            results = await self.wiki_storage.search_by_time(
+                user_id=user_id,
+                days=days,
+                top_k=10,
+            )
+
+            if not results:
+                return f"Không tìm thấy ký ức nào được cập nhật trong {days} ngày qua."
+
+            return self._format_results(results, f"time: last {days} days", show_time=True)
+
+        except Exception as e:
+            logger.error(f"Lỗi khi tìm kiếm theo thời gian: {e}")
+            raise ToolExecutionError(self.name, f"Lỗi khi tìm kiếm: {e}", original_error=e)
+
+    async def _search_by_topic(self, user_id: str, topic: Optional[str]) -> str:
+        """Topic keyword search."""
+        if not topic:
+            return "Lỗi: Mode 'topic' cần parameter 'topic'."
+
+        try:
+            results = await self.wiki_storage.search_by_topic(
+                user_id=user_id,
+                topic_keyword=topic,
+                top_k=10,
+            )
+
+            if not results:
+                return f"Không tìm thấy ký ức nào với topic chứa '{topic}'."
+
+            return self._format_results(results, f"topic: {topic}", show_importance=True)
+
+        except Exception as e:
+            logger.error(f"Lỗi khi tìm kiếm theo topic: {e}")
+            raise ToolExecutionError(self.name, f"Lỗi khi tìm kiếm: {e}", original_error=e)
+
+    def _format_results(
+        self,
+        results: List[Any],
+        search_context: str,
+        show_time: bool = False,
+        show_importance: bool = False,
+    ) -> str:
         """
         Format Wiki Pages results for LLM consumption.
 
         Args:
             results: List of WikiPagePayload objects
-            query: Original search query
+            search_context: Description of the search context
+            show_time: Whether to show last_updated
+            show_importance: Whether to show importance for all results
 
         Returns:
             str: Formatted results string
         """
-        lines = [f"Đã tìm thấy {len(results)} Wiki Pages liên quan đến '{query}':\n"]
+        lines = [f"Đã tìm thấy {len(results)} Wiki Pages ({search_context}):\n"]
 
         for i, page in enumerate(results, 1):
             lines.append(f"\n{i}. **{page.canonical_topic}** (Category: {page.category})")
@@ -163,8 +238,10 @@ class SearchMemoryTool(BaseTool):
                 for point in page.key_points[:5]:
                     lines.append(f"   - {point}")
 
-            # Include importance if high
-            if page.importance >= 4:
+            if show_time:
+                lines.append(f"   📅 Last updated: {page.last_updated.strftime('%Y-%m-%d %H:%M')}")
+
+            if show_importance or page.importance >= 4:
                 lines.append(f"   ⭐ Importance: {page.importance}/5")
 
         return "\n".join(lines)

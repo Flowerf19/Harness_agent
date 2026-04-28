@@ -53,11 +53,7 @@ class UpdateUserProfileTool(BaseTool):
     
     @property
     def description(self) -> str:
-        return (
-            "Ghi thông tin MỚI về user vào Core Memory (T3). "
-            "Dùng khi user chia sẻ thông tin cá nhân mới (tên, sở thích, công việc, quan hệ, etc.). "
-            "KHÔNG dùng cho thông tin đã biết hoặc chung chung."
-        )
+        return "Ghi info MỚI về user vào Core Memory (T3). Chi tiết cách dùng xem TOOL.md."
     
     @property
     def parameters_schema(self) -> Dict[str, Any]:

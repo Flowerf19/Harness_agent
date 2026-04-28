@@ -218,9 +218,27 @@ class EvernightAgent:
             lines.append(f"[{role.upper()}]: {content}")
         return "\n".join(lines)
 
+    def _build_search_content(self, page: WikiPagePayload) -> str:
+        """
+        Concatenate all searchable content for embedding.
+
+        Args:
+            page: WikiPagePayload to extract content from
+
+        Returns:
+            Concatenated string of canonical_topic, summary, and key_points
+        """
+        parts = [page.canonical_topic, page.current_summary]
+        if page.key_points:
+            parts.extend(page.key_points)
+        return "\n".join(parts)
+
     async def _embed_and_upsert(self, page: WikiPagePayload) -> bool:
         """
         Generate embedding for page and upsert to storage.
+
+        Embeds concatenated content: canonical_topic + current_summary + key_points.
+        This enables semantic search to match queries against all searchable content.
 
         Args:
             page: WikiPagePayload to embed and store
@@ -229,8 +247,9 @@ class EvernightAgent:
             True if successful, False otherwise
         """
         try:
-            # Generate embedding from summary
-            embedding = await self.embedding.get_embedding(page.current_summary)
+            # Build search content and generate embedding
+            search_content = self._build_search_content(page)
+            embedding = await self.embedding.get_embedding(search_content)
             if not embedding:
                 logger.warning(f"⚠️ EvernightAgent: Failed to embed page '{page.canonical_topic}'")
                 return False

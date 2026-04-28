@@ -70,22 +70,7 @@ class UpdatePersonalityTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return (
-            "Viết lại IDENTITY.md hoặc SOUL.md của bot.\n\n"
-            "⚠️ QUAN TRỌNG: Tool sẽ OVERWRITE toàn bộ file. "
-            "Bot phải provide NỘI DUNG ĐẦY ĐỦ, giữ info cũ + thêm info mới.\n\n"
-            "IDENTITY.md = 'TÔI LÀ AI':\n"
-            "• Tên, nickname, xưng hô\n"
-            "• Tính cách, ngoại hình, vai trò\n"
-            "• Xuất thân, backstory, sở thích\n"
-            "• Câu nói đặc trưng, catchphrase\n\n"
-            "SOUL.md = 'TÔI HOẠT ĐỘNG THẾ NAO':\n"
-            "• Giọng nói (voice): ngắn/dài, formal/casual\n"
-            "• Quy tắc giao tiếp, boundaries\n"
-            "• Emoji, slang, tone, format\n\n"
-            "Tool tự route đến file phù hợp based on content keywords.\n"
-            "CHỈ dùng khi user YÊU CẦU thay đổi."
-        )
+        return "Viết lại IDENTITY.md hoặc SOUL.md. OVERWRITE toàn bộ file. Chi tiết cách dùng xem TOOL.md."
 
     @property
     def parameters_schema(self) -> Dict[str, Any]:
