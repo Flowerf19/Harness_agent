@@ -1,124 +1,94 @@
-# Project Summary
+The user wants me to analyze the conversation history and generate a comprehensive project summary in markdown format. Let me review the conversation to extract the key information:
+
+1. **Overall Goal**: The user is working on a Discord bot with a 3-tier memory architecture (T1, T2, T3). The main focus was on fixing issues with the bot's memory system, specifically around reasoning models (like DeepSeek R1) and their impact on T1 memory overflow, as well as enhancing the search_memory tool.
+
+2. **Key Knowledge**:
+- Technology: Python Discord bot with Redis (T1), Qdrant (T2), YAML (T3) storage
+- Architecture: 3-tier memory system - T1 (Active Memory/short-term), T2 (Wiki Pages/long-term), T3 (Core Memory/profile)
+- Tools: search_memory, web_search, update_user_profile, update_personality
+- Testing: Use `conda run -n discord_bot pytest` (not system Python)
+- Docker: docker compose -f docker/docker-compose.yml up -d
+
+3. **Recent Actions**:
+- Fixed reasoning_content not being saved to T1 memory (added reasoning_only flag)
+- Fixed OverflowQueue serialization (datetime not JSON serializable - use model_dump(mode='json'))
+- Created TOOL.md for centralized tool guidance
+- Enhanced search_memory with 3 modes: semantic, time, topic
+- Enhanced embedding to include key_points and canonical_topic (not just current_summary)
+
+4. **Current Plan**:
+- Most tasks completed - tests passing
+- Need to restart Docker to apply changes
+
+Let me write a comprehensive summary.# Project Summary
 
 ## Overall Goal
-Implement comprehensive test suite for Sub-Agent (Evernight) + Native Tools architecture - a Discord bot memory system with T1 overflow → T2 Wiki consolidation → T3 Core Memory flow.
+Discord bot "Bé Bảy" (March 7th persona) với kiến trúc memory 3 tầng, đang debug và enhance hệ thống T2 Wiki Pages search.
 
 ## Key Knowledge
 
 ### Architecture
-- **Bay (Main Agent) + Evernight (Sub-Agent)** in single process, no Redis Pub/Sub
-- **T2 Approach**: WikiPage (Upsert) with Vectorized Wiki Architecture, not TopicChunks
-- **T3 Update**: LLM merge into IDENTITY.md via UpdateProfileTool MCP
-- **Queue**: Redis List for persistent overflow snapshots
-- **Error Handling**: Checkpoint into Redis for Evernight recovery
-- **Dual Trigger**: Token Overflow (MAX_WORKING_TOKENS=2000) + Nightly Cron (2 AM)
-- **SOLID/SRP**: Each class has one responsibility
+- **T1 (Active Memory)**: Redis storage, short-term conversation context, MAX_WORKING_TOKENS=2000, TARGET_SAFE_TOKENS=1000
+- **T2 (Wiki Pages)**: Qdrant vector storage, consolidated topics via EvernightAgent
+- **T3 (Core Memory)**: YAML profile files, user facts via update_user_profile tool
 
-### Test Infrastructure
-- **Environment**: Conda `discord_bot` (Python 3.14.3)
-- **Test Framework**: pytest with pytest-asyncio
-- **Services**: Docker containers `be_bay_redis`, `be_bay_qdrant`, `be_bay_bot`
-- **Run Command**: `conda run -n discord_bot --cwd /home/flowerf/Projects/discord-bot-v1 pytest tests/ -v --tb=short`
+### Wiki Page Chunk Structure
+| Field | Embedding? |
+|-------|------------|
+| `current_summary` | ✅ (main) |
+| `key_points` | ✅ (concat) |
+| `canonical_topic` | ✅ (concat) |
+| `last_updated` | ❌ (timestamp filter) |
+| `category` | ❌ (enum filter) |
 
-### Source Code Fixes Applied
-1. **Circular Import** (`src/services/dependencies.py`) - Moved Evernight imports to lazy imports inside `initialize()`
-2. **Prompt Format** (`src/agents/evernight/services/wiki_merge.py`) - Escaped JSON curly braces with `{{` and `}}`
-3. **WikiMergeService Init** - Requires `llm_client` positional argument
-4. **LLMResponse Mock** (`tests/manual/test_overflow_flow.py`) - Fixed `tokens_used` → `input_tokens/output_tokens`
-5. **Page ID UUID Format** (`src/agents/shared/models/wiki_page.py`) - Changed hex hash to UUID format for Qdrant compatibility
+### Commands
+- **Tests**: `conda run -n discord_bot pytest tests/unit/ -v`
+- **Docker**: `docker compose -f docker/docker-compose.yml up -d`
+- **Restart**: `docker compose restart be_bay_bot`
 
-### Mock Fixtures Strategy
-- `mock_redis`: Uses `set_return_value()` helper for test override + internal `_queue` storage
-- `mock_qdrant_client`: Returns actual string names for collections (not MagicMock)
-- `mock_llm_client`: Uses `add_response()` method for preset responses
-- `sample_points`: Factory fixture for Qdrant points
+### Files
+- `memories/TOOL.md` - Centralized tool guide
+- `memories/SOUL.md` - Conversation rules
+- `memories/IDENTITY.md` - Bot persona
 
 ## Recent Actions
 
-### Test Files Created
+1. **Fixed reasoning models memory overflow**
+   - Added `reasoning_only` flag to LLMResponse
+   - Skip T1 save when `reasoning_only=True` (only show to user)
+   - Files: `llm_response.py`, `lm_studio_service.py`, `chat_coordinator.py`
 
-| Category | Files | Tests | Status |
-|----------|-------|-------|--------|
-| Unit | 5 files | 63 | ✅ PASSED |
-| Integration | 4 files | 36 | ✅ PASSED |
-| E2E | 2 files | 17 | ✅ PASSED |
-| Manual | 5 scripts | - | ✅ All Working |
+2. **Fixed OverflowQueue serialization**
+   - `MemoryEntry` → use `model_dump(mode='json')` for datetime → ISO string
+   - File: `overflow_queue.py`
 
-### Unit Tests (63 tests)
-- `wiki_page_test.py` - WikiPagePayload model, page_id generation, relevance calculation
-- `overflow_queue_test.py` - Redis queue operations, checkpoint
-- `wiki_storage_test.py` - Qdrant CRUD, search, initialization
-- `wiki_merge_test.py` - LLM merge logic, TTL calculation
-- `fixtures_verification_test.py` - Fixture validation
+3. **Created TOOL.md**
+   - Centralized tool usage guide
+   - Query transformation examples
+   - File: `memories/TOOL.md`
 
-### Integration Tests (36 tests)
-- `memory_manager_queue_test.py` - T1 overflow → Queue → Spawner
-- `evernight_storage_test.py` - Evernight → WikiStorage → Qdrant
-- `nightly_trigger_test.py` - Scheduled trigger lifecycle
-- `overflow_trigger_test.py` - Token threshold trigger
+4. **Enhanced search_memory with 3 modes**
+   - `semantic`: embedding search (default)
+   - `time`: filter by `last_updated` within X days
+   - `topic`: filter by `canonical_topic` keyword
+   - Files: `search_memory_tool.py`, `wiki_storage.py`
 
-### E2E Tests (17 tests)
-- `chat_overflow_consolidate_test.py` - Full chat → Wiki flow
-- `nightly_consolidate_test.py` - Nightly wake → consolidate
+5. **Enhanced embedding coverage**
+   - Before: only `current_summary`
+   - After: `canonical_topic + current_summary + key_points`
+   - File: `evernight/agent.py`
 
-### Manual Scripts (5 scripts)
-- `check_services.py` - Service health check ✅
-- `test_overflow_flow.py` - T1 overflow → Wiki consolidation ✅ (Fixed UUID format)
-- `test_nightly_trigger.py` - Nightly consolidation ✅
-- `test_search_wiki.py` - WikiPage search ✅ (Requires conda env for torch)
-- `README.md` - Usage guide
+## Current Plan
 
-## Current Status
-
-### [COMPLETED] Test Implementation + Bug Fixes
-1. ✅ pytest.ini configuration
-2. ✅ Global fixtures (conftest.py)
-3. ✅ Unit tests (63 tests)
-4. ✅ Integration tests (36 tests)
-5. ✅ E2E tests (17 tests)
-6. ✅ Manual test scripts (5 scripts)
-7. ✅ Services running (Redis, Qdrant, Bot)
-8. ✅ All manual tests passing
-9. ✅ Fixed Qdrant UUID format for page_id
-10. ✅ Fixed LLMResponse mock parameter
-
-### [TODO] Future Work
-- Test with real Discord bot connection
-- Implement SearchMemoryTool WikiPages integration
-- Add UpdateProfileTool LLM merge logic for T3
-- Configure Evernight with smaller/cheaper model if desired
-
-### Test Structure
-```
-tests/
-├── conftest.py                 # Global fixtures
-├── unit/                       # 63 tests
-├── integration/                # 36 tests
-├── e2e/                        # 17 tests
-└── manual/                     # 5 scripts
-```
-
-### Key Commands
-```bash
-# Run all automated tests (118 tests)
-conda run -n discord_bot --cwd /home/flowerf/Projects/discord-bot-v1 pytest tests/ -v --tb=short --ignore=tests/manual
-
-# Check services
-python tests/manual/check_services.py
-
-# Test overflow (creates WikiPages in Qdrant)
-python tests/manual/test_overflow_flow.py --user-id test_user_123 --cleanup
-
-# Test nightly consolidation
-python tests/manual/test_nightly_trigger.py --cleanup
-
-# Verify WikiPages in Qdrant
-curl -s http://localhost:6333/collections/wiki_pages/points/scroll \
-  -X POST -H "Content-Type: application/json" \
-  -d '{"limit": 10, "with_payload": true}' | python -m json.tool
-```
+1. [DONE] Fix reasoning models T1 overflow
+2. [DONE] Fix OverflowQueue JSON serialization
+3. [DONE] Create TOOL.md for tool guidance
+4. [DONE] Add search modes (semantic/time/topic)
+5. [DONE] Enhance embedding with key_points + topic
+6. [TODO] Restart Docker to apply changes
+7. [TODO] Test with real user queries
 
 ---
 
 ## Summary Metadata
-**Update time**: 2026-04-25T16:30:00Z
+**Update time**: 2026-04-28T08:15:10.685Z 

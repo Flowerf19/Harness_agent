@@ -9,8 +9,6 @@ COPY requirements.txt .
 # Thiết lập biến môi trường
 ENV CONDA_ENV_NAME=discord_bot
 ENV PYTHONPATH=/app
-ENV PHOENIX_COLLECTOR_ENDPOINT="http://host.docker.internal:4317"
-ENV PHOENIX_PROJECT_NAME="Be_Bay_Bot"
 
 # Tạo entrypoint script để quản lý conda env tại runtime
 RUN echo '#!/bin/bash\n\

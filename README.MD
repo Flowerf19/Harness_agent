@@ -524,13 +524,6 @@ Mọi response từ LLM đều được track token usage:
 - Output tokens
 - Total tokens
 
-### Phoenix Tracing Integration
-
-Hệ thống tích hợp Arize Phoenix tracing để debug và monitor:
-- `@traceable` decorator trên các hàm quan trọng
-- Track toàn bộ flow từ message đến response
-- Export traces qua OTLP đến Phoenix collector
-
 ## 📄 License
 
 MIT License

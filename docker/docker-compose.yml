@@ -40,8 +40,6 @@ services:
     env_file:
       - ../.env
     environment:
-      - PHOENIX_COLLECTOR_ENDPOINT=http://host.docker.internal:4317
-      - PHOENIX_PROJECT_NAME=Be_Bay_Bot
       # LM Studio endpoint - dùng host.docker.internal để kết nối từ Docker
       - LM_STUDIO_API_URL=http://host.docker.internal:1234/v1
       - TOOL_LLM_ENDPOINT=http://host.docker.internal:1234/v1
@@ -60,6 +58,7 @@ services:
     volumes:
       - ../src:/app/src:Z
       - ../memories:/app/memories:Z
+      - ../config.py:/app/config.py:Z
       - ./volumes/hf_cache:/root/.cache/huggingface
       # Conda env persistence
       - ./volumes/conda_envs:/opt/conda_envs

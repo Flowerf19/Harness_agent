@@ -4,14 +4,6 @@ Cấu hình cho SDK tracing và LLM services.
 import os
 
 # ============================================================
-# Phoenix Configuration
-# ============================================================
-PHOENIX_COLLECTOR_ENDPOINT = os.getenv(
-    "PHOENIX_COLLECTOR_ENDPOINT",
-    "http://localhost:4317"
-)
-
-# ============================================================
 # HuggingFace Configuration
 # ============================================================
 HF_TOKEN = os.getenv("HF_TOKEN", "")
@@ -52,3 +44,11 @@ OLLAMA_ENDPOINT = os.getenv(
 # ============================================================
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
+# ============================================================
+# Search Memory Configuration
+# ============================================================
+SEARCH_TOP_K_SEMANTIC = int(os.getenv("SEARCH_TOP_K_SEMANTIC", "5"))
+SEARCH_TOP_K_TIME = int(os.getenv("SEARCH_TOP_K_TIME", "10"))
+SEARCH_TOP_K_TOPIC = int(os.getenv("SEARCH_TOP_K_TOPIC", "10"))
+SEARCH_MIN_RELEVANCE = float(os.getenv("SEARCH_MIN_RELEVANCE", "0.3"))
