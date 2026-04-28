@@ -115,13 +115,16 @@ class LMStudioService(BaseLLMService):
                     message = choice.get("message", {})
 
                     content = message.get("content", "") or ""
+                    reasoning_content = message.get("reasoning_content", "") or None
+                    reasoning_only = False
 
                     # [REASONING MODELS] DeepSeek R1 format
-                    if not content:
-                        reasoning_content = message.get("reasoning_content", "")
-                        if reasoning_content:
-                            self.logger.info("🧠 Detected reasoning_content from reasoning model")
-                            content = reasoning_content
+                    # If no final answer but reasoning exists, show reasoning to user
+                    # but flag it so ChatCoordinator knows not to save to memory
+                    if not content and reasoning_content:
+                        self.logger.info("🧠 Detected reasoning_content from reasoning model (no final answer)")
+                        content = reasoning_content
+                        reasoning_only = True
 
                     # [NATIVE TOOL CALLING] Parse tool_calls if present
                     tool_calls = None
@@ -157,6 +160,8 @@ class LMStudioService(BaseLLMService):
                         finish_reason=choice.get("finish_reason"),
                         raw_response=response_data,
                         tool_calls=tool_calls,
+                        reasoning_content=reasoning_content,
+                        reasoning_only=reasoning_only,
                     )
 
                 return "Error: Unexpected response format."

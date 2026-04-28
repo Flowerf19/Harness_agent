@@ -31,21 +31,34 @@ class OverflowQueue:
         """
         self.redis = redis_client
 
-    async def push(self, user_id: str, snapshot: List[dict]) -> None:
+    async def push(self, user_id: str, snapshot: List) -> None:
         """
         Push snapshot to queue for processing.
 
         Args:
             user_id: Discord user ID
-            snapshot: List of message dicts from T1 memory
+            snapshot: List of MemoryEntry objects or dicts from T1 memory
         """
         try:
+            # Convert Pydantic MemoryEntry objects to dicts if needed
+            snapshot_dicts = []
+            for entry in snapshot:
+                if hasattr(entry, "model_dump"):
+                    # Pydantic v2: use model_dump()
+                    snapshot_dicts.append(entry.model_dump())
+                elif hasattr(entry, "dict"):
+                    # Pydantic v1: use dict()
+                    snapshot_dicts.append(entry.dict())
+                else:
+                    # Already a dict
+                    snapshot_dicts.append(entry)
+
             payload = json.dumps({
                 "user_id": user_id,
-                "snapshot": snapshot,
+                "snapshot": snapshot_dicts,
             })
             await self.redis.lpush(self.QUEUE_KEY, payload)
-            logger.info(f"📤 OverflowQueue: Pushed snapshot for user {user_id} ({len(snapshot)} messages)")
+            logger.info(f"📤 OverflowQueue: Pushed snapshot for user {user_id} ({len(snapshot_dicts)} messages)")
         except Exception as e:
             logger.error(f"❌ OverflowQueue: Failed to push for user {user_id}: {e}")
             raise

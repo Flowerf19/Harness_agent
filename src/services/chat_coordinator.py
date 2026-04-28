@@ -221,7 +221,9 @@ class ChatCoordinator:
                 bot_response = llm_response
 
             # 5. Ghi nhận câu trả lời của Bot vào Bộ nhớ
-            if bot_response and not bot_response.startswith("Error:"):
+            # [REASONING MODELS] Skip memory if response is reasoning-only (no final answer)
+            is_reasoning_only = isinstance(llm_response, LLMResponse) and llm_response.reasoning_only
+            if bot_response and not bot_response.startswith("Error:") and not is_reasoning_only:
                 await self.memory.add_message(
                     user_id=user_id, role="assistant", content=bot_response
                 )

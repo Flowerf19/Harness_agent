@@ -19,6 +19,10 @@ class LLMResponse:
         raw_response: Raw response data from API (optional, for debugging)
         tool_calls: List of tool calls requested by LLM (for native function calling)
             Each tool_call dict has: {"id": "...", "name": "...", "arguments": {...}}
+        reasoning_content: Reasoning chain from reasoning models (e.g., DeepSeek R1).
+            Stored separately from final answer - not saved to memory.
+        reasoning_only: True if content contains reasoning only (no final answer).
+            Used to skip memory persistence while still showing response to user.
     """
 
     content: str
@@ -29,6 +33,8 @@ class LLMResponse:
     finish_reason: Optional[str] = None
     raw_response: Optional[dict] = field(default_factory=dict, repr=False)
     tool_calls: Optional[List[Dict[str, Any]]] = None
+    reasoning_content: Optional[str] = None
+    reasoning_only: bool = False
 
     def __str__(self) -> str:
         return self.content
