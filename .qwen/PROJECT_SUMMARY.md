@@ -85,10 +85,10 @@ Discord bot "Bé Bảy" (March 7th persona) với kiến trúc memory 3 tầng, 
 3. [DONE] Create TOOL.md for tool guidance
 4. [DONE] Add search modes (semantic/time/topic)
 5. [DONE] Enhance embedding with key_points + topic
-6. [TODO] Restart Docker to apply changes
+6. [DONE] Restart Docker to apply changes (2026-04-29)
 7. [TODO] Test with real user queries
 
 ---
 
 ## Summary Metadata
-**Update time**: 2026-04-28T08:15:10.685Z 
+**Update time**: 2026-04-29T01:52:00.000Z 
