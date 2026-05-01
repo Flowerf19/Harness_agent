@@ -17,16 +17,19 @@ Available Tools:
 - UpdateUserProfileTool: Update Core Memory (T3 IDENTITY.md)
 - UpdatePersonalityTool: Update bot personality
 - TavilySearchTool: Web search via Tavily API
+- CodeInterpreterTool: Python code execution in sandbox (CodeBox)
 """
 
 from src.services.tools.implementations.search_memory_tool import SearchMemoryTool
 from src.services.tools.implementations.update_profile_tool import UpdateUserProfileTool
 from src.services.tools.implementations.update_personality_tool import UpdatePersonalityTool
 from src.services.tools.implementations.tavily_search_tool import TavilySearchTool
+from src.services.tools.implementations.code_interpreter_tool import CodeInterpreterTool
 
 __all__ = [
     "SearchMemoryTool",
     "UpdateUserProfileTool",
     "UpdatePersonalityTool",
     "TavilySearchTool",
+    "CodeInterpreterTool",
 ]

@@ -26,3 +26,6 @@ tiktoken
 langsmith
 underthesea
 pyyaml
+
+# CodeBox for Python code execution (Sandbox)
+codeboxapi

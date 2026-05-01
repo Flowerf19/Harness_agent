@@ -11,7 +11,8 @@ Discord bot với persona March 7th (Honkai: Star Rail), kiến trúc Sub-Agent 
 | **Phase 3** | Native Tool Calling (MCP) | ✅ Hoàn thành |
 | **Phase 4** | Sub-Agent Architecture | ✅ Hoàn thành |
 | **Phase 5** | Wiki Pages T2 Memory | ✅ Hoàn thành |
-| **Phase 6** | Testing & Validation | 🔄 Đang thực hiện |
+| **Phase 6** | CodeBox Integration | ✅ Hoàn thành |
+| **Phase 7** | Testing & Validation | 🔄 Đang thực hiện |
 
 ---
 
@@ -114,6 +115,7 @@ Bot sử dụng MCP (Model Context Protocol) tools:
 | `update_user_profile` | Cập nhật T3 profile | SmartUpdater → YAML |
 | `update_personality` | Thay đổi IDENTITY/SOUL | File overwrite |
 | `web_search` | Tavily web search | TavilyClient → API |
+| `run_python_code` | Python code sandbox | CodeBoxClient → Docker |
 
 ### search_memory Modes
 
@@ -122,6 +124,26 @@ Bot sử dụng MCP (Model Context Protocol) tools:
 | `semantic` | Embedding search (default) | `query="..."` |
 | `time` | Filter by last_updated | `days=7` |
 | `topic` | Filter by canonical_topic | `topic="anime"` |
+
+### run_python_code (CodeBox Sandbox)
+
+Python code execution trong sandboxed Jupyter kernel:
+
+**Khi dùng:**
+- Tính toán toán học (lãi suất, xác suất, phép tính nhiều bước)
+- Phân tích data (CSV, JSON, lọc, đếm)
+- Test script (crawl, automation)
+- Tạo biểu đồ (matplotlib), Excel (pandas)
+
+**Khi KHÔNG dùng:**
+- Thời tiết/tin tức → dùng `web_search`
+- Chuyện cũ → dùng `search_memory`
+- Tóm tắt văn bản → LLM tự làm
+
+**Đặc điểm:**
+- Stateful: Biến lưu giữa các lần gọi (per-user session)
+- Timeout: 60 seconds
+- Output limit: 2000 chars (Discord limit)
 
 ---
 
@@ -235,10 +257,12 @@ src/
 │   │       ├── search_memory_tool.py
 │   │       ├── update_profile_tool.py
 │   │       ├── update_personality_tool.py
-│   │       └── web_search_tool.py
+│   │       ├── web_search_tool.py
+│   │       └── code_interpreter_tool.py
 │   │
 │   ├── external/
-│   │   └── tavily_client.py        # Tavily API client
+│   │   ├── tavily_client.py        # Tavily API client
+│   │   └── codebox_client.py       # CodeBox sandbox client
 │   │
 │   ├── queue/
 │   │   └── overflow_queue.py       # Redis overflow queue
@@ -376,6 +400,7 @@ QDRANT_URL=http://localhost:6333
 |---------|-----------|------|---------|
 | `redis` | `be_bay_redis` | 6379 | T1 Active Memory + Queue |
 | `qdrant` | `be_bay_qdrant` | 6333 | T2 Wiki Pages storage |
+| `codebox` | `be_bay_codebox` | 8069 | Python sandbox (Jupyter kernel) |
 | `be_bay_bot` | `be_bay_bot` | - | Discord bot |
 
 ---

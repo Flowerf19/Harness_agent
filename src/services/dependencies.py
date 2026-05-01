@@ -54,6 +54,7 @@ from src.services.tools.tool_discovery import discover_and_register_tools
 
 # --- External Services ---
 from src.services.external.tavily_client import TavilyClient
+from src.services.external.codebox_client import CodeBoxClient
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,7 @@ class AppContainer:
         self.redis_storage = None  # Track Redis storage for cleanup
         self.redis_client = None  # Raw Redis client for queue
         self.tavily_client = None  # Tavily web search client
+        self.codebox_client = None  # CodeBox sandbox client
         self.wiki_storage = None  # Wiki storage for cleanup
         self.nightly_trigger = None  # Scheduled trigger
 
@@ -158,6 +160,7 @@ class AppContainer:
 
         # 6. KHỞI TẠO MCP TOOL SYSTEM
         self.tavily_client = self._init_tavily_client()
+        self.codebox_client = self._init_codebox_client()
         tool_registry = ToolRegistry()
 
         tool_dependencies = {
@@ -166,6 +169,7 @@ class AppContainer:
             "embedding_service": self.embedding_service,
             "base_memory_path": "memories",
             "tavily_client": self.tavily_client,
+            "codebox_client": self.codebox_client,
         }
 
         tools_dir = "src/services/tools/implementations"
@@ -236,6 +240,10 @@ class AppContainer:
         if self.tavily_client:
             await self.tavily_client.close()
             logger.info("🔴 Tavily client closed")
+
+        if self.codebox_client:
+            await self.codebox_client.close()
+            logger.info("🔴 CodeBox client closed")
 
     async def _get_t1_storage(self) -> BaseStorage:
         """Factory method: Chọn storage implementation cho Tầng 1."""
@@ -339,6 +347,16 @@ class AppContainer:
             return client
         except Exception as e:
             logger.warning(f"⚠️ Tavily client initialization failed: {e}")
+            return None
+
+    def _init_codebox_client(self) -> CodeBoxClient | None:
+        """Initialize CodeBox client for Python code execution."""
+        try:
+            client = CodeBoxClient()
+            logger.info("✅ CodeBox client initialized - code sandbox enabled")
+            return client
+        except Exception as e:
+            logger.warning(f"⚠️ CodeBox client initialization failed: {e}")
             return None
 
 

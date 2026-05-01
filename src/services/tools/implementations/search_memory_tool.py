@@ -8,7 +8,7 @@ Uses WikiStorage for semantic search with embeddings.
 import logging
 from typing import Dict, Any, Optional, List
 
-import config
+from src.config.settings import Config
 from src.services.tools.base_tool import BaseTool, ToolExecutionError
 
 logger = logging.getLogger(__name__)
@@ -157,8 +157,8 @@ class SearchMemoryTool(BaseTool):
             results = await self.wiki_storage.search_similar(
                 user_id=user_id,
                 query_vector=query_vector,
-                top_k=config.SEARCH_TOP_K_SEMANTIC,
-                min_relevance=config.SEARCH_MIN_RELEVANCE,
+                top_k=Config.SEARCH_TOP_K_SEMANTIC,
+                min_relevance=Config.SEARCH_MIN_RELEVANCE,
             )
 
             if not results:
@@ -176,7 +176,7 @@ class SearchMemoryTool(BaseTool):
             results = await self.wiki_storage.search_by_time(
                 user_id=user_id,
                 days=days,
-                top_k=config.SEARCH_TOP_K_TIME,
+                top_k=Config.SEARCH_TOP_K_TIME,
             )
 
             if not results:
@@ -197,7 +197,7 @@ class SearchMemoryTool(BaseTool):
             results = await self.wiki_storage.search_by_topic(
                 user_id=user_id,
                 topic_keyword=topic,
-                top_k=config.SEARCH_TOP_K_TOPIC,
+                top_k=Config.SEARCH_TOP_K_TOPIC,
             )
 
             if not results:

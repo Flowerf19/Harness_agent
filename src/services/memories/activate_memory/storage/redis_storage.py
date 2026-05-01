@@ -36,6 +36,11 @@ class RedisStorage(BaseStorage):
 
         logger.info(f"🔴 RedisStorage: Initialized with TTL={SESSION_TIMEOUT_MINUTES}min")
 
+    @property
+    def redis(self) -> Redis:
+        """Expose the underlying Redis client for direct access."""
+        return self._redis
+
     async def close(self) -> None:
         """Close Redis connection pool gracefully."""
         await self._redis.close()

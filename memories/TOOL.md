@@ -1,193 +1,54 @@
-# HƯỚNG DẪN SỬ DỤNG TOOL
+# 🛠 AI AGENT TOOLKIT: GUIDELINES & SPECIFICATIONS
 
-## Quick Reference
-
-| Tool | Khi dùng | Query style |
-|------|----------|-------------|
-| `search_memory` | Chuyện cũ, sở thích, info đã chat | **CỤ THỂ**: topic, tên, category |
-| `web_search` | Tin mới, thời tiết, giá, tin tức | Keyword + "hôm nay", "giá", "tin tức" |
-| `update_user_profile` | Info MỚI về user (tên, quê, sở thích) | 1 fact rõ ràng |
-| `update_personality` | User YÊU CẦU thay đổi bot | Full Markdown content |
-
----
-
-## search_memory (Tìm ký ức T2)
-
-### 3 Search Modes
-
-| Mode | Khi dùng | Parameters |
-|------|----------|------------|
-| `semantic` (default) | Tìm nội dung, sở thích, facts | `query="..."` |
-| `time` | Tìm chuyện gần đây | `days=7` |
-| `topic` | Tìm theo tên topic chính xác | `topic="anime"` |
-
-### Mode: semantic (default)
-
-**Khi dùng:** Tìm nội dung, sở thích, facts dựa trên meaning.
-
-**Query phải CỤ THỂ:**
-
-**❌ KHÔNG:** Query chung chung
-- "nãy đã nói" → FAIL
-- "chuyện cũ" → FAIL
-- "cái đó" → FAIL
-
-**✅ ĐÚNG:** Extract keywords từ tin nhắn
-- User: "nãy tui nói đang xem anime gì?" → `query="anime đang xem"`
-- User: "sở thích của tui là gì?" → `query="sở thích"`
-- User: "tui thích game nào?" → `query="game sở thích"`
-
-**VD:**
-```
-search_memory(user_id="123", query="anime sở thích")
-search_memory(user_id="123", mode="semantic", query="crush relationship")
-```
-
-### Mode: time
-
-**Khi dùng:** "hôm qua nói gì", "tuần này", "gần đây".
-
-**VD:**
-```
-search_memory(user_id="123", mode="time", days=7)  # 7 ngày qua
-search_memory(user_id="123", mode="time", days=30) # 30 ngày qua
-```
-
-**User nói → Mode:**
-- "hôm qua tui nói gì" → `mode="time", days=1`
-- "tuần này có gì không" → `mode="time", days=7`
-- "gần đây có gì mới" → `mode="time", days=7`
-
-### Mode: topic
-
-**Khi dùng:** Tìm theo tên topic (keyword match trong `canonical_topic`).
-
-**VD:**
-```
-search_memory(user_id="123", mode="topic", topic="anime")     # Tất cả topics có "anime"
-search_memory(user_id="123", mode="topic", topic="game")      # Tất cả topics có "game"
-search_memory(user_id="123", mode="topic", topic="crush")     # Tất cả topics có "crush"
-```
-
-**Lưu ý:** Topic search là keyword match, không phải semantic. Kết quả được sort theo importance descending.
-
-### Quick Decision Flowchart
-
-```
-User hỏi về:
-├─ "hôm qua", "gần đây", "tuần này" → mode="time"
-├─ Topic cụ thể (anime, game, crush) → mode="topic"
-└─ Nội dung, sở thích, facts → mode="semantic" (default)
-```
-
-### Wiki Page structure (để query đúng)
-
-Wiki pages được chunk theo TOPIC, mỗi page có:
-- `canonical_topic`: snake_case (VD: "Evangelion_Anime", "Sở_thích_game")
-- `category`: entertainment, relationship, work_study, casual, daily_mood
-- `current_summary`: Nội dung chính
-- `key_points`: List facts cụ thể
-- `importance`: 1-5 (quan trọng)
-- `last_updated`: timestamp (dùng cho time mode)
-
-### Cách semantic search hoạt động
-
-**Embedding:** `canonical_topic + current_summary + key_points` được embed → semantic search
-**Query match:** Query có thể match với topic name, summary, hoặc individual facts
-
-**Query TỐT:**
-- Descriptive phrases: `"anime đang xem Evangelion"` → match summary
-- Topic + context: `"game sở thích"` → match summary
-- Specific facts: `"episode nào"` → match key_points `"watching ep 14"`
-
-**Query KÉM:**
-- Too vague: `"nãy đã nói"` → không match với bất kỳ content
+## 1. QUICK DECISION TREE (ROUTING)
+Xác định luồng xử lý trước khi gọi tool:
+1. **Dữ liệu cá nhân/Lịch sử chat?** ➔ `search_memory`
+2. **Kiến thức thời gian thực/Tin tức?** ➔ `web_search`
+3. **Tính toán/Phân tích Data?** ➔ `run_python_code`
+4. **Cập nhật Fact mới của User?** ➔ `update_user_profile`
+5. **Đổi tính cách/Cách nói của Bot?** ➔ `update_personality`
+*(Trường hợp kiến thức chung: KHÔNG dùng tool).*
 
 ---
 
-## web_search (Tìm tin tức real-time)
+## 2. TOOL SPECIFICATIONS
 
-### Khi dùng
-- Thời tiết, giá, tin tức
-- Sự kiện đang diễn ra
-- Info ngoài training data
+### 🧠 `search_memory` (Retrieve User Context)
+* **Chức năng:** Tìm kiếm thông tin đã chat, sở thích, dữ liệu lịch sử của user.
+* **Quy tắc:** Từ khóa phải CỤ THỂ. Không dùng query mơ hồ (VD: "chuyện nãy", "cái đó").
+* **3 Modes:**
+    1.  **semantic** (Default): Tìm theo ngữ nghĩa. (VD: `query="anime sở thích"`).
+    2.  **time**: Tìm theo mốc thời gian gần đây. (VD: `days=7`).
+    3.  **topic**: Tìm chính xác theo cụm chủ đề đã lưu. (VD: `topic="game"`).
 
-### Khi KHÔNG dùng
-- Sở thích, info user đã chat → dùng `search_memory`
-- Knowledge general (VD: "Python là gì") → không cần tool
+### 🌐 `web_search` (Real-time Knowledge)
+* **Chức năng:** Tra cứu tin tức, giá cả, thời tiết, sự kiện đang diễn ra.
+* **Quy tắc:** * **BẮT BUỘC** đính kèm keyword năm hiện tại (`2026`) hoặc `"mới nhất"`, `"hôm nay"` để tránh lấy data cũ.
+    * Tuyệt đối không dùng để tìm lịch sử user.
 
-### Query examples
-- `"thời tiết Hà Nội hôm nay"`
-- `"giá Bitcoin hiện tại"`
-- `"tin tức AI 2024"`
-- `"review phim Evangelion"` (chưa xem)
+### 🐍 `run_python_code` (Data & Logic Sandbox)
+* **Chức năng:** Tính toán phức tạp, phân tích/biến đổi dữ liệu (CSV, JSON), chạy script mô phỏng.
+* **Quy tắc:**
+    * Môi trường Stateful (lưu biến xuyên suốt session).
+    * Cho phép `!pip install`.
+    * **Cấm:** Dùng code để tự gọi API bên ngoài (phải dùng `web_search`) hoặc truy cập file hệ thống.
 
----
+### 👤 `update_user_profile` (Long-term Facts)
+* **Chức năng:** Lưu trữ thông tin cá nhân cốt lõi (Tên, quê, nghề nghiệp, sở thích cố định).
+* **Quy tắc:** * Lưu dạng Fact ngắn gọn, khách quan.
+    * Không lưu cảm xúc nhất thời hoặc thông tin phỏng đoán.
 
-## update_user_profile (Cập nhật T3 Core Memory)
-
-### Khi dùng
-- User chia sẻ info MỚI chắc chắn:
-  - Tên, nickname: "Tên tui là Hoàng"
-  - Quê: "Tui ở Phú Thọ"
-  - Sở thích: "Tui thích chơi Dota"
-  - Công việc: "Tui làm dev"
-
-### Khi KHÔNG dùng
-- Info đã biết → không update lại
-- Info mơ hồ: "có thể", "chắc là", "hình như"
-- Info tạm: "hôm nay buồn", "đang ăn"
-
-### Fact format
-```
-"Tên là Hoàng"         ✅
-"Sở thích chơi Dota"   ✅
-"Quê Phú Thọ"          ✅
-"chắc là tui thích..." ❌ (mơ hồ)
-```
+### 🎭 `update_personality` (Identity Mutation)
+* **Chức năng:** Thay đổi file cấu hình tính cách (SOUL.md) hoặc định danh (IDENTITY.md).
+* **Quy tắc:** * Chỉ dùng khi user yêu cầu đổi cách xưng hô, tone giọng hoặc phong cách phản hồi.
+    * Phải cung cấp nội dung Full Markdown.
 
 ---
 
-## update_personality (Viết lại IDENTITY/SOUL)
-
-### ⚠️ OVERWRITE toàn bộ file
-Bot phải:
-1. Đọc content cũ từ system prompt
-2. Merge với yêu cầu mới
-3. Provide FULL Markdown content
-
-### Auto-routing
-- Keywords: tên, tính cách, backstory → IDENTITY.md
-- Keywords: nói, ngắn, emoji, style → SOUL.md
-
-### CHỈ dùng khi user YÊU CẦU
-- "Bot nói ngắn hơn" → update SOUL.md
-- "Bot tên là ABC" → update IDENTITY.md
-- KHÔNG tự ý thay đổi
-
----
-
-## Decision Flowchart
-
-```
-User nhắc chuyện cũ?
-├─ Yes → search_memory (query cụ thể)
-└─ No → User hỏi tin mới?
-    ├─ Yes → web_search
-    └─ No → User chia sẻ info cá nhân?
-        ├─ Yes → update_user_profile
-        └─ No → User yêu cầu thay đổi bot?
-            ├─ Yes → update_personality
-            └─ No → Không cần tool
-```
-
----
-
-## Common Mistakes
-
-| Mistake | Fix |
-|---------|-----|
-| `search_memory(query="nãy đã nói")` | Extract: `"anime"` hoặc `"game"` |
-| `web_search` cho info đã chat | Dùng `search_memory` |
-| `update_user_profile` cho info biết | Không update, dùng已有的 |
-| Generic query không match topic | Add category keyword: `"anime entertainment"` |
+## 3. ANTI-PATTERNS (LỖI CẦN TRÁNH)
+| Hành vi SAI | Giải pháp ĐÚNG |
+| :--- | :--- |
+| `search_memory(query="vừa nãy nói gì")` | Dùng `mode="time", days=1` |
+| Tìm giá Bitcoin bằng `run_python_code` | Dùng `web_search(query="giá bitcoin hôm nay 2026")` |
+| Dùng `web_search` tìm sở thích user | Dùng `search_memory` |
+| Cập nhật fact: "User đang thấy đói" | Không lưu (thông tin tạm thời) |

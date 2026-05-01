@@ -81,3 +81,15 @@ class Config:
     TAVILY_MAX_RESULTS = int(os.getenv("TAVILY_MAX_RESULTS", "5"))
     TAVILY_SEARCH_DEPTH = os.getenv("TAVILY_SEARCH_DEPTH", "basic")
     TAVILY_TIMEOUT = int(os.getenv("TAVILY_TIMEOUT", "30"))
+
+    # CodeBox API configuration for Python code execution (Sandbox)
+    CODEBOX_API_URL = os.getenv("CODEBOX_API_URL", "http://localhost:8069")
+    CODEBOX_TIMEOUT = int(os.getenv("CODEBOX_TIMEOUT", "60"))  # seconds
+    CODEBOX_MAX_OUTPUT_CHARS = int(os.getenv("CODEBOX_MAX_OUTPUT_CHARS", "2000"))  # Discord limit
+    CODEBOX_SESSION_TTL = int(os.getenv("CODEBOX_SESSION_TTL", "1800"))  # 30 minutes
+
+    # Search Memory configuration
+    SEARCH_TOP_K_SEMANTIC = int(os.getenv("SEARCH_TOP_K_SEMANTIC", "5"))
+    SEARCH_TOP_K_TIME = int(os.getenv("SEARCH_TOP_K_TIME", "10"))
+    SEARCH_TOP_K_TOPIC = int(os.getenv("SEARCH_TOP_K_TOPIC", "10"))
+    SEARCH_MIN_RELEVANCE = float(os.getenv("SEARCH_MIN_RELEVANCE", "0.3"))
