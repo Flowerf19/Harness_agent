@@ -66,7 +66,7 @@ class CodeInterpreterTool(BaseTool):
     def description(self) -> str:
         return (
             "Thực thi mã Python trong môi trường Sandbox (Jupyter Kernel). "
-            "Dùng cho: Tính toán, phân tích data, test script. "
+            "Dùng cho: Tính toán, phân tích data, test script, tạo file, đọc file. "
             "Chi tiết cách dùng và khi nào KHÔNG dùng xem TOOL.md."
         )
 
@@ -91,6 +91,42 @@ class CodeInterpreterTool(BaseTool):
                         "VD: 'x = [1,2,3]\\nprint(sum(x))'"
                     )
                 },
+                "kernel": {
+                    "type": "string",
+                    "enum": ["ipython", "bash"],
+                    "description": (
+                        "Kernel type: 'ipython' (Python, default) hoặc 'bash' (shell commands). "
+                        "Dùng bash cho: pip install, ls, mkdir, etc."
+                    )
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": (
+                        "Working directory. VD: '/workspace', '/workspace/data'. "
+                        "Default là /workspace."
+                    )
+                },
+                "file_content": {
+                    "type": "string",
+                    "description": (
+                        "Nội dung file để upload (base64 encoded). "
+                        "Dùng với filename param để upload file vào workspace."
+                    )
+                },
+                "filename": {
+                    "type": "string",
+                    "description": (
+                        "Tên file để upload. VD: 'data.csv', 'script.py'. "
+                        "Dùng cùng với file_content."
+                    )
+                },
+                "download_file_name": {
+                    "type": "string",
+                    "description": (
+                        "Tên file cần download từ workspace. VD: 'output.csv', 'plot.png'. "
+                        "File sẽ được trả về dưới dạng base64."
+                    )
+                },
             },
             "required": ["user_id", "code"]
         }
@@ -103,6 +139,11 @@ class CodeInterpreterTool(BaseTool):
         self,
         user_id: str,
         code: str,
+        kernel: Optional[str] = None,
+        cwd: Optional[str] = None,
+        file_content: Optional[str] = None,
+        filename: Optional[str] = None,
+        download_file_name: Optional[str] = None,
     ) -> str:
         """
         Execute Python code in sandboxed environment.
@@ -110,6 +151,11 @@ class CodeInterpreterTool(BaseTool):
         Args:
             user_id: Discord user ID (numeric) - determines session
             code: Python code to execute (no markdown ticks)
+            kernel: Kernel type - "ipython" (default) or "bash"
+            cwd: Working directory
+            file_content: Base64 encoded file content to upload
+            filename: Filename for upload
+            download_file_name: Filename to download
 
         Returns:
             str: Execution output or error message
@@ -133,20 +179,70 @@ class CodeInterpreterTool(BaseTool):
         if not self.codebox_client:
             return "Lỗi: Code Sandbox chưa được cấu hình. Vui lòng bật CodeBox service."
 
+        # Validate kernel - default to ipython
+        if kernel is None:
+            kernel = "ipython"
+        elif kernel not in ("ipython", "bash"):
+            logger.warning(f"Invalid kernel '{kernel}', defaulting to ipython")
+            kernel = "ipython"
+
         # Execute code
         try:
             logger.info(
-                f"🐍 Code execution: user={user_id}, "
-                f"length={len(code)} chars"
+                f"🐍 Code execution: user={user_id}, kernel={kernel}, "
+                f"cwd={cwd}, length={len(code)} chars"
             )
 
+            # Handle file upload if provided
+            upload_result = None
+            if file_content and filename:
+                import base64
+                try:
+                    file_bytes = base64.b64decode(file_content)
+                    upload_result = await self.codebox_client.upload_file(
+                        file_content=file_bytes,
+                        filename=filename,
+                        user_id=user_id,
+                    )
+                    logger.info(f"File uploaded: {filename}")
+                except Exception as e:
+                    logger.error(f"Upload error: {e}")
+                    return f"❌ **Upload Error:** {e}"
+
+            # Execute code
             result = await self.codebox_client.run_code(
                 user_id=user_id,
-                code=code
+                code=code,
+                kernel=kernel,
+                cwd=cwd,
             )
 
+            # Handle file download if requested
+            download_result = None
+            if download_file_name:
+                try:
+                    file_bytes = await self.codebox_client.download_file(
+                        file_name=download_file_name,
+                        user_id=user_id,
+                    )
+                    import base64
+                    download_result = base64.b64encode(file_bytes).decode("utf-8")
+                    logger.info(f"File downloaded: {download_file_name} ({len(file_bytes)} bytes)")
+                except Exception as e:
+                    logger.error(f"Download error: {e}")
+                    # Don't fail completely - still return code result
+                    download_result = f"ERROR: {e}"
+
             # Format result
-            return self._format_result(result)
+            output = self._format_result(result)
+
+            # Add upload/download info if applicable
+            if upload_result:
+                output += f"\n\n📁 **Uploaded:** {filename}"
+            if download_result and not download_result.startswith("ERROR"):
+                output += f"\n\n📁 **Downloaded:** {download_file_name} (base64: {len(download_result)} chars)"
+
+            return output
 
         except CodeBoxError as e:
             logger.error(f"CodeBox error: {e.message}")

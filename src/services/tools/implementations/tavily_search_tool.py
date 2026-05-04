@@ -11,10 +11,11 @@ Architecture:
 """
 
 import logging
-from typing import Dict, Any, Optional
+import json
+from typing import Dict, Any, Optional, List
 
 from src.services.tools.base_tool import BaseTool, ToolExecutionError
-from src.services.external.tavily_client import TavilyClient, TavilyApiError
+from src.services.external.tavily_client import TavilyClient, TavilyApiError, SearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,26 @@ class TavilySearchTool(BaseTool):
                     "minimum": 1,
                     "maximum": 10,
                     "description": "Số kết quả tối đa trả về. Mặc định: 5"
+                },
+                "topic": {
+                    "type": "string",
+                    "enum": ["general", "news"],
+                    "description": "Chủ đề tìm kiếm. 'general' cho tìm kiếm chung, 'news' cho tin tức. Mặc định: 'general'"
+                },
+                "include_domains": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Danh sách domain được phép tìm kiếm. VD: ['vnexpress.net', 'tuoitre.vn']"
+                },
+                "exclude_domains": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Danh sách domain bị loại trừ. VD: ['wikipedia.org']"
+                },
+                "time_range": {
+                    "type": "string",
+                    "enum": ["day", "week", "month", "year"],
+                    "description": "Khoảng thời gian tìm kiếm. 'day': hôm nay, 'week': tuần này, 'month': tháng này, 'year': năm nay"
                 }
             },
             "required": ["query"]
@@ -89,6 +110,11 @@ class TavilySearchTool(BaseTool):
         query: str,
         search_depth: str = "basic",
         max_results: int = 5,
+        topic: Optional[str] = None,
+        include_domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+        time_range: Optional[str] = None,
+        format: str = "user",
     ) -> str:
         """
         Execute web search via Tavily API.
@@ -97,6 +123,11 @@ class TavilySearchTool(BaseTool):
             query: Search query string
             search_depth: "basic" or "advanced"
             max_results: Number of results (1-10)
+            topic: "general" or "news"
+            include_domains: Whitelist domains
+            exclude_domains: Blacklist domains
+            time_range: "day", "week", "month", "year"
+            format: Output format - "user" for human-readable, "llm" for JSON
 
         Returns:
             str: Formatted search results or error message
@@ -119,6 +150,9 @@ class TavilySearchTool(BaseTool):
 
         max_results = max(1, min(10, max_results))  # Clamp to 1-10
 
+        if format not in ["user", "llm"]:
+            format = "user"
+
         # Execute search
         try:
             logger.info(f"🌐 Web search: query='{query[:50]}...', depth={search_depth}")
@@ -128,10 +162,17 @@ class TavilySearchTool(BaseTool):
                 search_depth=search_depth,
                 max_results=max_results,
                 include_answer=True,
+                topic=topic,
+                include_domains=include_domains,
+                exclude_domains=exclude_domains,
+                time_range=time_range,
             )
 
-            # Format results
-            return self._format_results(response)
+            # Format results based on requested format
+            if format == "llm":
+                return self.format_for_llm(response, query, topic, time_range)
+            else:
+                return self.format_for_user(response)
 
         except TavilyApiError as e:
             logger.error(f"Tavily API error: {e.message}")
@@ -177,13 +218,102 @@ class TavilySearchTool(BaseTool):
             if url:
                 lines.append(f"   🔗 {url}")
             if content:
-                # Truncate long content
-                if len(content) > 300:
-                    content = content[:300] + "..."
-                lines.append(f"   📝 {content}")
+                # Smart truncate with sentence boundary
+                lines.append(f"   📝 {self._smart_truncate(content)}")
             lines.append("")
 
         return "\n".join(lines).strip()
+
+    def _smart_truncate(self, text: str, max_length: int = 300) -> str:
+        """
+        Truncate text at sentence boundary instead of hard character cut.
+
+        Finds last sentence boundary (`.`, `!`, `?`, `...`, newline) before
+        max_length chars. Falls back to hard truncate if no boundary found.
+
+        Args:
+            text: Text to truncate
+            max_length: Maximum character length
+
+        Returns:
+            str: Truncated text with "..." if truncated
+        """
+        if len(text) <= max_length:
+            return text
+
+        truncated = text[:max_length]
+
+        # Find last sentence boundary
+        boundaries = [". ", "! ", "? ", "...", "\n"]
+        last_boundary_pos = -1
+        for boundary in boundaries:
+            pos = truncated.rfind(boundary)
+            if pos > last_boundary_pos:
+                last_boundary_pos = pos
+
+        if last_boundary_pos > 0:
+            # Include the boundary character(s)
+            end_pos = last_boundary_pos + len(boundaries[0])  # use ". " length
+            # Find which boundary matched and use its length
+            for b in boundaries:
+                if truncated.rfind(b) == last_boundary_pos:
+                    end_pos = last_boundary_pos + len(b)
+                    break
+            return truncated[:end_pos].rstrip() + "..."
+        else:
+            # No sentence boundary found, hard truncate
+            return truncated + "..."
+
+    def format_for_llm(self, response: Dict[str, Any], query: str,
+                       topic: Optional[str] = None,
+                       time_range: Optional[str] = None) -> str:
+        """
+        Format search results as JSON for LLM consumption.
+
+        Args:
+            response: API response dict with 'answer' and 'results'
+            query: Original search query
+            topic: Search topic ("general" or "news")
+            time_range: Time range ("day", "week", "month", "year")
+
+        Returns:
+            str: JSON string of SearchResult
+        """
+        results = response.get("results", [])
+        sources = [
+            {
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "content": r.get("content", ""),
+                "score": r.get("score", 0),
+            }
+            for r in results
+        ]
+
+        search_result = SearchResult(
+            query=query,
+            answer=response.get("answer"),
+            sources=sources,
+            topic=topic,
+            time_range=time_range,
+            result_count=len(results),
+        )
+
+        return json.dumps(search_result.__dict__, ensure_ascii=False, indent=2)
+
+    def format_for_user(self, response: Dict[str, Any]) -> str:
+        """
+        Format search results as human-readable Vietnamese text.
+
+        Uses smart truncation for long content.
+
+        Args:
+            response: API response dict with 'answer' and 'results'
+
+        Returns:
+            str: Human-readable formatted text
+        """
+        return self._format_results(response)
 
     def _user_friendly_error(self, error: TavilyApiError) -> str:
         """

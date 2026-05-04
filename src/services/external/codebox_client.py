@@ -231,13 +231,23 @@ class CodeBoxClient:
             "error": error,
         }
 
-    async def run_code(self, user_id: str, code: str) -> Dict[str, Any]:
+    async def run_code(
+        self,
+        user_id: str,
+        code: str,
+        kernel: str = "ipython",
+        timeout: Optional[int] = None,
+        cwd: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Execute Python code in user's sandboxed session.
 
         Args:
             user_id: Discord user ID
             code: Python code to execute
+            kernel: Kernel type - "ipython" (default) or "bash"
+            timeout: Execution timeout in seconds (server default if None)
+            cwd: Working directory (server default if None)
 
         Returns:
             Dict containing:
@@ -256,12 +266,16 @@ class CodeBoxClient:
         try:
             logger.info(f"Executing code for user: {user_id} (length: {len(code)} chars)")
 
+            # Build payload - only include non-None optional fields
+            payload = {"code": code, "kernel": kernel}
+            if timeout is not None:
+                payload["timeout"] = timeout
+            if cwd is not None:
+                payload["cwd"] = cwd
+
             # Execute code via HTTP POST
             response = await asyncio.wait_for(
-                session.http_client.post(
-                    "/exec",
-                    json={"code": code, "kernel": "ipython"},
-                ),
+                session.http_client.post("/exec", json=payload),
                 timeout=self.timeout
             )
 
@@ -306,6 +320,92 @@ class CodeBoxClient:
         except Exception as e:
             logger.error(f"Code execution error for user {user_id}: {e}")
             raise CodeBoxError(f"Execution failed: {e}", original_error=e)
+
+    async def upload_file(
+        self,
+        file_content: bytes,
+        filename: str,
+        user_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Upload a file to the user's CodeBox workspace.
+
+        Args:
+            file_content: File content as bytes
+            filename: Name of the file to upload
+            user_id: Discord user ID
+
+        Returns:
+            Dict with success status and filename
+
+        Raises:
+            CodeBoxError: If upload fails
+        """
+        # Validate filename
+        if ".." in filename or filename.startswith("/"):
+            raise CodeBoxError(f"Invalid filename: {filename}")
+
+        session = await self._get_or_create_session(user_id)
+
+        try:
+            logger.info(f"Uploading file '{filename}' for user: {user_id}")
+
+            response = await session.http_client.post(
+                "/files/upload",
+                files={"file": (filename, file_content, "application/octet-stream")},
+            )
+
+            if response.status_code not in (200, 201):
+                raise CodeBoxError(f"Upload failed (HTTP {response.status_code}): {response.text}")
+
+            session.touch()
+            return {"success": True, "filename": filename}
+
+        except httpx.HTTPError as e:
+            logger.error(f"HTTP error uploading file for user {user_id}: {e}")
+            raise CodeBoxError(f"Upload HTTP error: {e}", original_error=e)
+
+    async def download_file(
+        self,
+        file_name: str,
+        user_id: str,
+    ) -> bytes:
+        """
+        Download a file from the user's CodeBox workspace.
+
+        Args:
+            file_name: Name of the file to download
+            user_id: Discord user ID
+
+        Returns:
+            File content as bytes
+
+        Raises:
+            CodeBoxError: If download fails
+        """
+        # Validate file_name - only allow safe characters
+        import re
+        if not re.match(r"^[a-zA-Z0-9._-]+$", file_name):
+            raise CodeBoxError(f"Invalid file name: {file_name}")
+
+        session = await self._get_or_create_session(user_id)
+
+        try:
+            logger.info(f"Downloading file '{file_name}' for user: {user_id}")
+
+            response = await session.http_client.get(f"/files/download/{file_name}")
+
+            if response.status_code != 200:
+                raise CodeBoxError(f"Download failed (HTTP {response.status_code}): {response.text}")
+
+            session.touch()
+            return response.content
+
+        except CodeBoxError:
+            raise
+        except httpx.HTTPError as e:
+            logger.error(f"HTTP error downloading file for user {user_id}: {e}")
+            raise CodeBoxError(f"Download HTTP error: {e}", original_error=e)
 
     async def _kill_session(self, user_id: str):
         """Kill and remove a user's session."""
