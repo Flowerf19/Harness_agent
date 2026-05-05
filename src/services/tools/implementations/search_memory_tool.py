@@ -44,7 +44,7 @@ class SearchMemoryTool(BaseTool):
         """
         self.wiki_storage = wiki_storage
         self.embedding_service = embedding_service
-        logger.info(
+        logger.debug(
             f"SearchMemoryTool initialized with "
             f"wiki_storage={wiki_storage is not None}, "
             f"embedding_service={embedding_service is not None}"

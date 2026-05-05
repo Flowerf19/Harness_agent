@@ -34,7 +34,7 @@ class RedisStorage(BaseStorage):
         self._redis: Redis = Redis(connection_pool=self._pool)
         self._ttl_seconds = SESSION_TIMEOUT_MINUTES * 60
 
-        logger.info(f"🔴 RedisStorage: Initialized with TTL={SESSION_TIMEOUT_MINUTES}min")
+        logger.debug(f"🔴 RedisStorage: Initialized with TTL={SESSION_TIMEOUT_MINUTES}min")
 
     @property
     def redis(self) -> Redis:
@@ -45,7 +45,7 @@ class RedisStorage(BaseStorage):
         """Close Redis connection pool gracefully."""
         await self._redis.close()
         await self._pool.disconnect()
-        logger.info("🔴 RedisStorage: Connection pool closed")
+        logger.debug("🔴 RedisStorage: Connection pool closed")
 
     async def health_check(self) -> bool:
         """Check if Redis connection is healthy."""

@@ -81,7 +81,7 @@ class ToolDiscovery:
         self.registry = registry
         self.dependencies = dependencies or {}
         
-        logger.info(f"ToolDiscovery initialized: dir={tools_dir}")
+        logger.debug(f"ToolDiscovery initialized: dir={tools_dir}")
     
     # ==========================================
     # DISCOVERY METHODS
@@ -104,7 +104,7 @@ class ToolDiscovery:
         
         # Find all tool files
         tool_files = list(tools_path.glob(self.TOOL_FILE_PATTERN))
-        logger.info(f"Found {len(tool_files)} potential tool files in {self.tools_dir}")
+        logger.debug(f"Found {len(tool_files)} potential tool files in {self.tools_dir}")
         
         # Process each file
         for tool_file in tool_files:
@@ -115,7 +115,7 @@ class ToolDiscovery:
                 logger.error(f"Failed to discover tools from {tool_file}: {e}")
                 continue
         
-        logger.info(f"✅ Discovered {len(discovered_tools)} tools total")
+        logger.debug(f"✅ Discovered {len(discovered_tools)} tools total")
         return discovered_tools
     
     def _discover_tools_from_file(self, tool_file: Path) -> List[BaseTool]:
@@ -160,7 +160,7 @@ class ToolDiscovery:
                     self.registry.register_tool(tool_instance)
                     
                     discovered_tools.append(tool_instance)
-                    logger.info(f"  ✅ Discovered: {obj.__name__} -> {tool_instance.name}")
+                    logger.debug(f"  ✅ Discovered: {obj.__name__} -> {tool_instance.name}")
                     
                 except Exception as e:
                     logger.error(f"Failed to instantiate tool {obj.__name__}: {e}")

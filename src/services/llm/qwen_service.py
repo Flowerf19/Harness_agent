@@ -123,9 +123,9 @@ class QwenService(BaseLLMService):
                                 "arguments": args_dict
                             })
 
-                        self.logger.info(f"🛠️ Qwen returned {len(tool_calls)} tool calls: {[tc['name'] for tc in tool_calls]}")
+                        self.logger.debug(f"🛠️ Qwen returned {len(tool_calls)} tool calls: {[tc['name'] for tc in tool_calls]}")
 
-                    self.logger.info(
+                    self.logger.debug(
                         f"Qwen API - Input tokens: {input_tokens}, "
                         f"Output tokens: {output_tokens}, Total: {total_tokens}"
                     )

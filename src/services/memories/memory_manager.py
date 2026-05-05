@@ -48,7 +48,7 @@ class MemoryManager:
         self._wire_events()
 
         queue_status = "enabled" if overflow_queue else "disabled"
-        logger.info(
+        logger.debug(
             f"🧠 MemoryManager: Đã khởi tạo và nối dây thành công 3 Tầng Trí Nhớ! "
             f"(Overflow queue: {queue_status})"
         )
@@ -70,7 +70,7 @@ class MemoryManager:
         # Queue snapshot for Evernight processing
         if self.overflow_queue:
             await self.overflow_queue.push(user_id, snapshot)
-            logger.info(f"📤 MemoryManager: Queued overflow for user {user_id}")
+            logger.debug(f"📤 MemoryManager: Queued overflow for user {user_id}")
 
         # Spawn Evernight task (fire and forget)
         if self.spawner:

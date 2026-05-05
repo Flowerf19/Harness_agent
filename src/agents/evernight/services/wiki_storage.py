@@ -56,9 +56,9 @@ class WikiStorage:
                         distance=models.Distance.COSINE,
                     ),
                 )
-                logger.info(f"✅ WikiStorage: Created collection '{self.COLLECTION_NAME}'")
+                logger.debug(f"✅ WikiStorage: Created collection '{self.COLLECTION_NAME}'")
             else:
-                logger.info(f"✅ WikiStorage: Collection '{self.COLLECTION_NAME}' already exists")
+                logger.debug(f"✅ WikiStorage: Collection '{self.COLLECTION_NAME}' already exists")
         except Exception as e:
             logger.error(f"❌ WikiStorage: Error initializing collection: {e}")
             raise
@@ -66,7 +66,7 @@ class WikiStorage:
     async def close(self) -> None:
         """Close Qdrant client connection."""
         await self._client.close()
-        logger.info("🔴 WikiStorage: Connection closed")
+        logger.debug("🔴 WikiStorage: Connection closed")
 
     async def lookup_by_page_id(self, page_id: str) -> Optional[WikiPagePayload]:
         """

@@ -20,7 +20,7 @@ ENV_PATH="/opt/conda_envs/${ENV_NAME}"\n\
 if [ -d "${ENV_PATH}" ]; then\n\
     echo "✅ Conda env '${ENV_NAME}' đã tồn tại, kiểm tra requirements..."\n\
     source activate ${ENV_PATH}\n\
-    pip install --no-cache-dir -r /app/requirements.txt 2>/dev/null || true\n\
+    pip install --no-cache-dir -r /app/requirements.txt > /dev/null 2>&1 || true\n\
 else\n\
     echo "🔨 Tạo mới conda env '${ENV_NAME}'..."\n\
     mkdir -p /opt/conda_envs\n\

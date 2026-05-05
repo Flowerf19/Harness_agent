@@ -130,7 +130,7 @@ class CodeBoxClient:
         # Lock for session operations
         self._lock = asyncio.Lock()
 
-        logger.info(
+        logger.debug(
             f"CodeBoxClient initialized - url: {self.api_url}, "
             f"timeout: {self.timeout}s, ttl: {self.session_ttl}s"
         )
@@ -152,7 +152,7 @@ class CodeBoxClient:
                 del self._sessions[user_id]
 
         if expired_users:
-            logger.info(f"Cleaned up {len(expired_users)} expired sessions")
+            logger.debug(f"Cleaned up {len(expired_users)} expired sessions")
 
     async def _get_or_create_session(self, user_id: str) -> UserSession:
         """
@@ -175,7 +175,7 @@ class CodeBoxClient:
                 return session
 
             # Create new session with dedicated HTTP client
-            logger.info(f"Creating new CodeBox session for user: {user_id}")
+            logger.debug(f"Creating new CodeBox session for user: {user_id}")
             
             # Create session_id from user_id (used to identify kernel state)
             session_id = f"user_{user_id}"
@@ -264,7 +264,7 @@ class CodeBoxClient:
         session = await self._get_or_create_session(user_id)
 
         try:
-            logger.info(f"Executing code for user: {user_id} (length: {len(code)} chars)")
+            logger.debug(f"Executing code for user: {user_id} (length: {len(code)} chars)")
 
             # Build payload - only include non-None optional fields
             payload = {"code": code, "kernel": kernel}
@@ -348,7 +348,7 @@ class CodeBoxClient:
         session = await self._get_or_create_session(user_id)
 
         try:
-            logger.info(f"Uploading file '{filename}' for user: {user_id}")
+            logger.debug(f"Uploading file '{filename}' for user: {user_id}")
 
             response = await session.http_client.post(
                 "/files/upload",
@@ -391,7 +391,7 @@ class CodeBoxClient:
         session = await self._get_or_create_session(user_id)
 
         try:
-            logger.info(f"Downloading file '{file_name}' for user: {user_id}")
+            logger.debug(f"Downloading file '{file_name}' for user: {user_id}")
 
             response = await session.http_client.get(f"/files/download/{file_name}")
 
@@ -416,7 +416,7 @@ class CodeBoxClient:
                 except Exception:
                     pass
                 del self._sessions[user_id]
-                logger.info(f"Session killed for user: {user_id}")
+                logger.debug(f"Session killed for user: {user_id}")
 
     async def close(self):
         """Close all sessions and cleanup."""
@@ -428,7 +428,7 @@ class CodeBoxClient:
                     logger.warning(f"Failed to close session for {user_id}: {e}")
 
             self._sessions.clear()
-            logger.info("All CodeBox sessions closed")
+            logger.debug("All CodeBox sessions closed")
 
     async def health_check(self) -> bool:
         """

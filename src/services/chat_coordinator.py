@@ -50,7 +50,7 @@ class ChatCoordinator:
 
         # Log initialization
         tool_mode = "MCP Client" if mcp_client else "No tools"
-        logger.info(f"🔧 ChatCoordinator initialized: use_native_tools={self.use_native_tools}, llm_type={self._llm_type}, model={self._model_name}, tool_mode={tool_mode}")
+        logger.debug(f"🔧 ChatCoordinator initialized: use_native_tools={self.use_native_tools}, llm_type={self._llm_type}, model={self._model_name}, tool_mode={tool_mode}")
 
     def _detect_llm_type(self) -> str:
         """Detect LLM service type for proper context message formatting."""
@@ -161,7 +161,7 @@ class ChatCoordinator:
                 if isinstance(llm_response, LLMResponse) and llm_response.has_tool_calls():
                     # NẾU LLM MUỐN DÙNG TOOL -> Khoan gửi cho user!
                     tool_calls = llm_response.tool_calls
-                    logger.info(f"🛠️ Agent muốn dùng {len(tool_calls)} tools: {[tc['name'] for tc in tool_calls]} (Lần lặp {i+1}/{max_iterations})")
+                    logger.debug(f"🛠️ Agent wants to use {len(tool_calls)} tools: {[tc['name'] for tc in tool_calls]} (iteration {i+1}/{max_iterations})")
 
                     # Format assistant message with tool calls
                     tool_call_msg = self._format_tool_call_message(tool_calls)
@@ -181,7 +181,7 @@ class ChatCoordinator:
                                 timeout=TOOL_EXECUTION_TIMEOUT
                             )
 
-                            logger.info(f"✅ Tool '{tool_name}' executed successfully")
+                            logger.debug(f"✅ Tool '{tool_name}' executed successfully")
 
                         except asyncio.TimeoutError:
                             logger.warning(f"⚠️ Tool '{tool_name}' timeout after {TOOL_EXECUTION_TIMEOUT}s")
@@ -211,7 +211,7 @@ class ChatCoordinator:
             bot_response: str
             if isinstance(llm_response, LLMResponse):
                 bot_response = llm_response.content
-                logger.info(
+                logger.debug(
                     f"📊 Token Usage for user {user_id}: "
                     f"Input={llm_response.input_tokens}, "
                     f"Output={llm_response.output_tokens}, "

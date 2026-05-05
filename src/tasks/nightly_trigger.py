@@ -50,7 +50,7 @@ class NightlyTrigger:
 
         self._running = True
         self._task = asyncio.create_task(self._run_loop())
-        logger.info(f"🕐 NightlyTrigger: Started (trigger at {self.trigger_hour:02d}:{self.trigger_minute:02d})")
+        logger.debug(f"🕐 NightlyTrigger: Started (trigger at {self.trigger_hour:02d}:{self.trigger_minute:02d})")
 
     async def stop(self) -> None:
         """Stop the scheduled task."""
@@ -62,7 +62,7 @@ class NightlyTrigger:
             except asyncio.CancelledError:
                 pass
             self._task = None
-        logger.info("🛑 NightlyTrigger: Stopped")
+        logger.debug("🛑 NightlyTrigger: Stopped")
 
     async def _run_loop(self) -> None:
         """Main loop that sleeps until trigger time."""
@@ -74,7 +74,7 @@ class NightlyTrigger:
                 wait_seconds = (next_trigger - now).total_seconds()
 
                 if wait_seconds > 0:
-                    logger.info(f"💤 NightlyTrigger: Sleeping {wait_seconds/3600:.1f}h until {next_trigger}")
+                    logger.debug(f"💤 NightlyTrigger: Sleeping {wait_seconds/3600:.1f}h until {next_trigger}")
                     await asyncio.sleep(wait_seconds)
 
                 # Check if still running after sleep
@@ -82,7 +82,7 @@ class NightlyTrigger:
                     break
 
                 # Trigger consolidation
-                logger.info("🌅 NightlyTrigger: Triggering nightly consolidation")
+                logger.debug("🌅 NightlyTrigger: Triggering nightly consolidation")
                 await self._scan_and_queue_users()
                 await self.spawner.process_queue()
 
@@ -90,7 +90,7 @@ class NightlyTrigger:
                 self._processed_users.clear()
 
             except asyncio.CancelledError:
-                logger.info("🌙 NightlyTrigger: Loop cancelled")
+                logger.debug("🌙 NightlyTrigger: Loop cancelled")
                 break
             except Exception as e:
                 logger.error(f"❌ NightlyTrigger: Error in loop: {e}", exc_info=True)
@@ -137,7 +137,7 @@ class NightlyTrigger:
 
             # This is a placeholder that should be connected to the actual
             # T1 storage scanning mechanism when available.
-            logger.info("🔍 NightlyTrigger: Scanning for users with T1 data")
+            logger.debug("🔍 NightlyTrigger: Scanning for users with T1 data")
 
             # For now, return 0 - actual implementation would scan T1 storage
             # and push users with pending data to the queue
@@ -153,7 +153,7 @@ class NightlyTrigger:
 
         Used for testing or manual intervention.
         """
-        logger.info("⚡ NightlyTrigger: Manual trigger")
+        logger.debug("⚡ NightlyTrigger: Manual trigger")
         await self._scan_and_queue_users()
         await self.spawner.process_queue()
 

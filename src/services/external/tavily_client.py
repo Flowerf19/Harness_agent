@@ -122,7 +122,7 @@ class TavilyClient:
         self._session: Optional[aiohttp.ClientSession] = None
         self._redis_client: Optional[Any] = None
 
-        logger.info(
+        logger.debug(
             f"TavilyClient initialized - configured: {self.is_configured()}, "
             f"max_results: {self.max_results}, depth: {self.search_depth}"
         )
@@ -214,7 +214,7 @@ class TavilyClient:
                     await conn.set(self.CB_REDIS_KEY_LAST_FAILURE, last_failure_time)
                 else:
                     await conn.set(self.CB_REDIS_KEY_LAST_FAILURE, time.time())
-            logger.info(f"Tavily circuit breaker → state={state}, failures={failure_count}")
+            logger.debug(f"Tavily circuit breaker → state={state}, failures={failure_count}")
         except Exception as e:
             logger.warning(f"Tavily circuit breaker: failed to write state: {e}")
 
@@ -246,7 +246,7 @@ class TavilyClient:
             else:
                 # Transition to half-open
                 await self._cb_set_state("half-open", cb["failure_count"], cb["last_failure_time"])
-                logger.info("Tavily circuit breaker: open → half-open (test call allowed)")
+                logger.debug("Tavily circuit breaker: open → half-open (test call allowed)")
                 return True
 
         if state == "half-open":
@@ -258,7 +258,7 @@ class TavilyClient:
     async def _cb_on_success(self) -> None:
         """Handle successful call — reset to closed."""
         await self._cb_set_state("closed", failure_count=0, last_failure_time=None)
-        logger.info("Tavily circuit breaker: → closed (success)")
+        logger.debug("Tavily circuit breaker: → closed (success)")
 
     async def _cb_on_failure(self) -> int:
         """
@@ -384,7 +384,7 @@ class TavilyClient:
             "time_range": time_range,
         }
 
-        logger.info(f"🔍 Tavily search: query='{query[:50]}...', depth={search_depth}, max={max_results}")
+        logger.debug(f"🔍 Tavily search: query='{query[:50]}...', depth={search_depth}, max={max_results}")
 
         # Check circuit breaker
         if not await self._cb_check_before_call():
@@ -398,7 +398,7 @@ class TavilyClient:
                 # Success — reset circuit breaker
                 await self._cb_on_success()
                 result_count = len(data.get("results", []))
-                logger.info(f"✅ Tavily search returned {result_count} results")
+                logger.debug(f"✅ Tavily search returned {result_count} results")
                 return data
 
             except TavilyApiError as e:

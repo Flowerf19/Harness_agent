@@ -50,7 +50,7 @@ class CodeInterpreterTool(BaseTool):
             codebox_client: CodeBoxClient for code execution (can be None for graceful degradation)
         """
         self.codebox_client = codebox_client
-        logger.info(
+        logger.debug(
             f"CodeInterpreterTool initialized - client: {codebox_client is not None}"
         )
 
@@ -188,7 +188,7 @@ class CodeInterpreterTool(BaseTool):
 
         # Execute code
         try:
-            logger.info(
+            logger.debug(
                 f"🐍 Code execution: user={user_id}, kernel={kernel}, "
                 f"cwd={cwd}, length={len(code)} chars"
             )
@@ -204,7 +204,7 @@ class CodeInterpreterTool(BaseTool):
                         filename=filename,
                         user_id=user_id,
                     )
-                    logger.info(f"File uploaded: {filename}")
+                    logger.debug(f"File uploaded: {filename}")
                 except Exception as e:
                     logger.error(f"Upload error: {e}")
                     return f"❌ **Upload Error:** {e}"
@@ -227,7 +227,7 @@ class CodeInterpreterTool(BaseTool):
                     )
                     import base64
                     download_result = base64.b64encode(file_bytes).decode("utf-8")
-                    logger.info(f"File downloaded: {download_file_name} ({len(file_bytes)} bytes)")
+                    logger.debug(f"File downloaded: {download_file_name} ({len(file_bytes)} bytes)")
                 except Exception as e:
                     logger.error(f"Download error: {e}")
                     # Don't fail completely - still return code result

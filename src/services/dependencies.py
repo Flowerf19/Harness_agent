@@ -178,7 +178,7 @@ class AppContainer:
             registry=tool_registry,
             dependencies=tool_dependencies,
         )
-        logger.info(f"🔧 MCP: Đã khám phá {len(discovered_tools)} tools")
+        logger.debug(f"🔧 MCP: Đã khám phá {len(discovered_tools)} tools")
 
         mcp_server = MCPServer(
             registry=tool_registry,
@@ -250,7 +250,7 @@ class AppContainer:
         redis_enabled = getattr(Config, "REDIS_ENABLED", False)
 
         if not redis_enabled:
-            logger.info("📦 T1 Storage: Using RamStorage (Redis disabled)")
+            logger.debug("📦 T1 Storage: Using RamStorage (Redis disabled)")
             return LocalMemoryDB()
 
         redis_url = getattr(Config, "REDIS_URL", "redis://localhost:6379")
@@ -268,7 +268,7 @@ class AppContainer:
                 self.redis_storage = storage
                 # Also get raw Redis client for queue
                 self.redis_client = storage.redis
-                logger.info(f"🔴 T1 Storage: Using RedisStorage (URL: {redis_url})")
+                logger.debug(f"🔴 T1 Storage: Using RedisStorage (URL: {redis_url})")
                 return storage
             else:
                 logger.warning("🔴 Redis health check failed, falling back to RamStorage")
@@ -291,7 +291,7 @@ class AppContainer:
             storage = WikiStorage(url=qdrant_url, api_key=qdrant_api_key)
             await storage.initialize()
             self.wiki_storage = storage
-            logger.info(f"🔴 Wiki Storage: Using Qdrant (URL: {qdrant_url})")
+            logger.debug(f"🔴 Wiki Storage: Using Qdrant (URL: {qdrant_url})")
             return storage
 
         except Exception as e:
@@ -305,7 +305,7 @@ class AppContainer:
         
         # If Redis client already exists (from T1 storage), reuse it
         if self.redis_client:
-            logger.info("📦 Overflow Queue: Using existing Redis client")
+            logger.debug("📦 Overflow Queue: Using existing Redis client")
             return OverflowQueue(redis_client=self.redis_client)
 
         # Otherwise, create new Redis client
@@ -328,7 +328,7 @@ class AppContainer:
                 db=redis_db,
                 decode_responses=True,
             )
-            logger.info("🔴 Overflow Queue: Created new Redis client")
+            logger.debug("🔴 Overflow Queue: Created new Redis client")
             return OverflowQueue(redis_client=self.redis_client)
 
         except Exception as e:
@@ -338,12 +338,12 @@ class AppContainer:
     def _init_tavily_client(self) -> TavilyClient | None:
         """Initialize Tavily client for web search."""
         if not Config.TAVILY_API_KEY:
-            logger.info("📦 Tavily: API key not configured, web search disabled")
+            logger.debug("📦 Tavily: API key not configured, web search disabled")
             return None
 
         try:
             client = TavilyClient()
-            logger.info("✅ Tavily client initialized - web search enabled")
+            logger.debug("✅ Tavily client initialized - web search enabled")
             return client
         except Exception as e:
             logger.warning(f"⚠️ Tavily client initialization failed: {e}")
@@ -353,7 +353,7 @@ class AppContainer:
         """Initialize CodeBox client for Python code execution."""
         try:
             client = CodeBoxClient()
-            logger.info("✅ CodeBox client initialized - code sandbox enabled")
+            logger.debug("✅ CodeBox client initialized - code sandbox enabled")
             return client
         except Exception as e:
             logger.warning(f"⚠️ CodeBox client initialization failed: {e}")

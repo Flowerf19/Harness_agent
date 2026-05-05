@@ -31,7 +31,7 @@ class BaseLLMService(abc.ABC):
     def set_mcp_client(self, mcp_client) -> None:
         """[MỚI] Inject MCP Client vào LLM Service."""
         self.mcp_client = mcp_client
-        self.logger.info("✅ MCP Client đã được inject vào LLM Service")
+        self.logger.debug("✅ MCP Client đã được inject vào LLM Service")
 
     def _load_prompt(self, filename: str, folder: str = "prompts") -> str:
         """Load prompt content from file.
@@ -48,7 +48,7 @@ class BaseLLMService(abc.ABC):
             if os.path.exists(filepath):
                 with open(filepath, "r", encoding="utf-8") as f:
                     content = f.read().strip()
-                    self.logger.info(f"✅ Loaded prompt: {filename} from {folder}")
+                    self.logger.debug(f"✅ Loaded prompt: {filename} from {folder}")
                     return content
             else:
                 self.logger.warning(f"⚠️ Prompt file not found: {filepath}")

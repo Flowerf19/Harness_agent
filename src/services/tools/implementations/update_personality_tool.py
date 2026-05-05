@@ -58,7 +58,7 @@ class UpdatePersonalityTool(BaseTool):
 
     def __init__(self, base_memory_path: str = "memories"):
         self.base_memory_path = base_memory_path
-        logger.info(f"UpdatePersonalityTool initialized with base_path={base_memory_path}")
+        logger.debug(f"UpdatePersonalityTool initialized with base_path={base_memory_path}")
 
     # ==========================================
     # BASE TOOL PROPERTIES

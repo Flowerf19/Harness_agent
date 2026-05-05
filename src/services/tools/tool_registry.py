@@ -50,7 +50,7 @@ class ToolRegistry:
     def __init__(self):
         """Initialize empty registry."""
         self._tools: Dict[str, BaseTool] = {}
-        logger.info("ToolRegistry initialized")
+        logger.debug("ToolRegistry initialized")
     
     # ==========================================
     # REGISTRATION METHODS
@@ -70,7 +70,7 @@ class ToolRegistry:
             logger.warning(f"Tool '{tool.name}' already registered, replacing...")
         
         self._tools[tool.name] = tool
-        logger.info(f"✅ Registered tool: {tool.name} ({tool.__class__.__name__})")
+        logger.debug(f"✅ Registered tool: {tool.name} ({tool.__class__.__name__})")
     
     def unregister_tool(self, tool_name: str) -> bool:
         """
@@ -84,7 +84,7 @@ class ToolRegistry:
         """
         if tool_name in self._tools:
             del self._tools[tool_name]
-            logger.info(f"🗑️ Unregistered tool: {tool_name}")
+            logger.debug(f"🗑️ Unregistered tool: {tool_name}")
             return True
         return False
     
@@ -245,7 +245,7 @@ class ToolRegistry:
         Remove all registered tools.
         """
         self._tools.clear()
-        logger.info("ToolRegistry cleared")
+        logger.debug("ToolRegistry cleared")
     
     def __repr__(self) -> str:
         return f"<ToolRegistry: {self.count()} tools ({', '.join(self.list_tool_names())})>"

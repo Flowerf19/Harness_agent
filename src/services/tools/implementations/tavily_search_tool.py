@@ -43,7 +43,7 @@ class TavilySearchTool(BaseTool):
             tavily_client: TavilyClient for API calls (can be None for graceful degradation)
         """
         self.tavily_client = tavily_client
-        logger.info(f"TavilySearchTool initialized - client: {tavily_client is not None}")
+        logger.debug(f"TavilySearchTool initialized - client: {tavily_client is not None}")
 
     # ==========================================
     # BASE TOOL PROPERTIES
@@ -155,7 +155,7 @@ class TavilySearchTool(BaseTool):
 
         # Execute search
         try:
-            logger.info(f"🌐 Web search: query='{query[:50]}...', depth={search_depth}")
+            logger.debug(f"🌐 Web search: query='{query[:50]}...', depth={search_depth}")
 
             response = await self.tavily_client.search(
                 query=query.strip(),

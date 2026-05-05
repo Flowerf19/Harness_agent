@@ -41,7 +41,7 @@ class UpdateUserProfileTool(BaseTool):
             core_manager: CoreManager (T3) for profile updates
         """
         self.core_manager = core_manager
-        logger.info(f"UpdateUserProfileTool initialized with core_manager={core_manager is not None}")
+        logger.debug(f"UpdateUserProfileTool initialized with core_manager={core_manager is not None}")
     
     # ==========================================
     # BASE TOOL PROPERTIES
