@@ -1,43 +1,49 @@
-# Sử dụng Miniconda base image
-FROM continuumio/miniconda3:latest
+# ==========================================
+# Stage 1: Builder
+# ==========================================
+FROM python:3.11-slim AS builder
 
-WORKDIR /app
+# Cài đặt uv siêu tốc
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Copy requirements
+WORKDIR /build
 COPY requirements.txt .
 
-# Thiết lập biến môi trường
-ENV CONDA_ENV_NAME=discord_bot
+# Định nghĩa môi trường ảo multi-platform
+ENV VIRTUAL_ENV=/opt/gateway_env
+
+# Tạo venv và cài đặt package bằng uv (tận dụng cache layer)
+RUN uv venv $VIRTUAL_ENV
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --python $VIRTUAL_ENV --no-cache-dir -r requirements.txt
+
+# ==========================================
+# Stage 2: Runtime (Siêu nhẹ & Bảo mật)
+# ==========================================
+FROM python:3.11-slim
+
+# Cài đặt các thư viện hệ thống tối thiểu cần thiết
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+# Tạo non-root user (march7_user) để tăng bảo mật
+RUN useradd -m -r march7_user
+WORKDIR /app
+
+# Copy môi trường đã build từ stage 1 sang và cấu hình PATH
+ENV VIRTUAL_ENV=/opt/gateway_env
+COPY --from=builder $VIRTUAL_ENV $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# Copy source code và set quyền sở hữu cho March7
+COPY --chown=march7_user:march7_user . .
+
+# Chuyển quyền thực thi
+USER march7_user
+
 ENV PYTHONPATH=/app
+ENV ENTRYPOINT_CMD=gateway
 
-# Tạo entrypoint script để quản lý conda env tại runtime
-RUN echo '#!/bin/bash\n\
-set -e\n\
-ENV_NAME="${CONDA_ENV_NAME}"\n\
-ENV_PATH="/opt/conda_envs/${ENV_NAME}"\n\
-\n\
-# Kiểm tra xem env đã tồn tại trong volume chưa\n\
-if [ -d "${ENV_PATH}" ]; then\n\
-    echo "✅ Conda env '${ENV_NAME}' đã tồn tại, kiểm tra requirements..."\n\
-    source activate ${ENV_PATH}\n\
-    pip install --no-cache-dir -r /app/requirements.txt > /dev/null 2>&1 || true\n\
-else\n\
-    echo "🔨 Tạo mới conda env '${ENV_NAME}'..."\n\
-    mkdir -p /opt/conda_envs\n\
-    conda create --prefix ${ENV_PATH} python=3.11 -y\n\
-    source activate ${ENV_PATH}\n\
-    pip install --no-cache-dir -r /app/requirements.txt\n\
-fi\n\
-\n\
-echo "🚀 Khởi động bot..."\n\
-exec python src/bot.py\n\
-' > /entrypoint.sh && chmod +x /entrypoint.sh
-
-# Copy source code
-COPY . .
-
-# Mount point cho conda envs
-VOLUME ["/opt/conda_envs"]
-
-# Khởi động
-CMD ["/entrypoint.sh"]
+# Điều hướng trực tiếp bằng shell
+CMD ["sh", "-c", "if [ \"$ENTRYPOINT_CMD\" = \"gateway\" ]; then exec python -m gateway; else exec python src/bot.py; fi"]

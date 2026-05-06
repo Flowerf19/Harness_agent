@@ -1,0 +1,27 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: march7_redis
+    restart: unless-stopped
+    networks:
+      - march7_net
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./volumes/redis_data:/data:Z
+    # Tối ưu AOF cho RAG: Ghi log mỗi giây
+    command: redis-server --appendonly yes --appendfsync everysec
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

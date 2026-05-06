@@ -1,0 +1,14 @@
+services:
+  codebox:
+    image: shroominic/codebox:latest
+    container_name: march7_codebox
+    restart: unless-stopped
+    networks:
+      - march7_net
+    ports:
+      - "8069:8069"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'

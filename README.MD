@@ -310,17 +310,16 @@ plan/                               # Implementation plans
 ### 1. Docker Deployment (Recommended)
 
 ```bash
-# Start services
-cd docker && docker compose up -d
+# Clean start
+cd docker
+docker compose down
+docker rmi march7_bot:latest 2>/dev/null || true
+DOCKER_BUILDKIT=1 docker compose build march7_bot
+docker compose up -d
+docker compose logs -f march7_bot
 
 # Or from project root
 docker compose -f docker/docker-compose.yml up -d
-
-# Check logs
-docker compose logs -f be_bay_bot
-
-# Stop
-docker compose down
 ```
 
 ### 2. Local Development
@@ -398,10 +397,10 @@ QDRANT_URL=http://localhost:6333
 
 | Service | Container | Port | Purpose |
 |---------|-----------|------|---------|
-| `redis` | `be_bay_redis` | 6379 | T1 Active Memory + Queue |
-| `qdrant` | `be_bay_qdrant` | 6333 | T2 Wiki Pages storage |
-| `codebox` | `be_bay_codebox` | 8069 | Python sandbox (Jupyter kernel) |
-| `be_bay_bot` | `be_bay_bot` | - | Discord bot |
+| `redis` | `march7_redis` | 6379 | T1 Active Memory + Queue |
+| `qdrant` | `march7_qdrant` | 6333 | T2 Wiki Pages storage |
+| `codebox` | `march7_codebox` | 8069 | Python sandbox (Jupyter kernel) |
+| `march7_bot` | `march7_bot` | - | Discord bot |
 
 ---
 

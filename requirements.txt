@@ -29,3 +29,6 @@ pyyaml
 
 # CodeBox for Python code execution (Sandbox)
 codeboxapi
+
+# File watching for hot-reload
+watchdog

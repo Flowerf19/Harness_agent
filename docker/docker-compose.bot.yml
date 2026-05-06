@@ -1,0 +1,53 @@
+services:
+  march7_bot:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    container_name: march7_bot
+    restart: unless-stopped
+    networks:
+      - march7_net
+    depends_on:
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      codebox:
+        condition: service_started
+    env_file:
+      - ../.env
+    environment:
+      - LM_STUDIO_API_URL=http://host.docker.internal:1234/v1
+      - TOOL_LLM_ENDPOINT=http://host.docker.internal:1234/v1
+      - TOOL_LLM_MODEL=qwen3-coder-30b-a3b-instruct
+      - HF_HOME=/app/.cache/huggingface
+      - REDIS_ENABLED=true
+      - REDIS_URL=redis://redis:6379
+      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_COLLECTION_NAME=episodic_memory
+      - CODEBOX_API_URL=http://codebox:8069
+      - ENTRYPOINT_CMD=gateway
+      - GATEWAY_ENABLED_PLATFORMS=discord
+      - DISCORD_GATEWAY_ENABLED=true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../src:/app/src:Z
+      - ../gateway:/app/gateway:Z
+      - ../memories:/app/memories:Z
+      - ../config.py:/app/config.py:Z
+      - ./volumes/hf_cache:/app/.cache/huggingface:Z
+    # Tự động khởi động lại tiến trình Python khi sửa code
+    command: >
+      sh -c "
+      if [ '$$ENTRYPOINT_CMD' = 'gateway' ]; then
+        watchmedo auto-restart --directory=./gateway --directory=./src --pattern='*.py' --recursive -- python -m gateway
+      else
+        watchmedo auto-restart --directory=./src --pattern='*.py' --recursive -- python src/bot.py
+      fi
+      "
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
