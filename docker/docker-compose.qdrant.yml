@@ -9,7 +9,7 @@ services:
       - "6333:6333"
       - "6334:6334"
     volumes:
-      - ./volumes/qdrant_data:/qdrant/storage:Z
+      - qdrant_data:/qdrant/storage
     healthcheck:
       test: ["CMD-SHELL", "bash -c '(echo > /dev/tcp/localhost/6333) 2>/dev/null || exit 1'"]
       interval: 10s
@@ -26,6 +26,10 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
+
+volumes:
+  qdrant_data:
+    driver: local
 
 networks:
   march7_net:

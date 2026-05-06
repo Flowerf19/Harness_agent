@@ -39,6 +39,9 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 # Copy source code và set quyền sở hữu cho March7
 COPY --chown=march7_user:march7_user . .
 
+# Tạo thư mục cache cho HuggingFace với quyền của march7_user
+RUN mkdir -p /app/.cache/huggingface && chown -R march7_user:march7_user /app/.cache
+
 # Chuyển quyền thực thi
 USER march7_user
 

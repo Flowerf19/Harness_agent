@@ -36,7 +36,7 @@ services:
       - ../gateway:/app/gateway:Z
       - ../memories:/app/memories:Z
       - ../config.py:/app/config.py:Z
-      - ./volumes/hf_cache:/app/.cache/huggingface:Z
+      - hf_cache:/app/.cache/huggingface
     # Tự động khởi động lại tiến trình Python khi sửa code
     command: >
       sh -c "
@@ -58,3 +58,7 @@ services:
       options:
         max-size: "100m"
         max-file: "5"
+
+volumes:
+  hf_cache:
+    driver: local

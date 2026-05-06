@@ -8,7 +8,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - ./volumes/redis_data:/data:Z
+      - redis_data:/data
     # Tối ưu AOF cho RAG: Ghi log mỗi giây
     command: redis-server --appendonly yes --appendfsync everysec
     healthcheck:
@@ -25,3 +25,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  redis_data:
+    driver: local
