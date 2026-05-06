@@ -11,7 +11,13 @@ class ServerRelationshipsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         base_dir = os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            os.path.dirname(
+                os.path.dirname(
+                    os.path.dirname(
+                        os.path.dirname(os.path.abspath(__file__))
+                    )
+                )
+            )
         )
         self.server_summary_path = os.path.join(
             base_dir, "data", "server_relationships.txt"

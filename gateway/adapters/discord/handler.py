@@ -30,8 +30,8 @@ class DiscordGatewayHandler(GatewayHandler):
     """Handles unified messages from the Discord adapter.
 
     This handler replicates the message-filtering logic from the original
-    ``src.cogs.chat_gateway.ChatGateway`` cog so that the gateway entry
-    point behaves identically to ``python3 -m src``.
+    ``gateway.adapters.discord.cogs.chat_gateway.ChatGateway`` cog so that
+    the gateway entry point behaves identically to ``python3 -m src``.
     """
 
     # Set by DiscordPlatformAdapter.connect() after cog loading.

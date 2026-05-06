@@ -32,7 +32,14 @@ class CoreBot(commands.Bot):
         )
 
     async def setup_hook(self):
-        """Hàm này chạy 1 lần duy nhất trước khi bot on_ready."""
+        """Hàm này chạy 1 lần duy nhất trước khi bot on_ready.
+
+        NOTE: Cog loading has been moved to gateway/adapters/discord/adapter.py.
+        When running in gateway mode (python3 -m gateway), cogs are loaded by
+        the DiscordPlatformAdapter._gateway_setup_hook().  This method only
+        initializes the AppContainer and NightlyTrigger for standalone bot mode
+        (python3 -m src).
+        """
         logger.info("⚙️ Đang mồi nổ hệ thống (Setup Hook)...")
 
         # 1. Kích hoạt Trạm Điện: Khởi tạo toàn bộ LLM và Memory 3 Tầng
@@ -44,14 +51,14 @@ class CoreBot(commands.Bot):
             asyncio.create_task(container.nightly_trigger.start())
             logger.info("🌙 NightlyTrigger: Đã khởi động scheduled task (2 AM)")
 
-        # 3. Load các Trạm kiểm soát Discord (Cogs)
+        # 3. Load cogs — only when running standalone (not via gateway).
+        #    In gateway mode, cogs are loaded by DiscordPlatformAdapter.
         try:
-            # Load file giao tiếp chính (Ta sẽ viết file này thay cho llm_message cũ)
-            await self.load_extension("src.cogs.chat_gateway")
-
-            # Load các cogs phụ trợ khác nếu bạn vẫn xài (admin, commands...)
-            await self.load_extension("src.cogs.user_commands")
-            await self.load_extension("src.cogs.admin_channels")
+            await self.load_extension("gateway.adapters.discord.cogs.chat_gateway")
+            await self.load_extension("gateway.adapters.discord.cogs.user_commands")
+            await self.load_extension("gateway.adapters.discord.cogs.admin_channels")
+            await self.load_extension("gateway.adapters.discord.cogs.base_cog")
+            await self.load_extension("gateway.adapters.discord.cogs.server_relationships")
 
             logger.info("✅ Đã nạp thành công các Cogs!")
         except Exception as e:
