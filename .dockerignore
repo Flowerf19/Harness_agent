@@ -1,30 +1,34 @@
-# Docker volumes
+# Data volumes
 docker/volumes/
+data/
 
-# Git
-.git/
-.github/
-
-# Python
+# Python cache
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
+*.pyc
+*.pyo
+*.pyd
 .Python
+*.egg-info/
+
+# Virtual envs
 .venv/
 venv/
-ENV/
+env/
 
 # IDE
 .vscode/
 .idea/
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
+# Git
+.git/
 
-# Misc
-*.log
-*.tmp
-.env.local
+# Env files
+.env
+.env.*
+
+# Plan/docs
+plan/
+memories/
+
+# Docker files (not needed for build)
+docker/volumes/

@@ -11,11 +11,11 @@ services:
     volumes:
       - ./volumes/qdrant_data:/qdrant/storage:Z
     healthcheck:
-      # Đảm bảo Qdrant API thực sự sẵn sàng
-      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      test: ["CMD-SHELL", "bash -c '(echo > /dev/tcp/localhost/6333) 2>/dev/null || exit 1'"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
     deploy:
       resources:
         limits:
@@ -26,3 +26,8 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
+
+networks:
+  march7_net:
+    external: true
+    name: docker_march7_net
