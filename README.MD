@@ -212,18 +212,15 @@ flowchart TD
 
 ```text
 src/
-├── bot.py                          # Entry point, Discord bot setup
-├── __main__.py                     # Python module entry
+├── bot.py                          # CoreBot — thin discord.py wrapper (standalone mode deprecated)
+├── __main__.py                     # Deprecated entry point (python3 -m src)
 │
 ├── config/
 │   ├── settings.py                 # Config class (env variables)
 │   └── logging_config.py           # Logging setup
 │
-├── cogs/                           # Discord Cogs
-│   ├── chat_gateway.py             # Main message handler
-│   ├── user_commands.py            # User slash commands
-│   ├── admin_channels.py           # Admin channel management
-│   └── base_cog.py                 # Base cog class
+├── cogs/                           # [LEGACY] Empty — cogs moved to gateway/adapters/discord/cogs/
+│   └── README.md                   # Migration note
 │
 ├── agents/                         # Sub-Agent Architecture
 │   ├── evernight/                  # Evernight (T2 Wiki)
@@ -237,51 +234,14 @@ src/
 │       └── models/
 │           └── wiki_page.py        # WikiPagePayload model
 │
-├── services/
+├── services/                       # Shared Brain (DO NOT modify)
 │   ├── chat_coordinator.py         # Main orchestrator (Bay)
 │   ├── dependencies.py             # DI Container (AppContainer)
-│   │
 │   ├── llm/                        # LLM Providers
-│   │   ├── base_llm_service.py     # Abstract base
-│   │   ├── gemini_service.py       # Google Gemini
-│   │   ├── qwen_service.py         # Qwen API
-│   │   ├── lm_studio_service.py    # LM Studio (local)
-│   │   └── embedding_service.py    # Local embedding
-│   │
 │   ├── tools/                      # MCP Tools
-│   │   ├── base_tool.py            # Abstract base
-│   │   ├── mcp_server.py           # MCP Server
-│   │   ├── mcp_client.py           # MCP Client
-│   │   ├── tool_discovery.py       # Auto-discovery
-│   │   └── implementations/
-│   │       ├── search_memory_tool.py
-│   │       ├── update_profile_tool.py
-│   │       ├── update_personality_tool.py
-│   │       ├── web_search_tool.py
-│   │       └── code_interpreter_tool.py
-│   │
-│   ├── external/
-│   │   ├── tavily_client.py        # Tavily API client
-│   │   └── codebox_client.py       # CodeBox sandbox client
-│   │
-│   ├── queue/
-│   │   └── overflow_queue.py       # Redis overflow queue
-│   │
-│   └── memories/                   # Memory System
-│       ├── memory_manager.py       # Orchestrator (T1 + T3)
-│       │
-│       ├── activate_memory/        # T1: Active Memory
-│       │   ├── activate_memory_service.py
-│       │   ├── models.py           # MemoryEntry
-│       │   ├── constants.py        # Token thresholds
-│       │   └── storage/
-│       │       └── ram_storage.py  # Redis storage
-│       │
-│       └── core_memory/            # T3: Core Memory
-│           ├── core_manager.py
-│           ├── smart_updater.py    # LLM-based updater
-│           └── storage/
-│               └── yaml_storage.py # YAML files
+│   ├── external/                   # External API clients
+│   ├── queue/                      # Redis overflow queue
+│   └── memories/                   # Memory System (T1/T3)
 │
 ├── tasks/
 │   └── nightly_trigger.py          # 2 AM scheduled consolidation
@@ -290,6 +250,38 @@ src/
 │
 └── utils/
     └── helpers.py
+
+gateway/
+├── gateway.py                      # ChatGateway orchestrator (main entry point)
+├── __main__.py                     # python3 -m gateway entry point
+│
+├── config/
+│   └── __init__.py                 # GatewayConfig
+│
+├── shared/
+│   ├── adapter_base.py             # PlatformAdapter abstract base
+│   ├── handler_base.py             # GatewayHandler abstract base
+│   └── model.py                    # UnifiedMessage, UnifiedEvent
+│
+├── adapters/
+│   ├── factory.py                  # create_adapter() factory
+│   │
+│   ├── discord/
+│   │   ├── adapter.py              # DiscordPlatformAdapter (wraps CoreBot)
+│   │   ├── handler.py              # DiscordGatewayHandler
+│   │   ├── converter.py            # DiscordMessageConverter
+│   │   └── cogs/                   # Discord Cogs (loaded via adapter)
+│   │       ├── chat_gateway.py
+│   │       ├── user_commands.py
+│   │       ├── admin_channels.py
+│   │       ├── base_cog.py
+│   │       └── server_relationships.py
+│   │
+│   └── zalo/
+│       └── adapter.py              # ZaloPlatformAdapter (stub)
+│
+└── handlers/
+    └── ...                         # Platform-agnostic handlers
 
 memories/                           # Agent memory files
 ├── INDEX.md                        # Index
@@ -332,8 +324,11 @@ conda activate discord_bot
 # Install dependencies
 pip install -r requirements.txt
 
-# Run bot
-python -m src.bot
+# Run gateway (recommended)
+python3 -m gateway
+
+# Standalone mode (deprecated — for emergency debugging only)
+python3 -m src
 ```
 
 ### 3. Environment Variables
@@ -401,6 +396,51 @@ QDRANT_URL=http://localhost:6333
 | `qdrant` | `march7_qdrant` | 6333 | T2 Wiki Pages storage |
 | `codebox` | `march7_codebox` | 8069 | Python sandbox (Jupyter kernel) |
 | `march7_bot` | `march7_bot` | - | Discord bot |
+
+---
+
+## 🔄 Architecture Evolution
+
+### Gateway Orchestrator Pattern
+
+The bot has evolved from a standalone Discord bot to a **Gateway Orchestrator** architecture. The gateway acts as the central entry point, orchestrating platform-specific adapters that connect to a shared brain (`src/services/`).
+
+```mermaid
+flowchart TB
+    subgraph Gateway["ChatGateway (Orchestrator)"]
+        G1["Message Routing"]
+        G2["Handler Factory"]
+        G3["Lifecycle Management"]
+    end
+
+    subgraph Discord["DiscordPlatformAdapter"]
+        D1["CoreBot (discord.py wrapper)"]
+        D2["Cogs (chat_gateway, user_commands, admin_channels, base_cog, server_relationships)"]
+        D3["DiscordGatewayHandler"]
+    end
+
+    subgraph Shared["Shared Brain (src/services/)"]
+        S1["AppContainer"]
+        S2["ChatCoordinator"]
+        S3["Memory System (T1/T2/T3)"]
+        S4["NightlyTrigger"]
+    end
+
+    Gateway --> Discord
+    Discord --> D1
+    Discord --> D2
+    Discord --> D3
+    D1 --> Shared
+    D3 --> Shared
+    G1 --> Shared
+```
+
+**Key changes:**
+- **Entry point:** `python3 -m gateway` is now the sole supported entry point
+- **CoreBot:** Remains as a thin `discord.py` wrapper — cogs load through `DiscordPlatformAdapter._gateway_setup_hook()`
+- **Shared brain:** `src/services/` remains unchanged and is shared across all adapters
+
+> **⚠️ Deprecated:** Standalone mode (`python3 -m src`) is deprecated. It still works for emergency debugging but emits deprecation warnings. All production deployments should use `python3 -m gateway`.
 
 ---
 

@@ -99,16 +99,12 @@ class DiscordPlatformAdapter(PlatformAdapter):
         container = AppContainer.get_instance()
         await container.initialize()
 
-        # Load cogs — matching the order in CoreBot.setup_hook().
+        # Load cogs — only admin_channels cog for channel management.
         # Wrapping in try/except to handle reconnection (ExtensionAlreadyLoaded).
         from discord.ext.commands.errors import ExtensionAlreadyLoaded
 
         for cog_path in (
             "gateway.adapters.discord.cogs.admin_channels",
-            "gateway.adapters.discord.cogs.base_cog",
-            "gateway.adapters.discord.cogs.chat_gateway",
-            "gateway.adapters.discord.cogs.user_commands",
-            "gateway.adapters.discord.cogs.server_relationships",
         ):
             try:
                 await self._bot.load_extension(cog_path)

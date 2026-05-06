@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import warnings
 
 from dotenv import load_dotenv
 
@@ -20,6 +21,13 @@ logger = logging.getLogger("discord_bot.main")
 
 class CoreBot(commands.Bot):
     def __init__(self):
+        warnings.warn(
+            "⚠️ Standalone mode is deprecated. Use 'python3 -m gateway' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        logger.warning("⚠️ Standalone mode is deprecated. Use 'python3 -m gateway' instead.")
+
         # Bật Intents để đọc được nội dung tin nhắn
         intents = discord.Intents.default()
         intents.message_content = True
@@ -36,9 +44,9 @@ class CoreBot(commands.Bot):
 
         NOTE: Cog loading has been moved to gateway/adapters/discord/adapter.py.
         When running in gateway mode (python3 -m gateway), cogs are loaded by
-        the DiscordPlatformAdapter._gateway_setup_hook().  This method only
-        initializes the AppContainer and NightlyTrigger for standalone bot mode
-        (python3 -m src).
+        the DiscordPlatformAdapter._gateway_setup_hook().
+        This method only initializes the AppContainer and NightlyTrigger for
+        standalone fallback mode (python3 -m src), which is deprecated.
         """
         logger.info("⚙️ Đang mồi nổ hệ thống (Setup Hook)...")
 
@@ -51,18 +59,7 @@ class CoreBot(commands.Bot):
             asyncio.create_task(container.nightly_trigger.start())
             logger.info("🌙 NightlyTrigger: Đã khởi động scheduled task (2 AM)")
 
-        # 3. Load cogs — only when running standalone (not via gateway).
-        #    In gateway mode, cogs are loaded by DiscordPlatformAdapter.
-        try:
-            await self.load_extension("gateway.adapters.discord.cogs.chat_gateway")
-            await self.load_extension("gateway.adapters.discord.cogs.user_commands")
-            await self.load_extension("gateway.adapters.discord.cogs.admin_channels")
-            await self.load_extension("gateway.adapters.discord.cogs.base_cog")
-            await self.load_extension("gateway.adapters.discord.cogs.server_relationships")
-
-            logger.info("✅ Đã nạp thành công các Cogs!")
-        except Exception as e:
-            logger.error(f"❌ Lỗi khi nạp Cogs: {e}")
+        logger.warning("⚠️ Standalone mode is deprecated. Use 'python3 -m gateway' instead.")
 
     async def on_ready(self):
         logger.info(f"🚀 Bot đã online với tư cách: {self.user} (ID: {self.user.id})")
@@ -79,6 +76,7 @@ class CoreBot(commands.Bot):
 
 
 def main():
+    logger.warning("⚠️ Standalone mode is deprecated. Use 'python3 -m gateway' instead.")
     if not Config.DISCORD_BOT_TOKEN:
         logger.critical("❌ Không tìm thấy DISCORD_BOT_TOKEN trong file .env!")
         return

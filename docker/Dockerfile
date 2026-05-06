@@ -46,7 +46,6 @@ RUN mkdir -p /app/.cache/huggingface && chown -R march7_user:march7_user /app/.c
 USER march7_user
 
 ENV PYTHONPATH=/app
-ENV ENTRYPOINT_CMD=gateway
 
 # Điều hướng trực tiếp bằng shell
-CMD ["sh", "-c", "if [ \"$ENTRYPOINT_CMD\" = \"gateway\" ]; then exec python -m gateway; else exec python src/bot.py; fi"]
+CMD ["python", "-m", "gateway"]

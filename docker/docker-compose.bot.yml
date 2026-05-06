@@ -40,11 +40,7 @@ services:
     # Tự động khởi động lại tiến trình Python khi sửa code
     command: >
       sh -c "
-      if [ '$$ENTRYPOINT_CMD' = 'gateway' ]; then
-        watchmedo auto-restart --directory=./gateway --directory=./src --pattern='*.py' --recursive -- python -m gateway
-      else
-        watchmedo auto-restart --directory=./src --pattern='*.py' --recursive -- python src/bot.py
-      fi
+      watchmedo auto-restart --directory=./gateway --directory=./src --pattern='*.py' --recursive -- python -m gateway
       "
     healthcheck:
       # Kiểm tra process Python gateway đang chạy (container slim không có ps/pgrep)
