@@ -20,7 +20,6 @@ services:
       - LM_STUDIO_API_URL=http://host.docker.internal:1234/v1
       - TOOL_LLM_ENDPOINT=http://host.docker.internal:1234/v1
       - TOOL_LLM_MODEL=qwen3-coder-30b-a3b-instruct
-      - HF_HOME=/app/.cache/huggingface
       - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379
       - QDRANT_URL=http://qdrant:6333
@@ -38,7 +37,6 @@ services:
       - ../memories:/app/memories:Z
       - ../config.py:/app/config.py:Z
       - ../.env:/app/.env:Z
-      - hf_cache:/app/.cache/huggingface
     # Tự động khởi động lại tiến trình Python khi sửa code
     command: >
       sh -c "
@@ -55,8 +53,3 @@ services:
       driver: "json-file"
       options:
         max-size: "100m"
-        max-file: "5"
-
-volumes:
-  hf_cache:
-    driver: local

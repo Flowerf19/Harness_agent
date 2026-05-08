@@ -13,6 +13,8 @@ from src.agents.shared.models.wiki_page import (
     calculate_relevance,
 )
 
+from src.config.settings import Config
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,12 +26,12 @@ class WikiStorage:
     """
 
     COLLECTION_NAME = "wiki_pages"
-    VECTOR_SIZE = 1024  # Qwen3-Embedding-0.6B default
 
     def __init__(
         self,
         url: str = "http://localhost:6333",
         api_key: Optional[str] = None,
+        vector_size: int = None,
     ):
         """
         Initialize WikiStorage with Qdrant connection.
@@ -37,9 +39,13 @@ class WikiStorage:
         Args:
             url: Qdrant server URL
             api_key: Optional API key for Qdrant Cloud
+            vector_size: Embedding vector dimension (default from Config)
         """
+        if vector_size is None:
+            vector_size = Config.EMBEDDING_VECTOR_SIZE
         self.url = url
         self.api_key = api_key
+        self.vector_size = vector_size
         self._client = AsyncQdrantClient(url=url, api_key=api_key)
 
     async def initialize(self) -> None:
@@ -52,7 +58,7 @@ class WikiStorage:
                 await self._client.create_collection(
                     collection_name=self.COLLECTION_NAME,
                     vectors_config=models.VectorParams(
-                        size=self.VECTOR_SIZE,
+                        size=self.vector_size,
                         distance=models.Distance.COSINE,
                     ),
                 )

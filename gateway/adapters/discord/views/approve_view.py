@@ -28,11 +28,15 @@ class ApproveView(discord.ui.View):
         self._result: asyncio.Event = asyncio.Event()
         self._approved: bool = False
 
+    def _disable_all(self):
+        for child in self.children:
+            child.disabled = True
+
     @discord.ui.button(label="✅ Approve", style=discord.ButtonStyle.green)
     async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         self._approved = True
         self._result.set()
-        self.disable_all_items()
+        self._disable_all()
         await interaction.response.edit_message(
             content=f"✅ **Đã approve:** `{self.command[:80]}`\nĐang thực thi...",
             view=self,
@@ -42,7 +46,7 @@ class ApproveView(discord.ui.View):
     async def reject_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         self._approved = False
         self._result.set()
-        self.disable_all_items()
+        self._disable_all()
         await interaction.response.edit_message(
             content=f"❌ **Đã từ chối:** `{self.command[:80]}`",
             view=self,
@@ -53,8 +57,8 @@ class ApproveView(discord.ui.View):
             await asyncio.wait_for(self._result.wait(), timeout=APPROVAL_TIMEOUT)
             return self._approved
         except asyncio.TimeoutError:
-            self.disable_all_items()
+            self._disable_all()
             return False
 
     async def on_timeout(self):
-        self.disable_all_items()
+        self._disable_all()

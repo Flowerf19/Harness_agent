@@ -11,6 +11,7 @@ from src.config.settings import Config
 # --- Coordinator ---
 from src.services.chat_coordinator import ChatCoordinator
 from src.services.llm.embedding_service import LocalEmbeddingService
+from src.services.llm.remote_embedding_service import RemoteEmbeddingService
 
 # --- LLM Services ---
 from src.services.llm.gemini_service import GeminiService
@@ -37,6 +38,7 @@ from src.services.memories.activate_memory.storage.base_storage import BaseStora
 from src.services.memories.core_memory.core_manager import CoreManager
 from src.services.memories.core_memory import SmartUpdater, MarkdownStorage
 from src.services.memories.memory_manager import MemoryManager
+from src.services.memories.episodic_memory_manager import EpisodicMemoryManager
 
 # --- Evernight System (T2 Wiki) - Lazy imports to avoid circular dependency ---
 # These imports are moved inside initialize() method
@@ -96,11 +98,20 @@ class AppContainer:
         else:
             self.llm_service = GeminiService()
 
-        # --- EMBEDDING SERVICE ---
-        self.embedding_service = LocalEmbeddingService(
-            model_name="Qwen/Qwen3-Embedding-0.6B"
-        )
-        await self.embedding_service.initialize()
+        # --- EMBEDDING SERVICE (lazy: model load khi có request đầu tiên) ---
+        embedding_provider = getattr(Config, "EMBEDDING_PROVIDER", "local").lower()
+        if embedding_provider == "qwen":
+            self.embedding_service = RemoteEmbeddingService(
+                model_name=Config.EMBEDDING_MODEL_NAME,
+                api_key=Config.EMBEDDING_API_KEY,
+                api_url=Config.EMBEDDING_API_URL,
+            )
+            logger.info("🌐 Embedding provider: Qwen API")
+        else:
+            self.embedding_service = LocalEmbeddingService(
+                model_name=Config.EMBEDDING_MODEL_NAME
+            )
+            logger.info("💻 Embedding provider: Local")
 
         # 2. LẮP RÁP BỘ NHỚ TẦNG 1 (Active Memory)
         event_bus = EventDispatcher()
@@ -125,19 +136,25 @@ class AppContainer:
 
         # 4. KHỞI TẠO EVERNIGHT SYSTEM (T2 Wiki)
         # ========================================
+        wiki_storage = await self._get_wiki_storage()
+
+        # Facade gộp embedding + Qdrant storage
+        memory_manager = EpisodicMemoryManager(
+            wiki_storage=wiki_storage,
+            embedding_service=self.embedding_service,
+        )
+
         # Lazy imports to avoid circular dependency
         from src.agents.evernight.agent import EvernightAgent
         from src.agents.evernight.services.wiki_merge import WikiMergeService
         from src.agents.evernight.spawner import EvernightSpawner
 
-        wiki_storage = await self._get_wiki_storage()
         wiki_merge = WikiMergeService(llm_client=self.llm_service)
 
         evernight_agent = EvernightAgent(
-            wiki_storage=wiki_storage,
+            memory_manager=memory_manager,
             wiki_merge=wiki_merge,
             llm_client=self.llm_service,
-            embedding_service=self.embedding_service,
         )
 
         # Redis client for overflow queue (reuse if available)
@@ -165,8 +182,7 @@ class AppContainer:
 
         tool_dependencies = {
             "core_manager": t3_manager,
-            "wiki_storage": wiki_storage,
-            "embedding_service": self.embedding_service,
+            "memory_manager": memory_manager,
             "base_memory_path": "memories",
             "tavily_client": self.tavily_client,
             "codebox_client": self.codebox_client,
@@ -211,6 +227,7 @@ class AppContainer:
         # Store components for later access
         self.tool_registry = tool_registry
         self.evernight_agent = evernight_agent
+        self.memory_manager = memory_manager
         self.evernight_spawner = evernight_spawner
         self.approval_gate = approval_gate
 
@@ -245,6 +262,10 @@ class AppContainer:
         if self.codebox_client:
             await self.codebox_client.close()
             logger.info("🔴 CodeBox client closed")
+
+        if hasattr(self, "embedding_service") and hasattr(self.embedding_service, "close"):
+            await self.embedding_service.close()
+            logger.info("🔴 Embedding service closed")
 
     async def _get_t1_storage(self) -> BaseStorage:
         """Factory method: Chọn storage implementation cho Tầng 1."""

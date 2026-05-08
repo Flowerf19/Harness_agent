@@ -2,7 +2,7 @@
 SearchOrchestrator - Điều phối tìm kiếm Wiki memory và Web search.
 
 Phối hợp giữa:
-- Wiki memory search (semantic, qua WikiStorage + LocalEmbeddingService)
+- Wiki memory search (qua EpisodicMemoryManager)
 - Web search (qua TavilyClient)
 
 Fallback chain:
@@ -24,13 +24,12 @@ class SearchOrchestrator:
     """
     Điều phối tìm kiếm Wiki memory và Web search với fallback chain.
 
-    Accepts wiki_storage (WikiStorage), embedding_service (LocalEmbeddingService),
-    and tavily_client (TavilyClient) as dependencies. All are optional for graceful degradation.
+    Accepts memory_manager (EpisodicMemoryManager) and tavily_client (TavilyClient).
+    All are optional for graceful degradation.
 
     Example:
         orchestrator = SearchOrchestrator(
-            wiki_storage=wiki_storage,
-            embedding_service=embedding_service,
+            memory_manager=memory_manager,
             tavily_client=tavily_client,
         )
         result = await orchestrator.search(
@@ -42,26 +41,15 @@ class SearchOrchestrator:
 
     def __init__(
         self,
-        wiki_storage: Optional[Any] = None,
-        embedding_service: Optional[Any] = None,
+        memory_manager: Optional[Any] = None,
         tavily_client: Optional[Any] = None,
     ):
-        """
-        Initialize SearchOrchestrator.
-
-        Args:
-            wiki_storage: WikiStorage instance for T2 Wiki Pages
-            embedding_service: LocalEmbeddingService for query embedding
-            tavily_client: TavilyClient for web search
-        """
-        self.wiki_storage = wiki_storage
-        self.embedding_service = embedding_service
+        self.memory = memory_manager
         self.tavily_client = tavily_client
 
         logger.info(
             f"SearchOrchestrator initialized - "
-            f"wiki_storage={wiki_storage is not None}, "
-            f"embedding_service={embedding_service is not None}, "
+            f"memory_manager={memory_manager is not None}, "
             f"tavily_client={tavily_client is not None}"
         )
 
@@ -149,41 +137,18 @@ class SearchOrchestrator:
         return f"Không tìm thấy kết quả web nào cho '{query}'."
 
     async def _search_wiki(self, user_id: str, query: str) -> List[Any]:
-        """
-        Search Wiki memory using semantic search.
-
-        Args:
-            user_id: Discord user ID
-            query: Search query string
-
-        Returns:
-            List of WikiPagePayload objects, empty if no results or service unavailable
-        """
-        if not self.wiki_storage:
-            logger.warning("SearchOrchestrator: wiki_storage not available, skipping Wiki search")
-            return []
-
-        if not self.embedding_service:
-            logger.warning(
-                "SearchOrchestrator: embedding_service not available, skipping Wiki search"
-            )
+        if not self.memory:
+            logger.warning("SearchOrchestrator: memory_manager not available, skipping Wiki search")
             return []
 
         try:
-            query_vector = await self.embedding_service.get_embedding(query)
-            if not query_vector:
-                logger.warning("SearchOrchestrator: Failed to generate embedding for query")
-                return []
-
-            results = await self.wiki_storage.search_similar(
+            results = await self.memory.search_pages(
                 user_id=user_id,
-                query_vector=query_vector,
+                query=query,
                 top_k=Config.SEARCH_TOP_K_SEMANTIC,
                 min_relevance=Config.SEARCH_MIN_RELEVANCE,
             )
-
             return results or []
-
         except Exception as e:
             logger.error(f"SearchOrchestrator: Wiki search error: {e}")
             return []
@@ -323,7 +288,6 @@ class SearchOrchestrator:
     def __repr__(self) -> str:
         return (
             f"<SearchOrchestrator: "
-            f"wiki_storage={self.wiki_storage is not None}, "
-            f"embedding={self.embedding_service is not None}, "
+            f"memory={self.memory is not None}, "
             f"tavily={self.tavily_client is not None}>"
         )

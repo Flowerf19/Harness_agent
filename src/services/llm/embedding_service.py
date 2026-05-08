@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 # Tắt log verbose của các thư viện bên thứ ba
 logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("huggingface_hub.file_download").setLevel(logging.CRITICAL)
 
 # Đường dẫn cache cho models
 # Ưu tiên HF_HOME env var (đã được mount với quyền ghi trong Docker)
@@ -28,7 +29,7 @@ class LocalEmbeddingService:
     Sử dụng mô hình local (VD: Qwen/Qwen3-Embedding-0.6B) để biến Text thành Vector.
     """
 
-    def __init__(self, model_name: str = "Qwen/Qwen3-Embedding-0.6B"):
+    def __init__(self, model_name: str):
         self.model_name = model_name
         self.model = None
         self.cache_dir = os.path.abspath(MODEL_CACHE_DIR)

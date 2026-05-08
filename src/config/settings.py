@@ -6,9 +6,7 @@ class Config:
     DISCORD_BOT_TOKEN = os.getenv("DISCORD_LLM_BOT_TOKEN")
     DISCORD_BOT_CLIENT_ID = os.getenv("DISCORD_LLM_BOT_CLIENT_ID")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    GEMINI_API_URL = os.getenv(
-        "GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/models"
-    )
+    GEMINI_API_URL = os.getenv("GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/models")
     LLM_MODEL = os.getenv("LLM_MODEL", "gemini-2.5-flash")
     SYNC_COMMANDS = os.getenv("SYNC_COMMANDS", "0")
 
@@ -19,9 +17,7 @@ class Config:
 
     # Qwen API settings
     QWEN_API_KEY = os.getenv("QWEN_API_KEY")
-    QWEN_API_URL = os.getenv(
-        "QWEN_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    )
+    QWEN_API_URL = os.getenv("QWEN_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
     QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen-max")
 
     # Typing simulation settings
@@ -60,9 +56,7 @@ class Config:
     LANGCHAIN_API_KEY = os.getenv("LANGCHAIN_API_KEY")
     LANGCHAIN_TRACING_V2 = os.getenv("LANGCHAIN_TRACING_V2", "true").lower() == "true"
     LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "discord-bot")
-    LANGCHAIN_ENDPOINT = os.getenv(
-        "LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com"
-    )
+    LANGCHAIN_ENDPOINT = os.getenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
 
     # Redis configuration for Active Memory (Tier 1) storage
     REDIS_ENABLED = os.getenv("REDIS_ENABLED", "false").lower() == "true"
@@ -89,16 +83,19 @@ class Config:
     CODEBOX_SESSION_TTL = int(os.getenv("CODEBOX_SESSION_TTL", "1800"))  # 30 minutes
 
     # Bash Executor configuration (execute_host_bash tool)
-    BASH_EXECUTOR_URL = os.getenv(
-        "BASH_EXECUTOR_URL", "http://host.docker.internal:8374"
-    )
+    BASH_EXECUTOR_URL = os.getenv("BASH_EXECUTOR_URL", "http://host.docker.internal:8374")
     BASH_EXECUTOR_TIMEOUT = int(os.getenv("BASH_EXECUTOR_TIMEOUT", "30"))
-    BASH_EXECUTOR_ALLOWED_ORIGINS = os.getenv(
-        "BASH_EXECUTOR_ALLOWED_ORIGINS", "march7-bot,http://localhost:8374,http://host.docker.internal:8374"
-    )
+    BASH_EXECUTOR_ALLOWED_ORIGINS = os.getenv("BASH_EXECUTOR_ALLOWED_ORIGINS", "march7-bot,http://localhost:8374,http://host.docker.internal:8374")
 
     # Search Memory configuration
     SEARCH_TOP_K_SEMANTIC = int(os.getenv("SEARCH_TOP_K_SEMANTIC", "5"))
     SEARCH_TOP_K_TIME = int(os.getenv("SEARCH_TOP_K_TIME", "10"))
     SEARCH_TOP_K_TOPIC = int(os.getenv("SEARCH_TOP_K_TOPIC", "10"))
     SEARCH_MIN_RELEVANCE = float(os.getenv("SEARCH_MIN_RELEVANCE", "0.3"))
+
+    # Embedding model configuration
+    EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "qwen")
+    EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "text-embedding-v3")
+    EMBEDDING_API_URL = os.getenv("EMBEDDING_API_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
+    EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", os.getenv("QWEN_API_KEY"))
+    EMBEDDING_VECTOR_SIZE = int(os.getenv("EMBEDDING_VECTOR_SIZE", "1024"))
