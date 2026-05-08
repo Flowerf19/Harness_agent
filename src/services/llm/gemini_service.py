@@ -98,8 +98,8 @@ class GeminiService(BaseLLMService):
         # 3. [NATIVE TOOL CALLING] Thêm tools vào payload nếu enabled
         if use_native_tools:
             openai_tools = []
-            if self.mcp_client:
-                openai_tools = self.mcp_client.get_native_tool_schemas()
+            if self.tool_registry:
+                openai_tools = self.tool_registry.get_all_openai_schemas()
             if openai_tools:
                 gemini_tools = self._map_tools_to_gemini_format(openai_tools)
                 payload["tools"] = [{"functionDeclarations": gemini_tools}]

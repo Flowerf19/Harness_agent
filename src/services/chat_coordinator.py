@@ -10,7 +10,7 @@ from langsmith import traceable
 from src.services.llm.base_llm_service import BaseLLMService
 from src.services.llm.llm_response import LLMResponse
 from src.services.memories.memory_manager import MemoryManager
-from src.services.tools.mcp_client import MCPClient
+from src.services.tools.tool_registry import ToolRegistry
 from src.services.tools.exceptions import BashExecutorUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -35,12 +35,12 @@ class ChatCoordinator:
         self,
         memory_manager: MemoryManager,
         llm_service: BaseLLMService,
-        mcp_client: Optional[MCPClient] = None,
-        use_native_tools: bool = True,  # [MỚI] Enable native tool calling by default
+        tool_registry: Optional[ToolRegistry] = None,
+        use_native_tools: bool = True,
     ):
         self.memory = memory_manager
         self.llm = llm_service
-        self.mcp_client = mcp_client
+        self.tool_registry = tool_registry
         self.use_native_tools = use_native_tools
 
         # Detect LLM service type for context message formatting
@@ -50,7 +50,7 @@ class ChatCoordinator:
         self._model_name = getattr(self.llm, 'model', 'unknown')
 
         # Log initialization
-        tool_mode = "MCP Client" if mcp_client else "No tools"
+        tool_mode = "ToolRegistry" if tool_registry else "No tools"
         logger.debug(f"🔧 ChatCoordinator initialized: use_native_tools={self.use_native_tools}, llm_type={self._llm_type}, model={self._model_name}, tool_mode={tool_mode}")
 
     def _detect_llm_type(self) -> str:
@@ -176,9 +176,8 @@ class ChatCoordinator:
                         tool_call_id = tc.get("id", str(uuid.uuid4()))
 
                         try:
-                            # MCP Architecture
                             tool_result = await asyncio.wait_for(
-                                self.mcp_client.execute_tool(tool_name, tool_args),
+                                self.tool_registry.execute_tool(tool_name, tool_args),
                                 timeout=TOOL_EXECUTION_TIMEOUT
                             )
 

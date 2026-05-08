@@ -20,7 +20,7 @@ class BaseLLMService(abc.ABC):
     def __init__(self):
         self.session = None
         self.logger = logging.getLogger(f"discord_bot.{self.__class__.__name__}")
-        self.mcp_client = None    # [MỚI] MCP Client sẽ được inject sau (New)
+        self.tool_registry = None
 
         # Load file tính cách từ Markdown (Static Persona)
         # File này sẽ làm nền tảng, còn Core Memory (T3) sẽ bổ sung phần Dynamic Persona
@@ -28,10 +28,10 @@ class BaseLLMService(abc.ABC):
         self.static_soul = self._load_prompt("SOUL.md", "memories")
         self.static_tools = self._load_prompt("TOOL.md", "memories")
 
-    def set_mcp_client(self, mcp_client) -> None:
-        """[MỚI] Inject MCP Client vào LLM Service."""
-        self.mcp_client = mcp_client
-        self.logger.debug("✅ MCP Client đã được inject vào LLM Service")
+    def set_tool_registry(self, tool_registry) -> None:
+        """Inject ToolRegistry vào LLM Service để lấy tool schemas."""
+        self.tool_registry = tool_registry
+        self.logger.debug("ToolRegistry đã được inject vào LLM Service")
 
     def _load_prompt(self, filename: str, folder: str = "prompts") -> str:
         """Load prompt content from file.

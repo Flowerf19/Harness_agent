@@ -45,11 +45,8 @@ from src.services.memories.memory_manager import MemoryManager
 from src.services.queue.overflow_queue import OverflowQueue
 from src.tasks.nightly_trigger import NightlyTrigger
 
-# --- Tools System (MCP Architecture) ---
+# --- Tools System ---
 from src.services.tools.tool_registry import ToolRegistry
-from src.services.tools.mcp_server import MCPServer
-from src.services.tools.mcp_client import MCPClient
-from src.services.tools.mcp_transport import InMemoryTransport
 from src.services.tools.tool_discovery import discover_and_register_tools
 from src.services.tools.approval_gate import ApprovalGate
 
@@ -178,31 +175,30 @@ class AppContainer:
             "timeout": Config.BASH_EXECUTOR_TIMEOUT,
         }
 
-        tools_dir = "src/services/tools/implementations"
-        discovered_tools = discover_and_register_tools(
-            tools_dir=tools_dir,
+        # Discover and register tools from both directories
+        system_tools = discover_and_register_tools(
+            tools_dir="src/services/tools/implementations/system",
             registry=tool_registry,
             dependencies=tool_dependencies,
         )
-        logger.debug(f"🔧 MCP: Đã khám phá {len(discovered_tools)} tools")
+        logger.debug(f"🔧 System tools: {len(system_tools)} loaded")
 
-        mcp_server = MCPServer(
+        mcp_tools = discover_and_register_tools(
+            tools_dir="src/services/tools/implementations/mcp",
             registry=tool_registry,
-            server_name="discord-bot-mcp-server",
-            server_version="1.0.0",
-            tool_timeout=60,
+            dependencies=tool_dependencies,
         )
+        logger.debug(f"🔧 MCP proxy tools: {len(mcp_tools)} loaded")
 
-        mcp_transport = InMemoryTransport(mcp_server)
-        mcp_client = MCPClient(transport=mcp_transport)
-        await mcp_client.list_tools()
-        self.llm_service.set_mcp_client(mcp_client)
+        logger.info(f"🔧 ToolRegistry: {tool_registry.count()} tools ({', '.join(tool_registry.list_tool_names())})")
+
+        self.llm_service.set_tool_registry(tool_registry)
 
         # 7. KHỞI TẠO NHẠC TRƯỞNG GIAO TIẾP
         self.chat_coordinator = ChatCoordinator(
             memory_manager=self.memory_manager,
             llm_service=self.llm_service,
-            mcp_client=mcp_client,
+            tool_registry=tool_registry,
         )
 
         # 8. KHỞI TẠO NIGHTLY TRIGGER (Background Task)
@@ -213,8 +209,6 @@ class AppContainer:
         )
 
         # Store components for later access
-        self.mcp_client = mcp_client
-        self.mcp_server = mcp_server
         self.tool_registry = tool_registry
         self.evernight_agent = evernight_agent
         self.evernight_spawner = evernight_spawner

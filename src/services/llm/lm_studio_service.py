@@ -72,8 +72,8 @@ class LMStudioService(BaseLLMService):
         # 3. [NATIVE TOOL CALLING] Thêm tools vào payload nếu enabled
         if use_native_tools:
             tool_schemas = []
-            if self.mcp_client:
-                tool_schemas = self.mcp_client.get_native_tool_schemas()
+            if self.tool_registry:
+                tool_schemas = self.tool_registry.get_all_openai_schemas()
             if tool_schemas:
                 payload["tools"] = tool_schemas
                 self.logger.debug(f"🔧 Native tools enabled: {len(tool_schemas)} tools")

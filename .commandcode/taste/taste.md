@@ -1,4 +1,2 @@
-# Taste (Continuously Learned by [CommandCode][cmd])
-
-[cmd]: https://commandcode.ai/
-
+# architecture
+- Separate system tools and MCP proxy tools into distinct directories (e.g., implementations/system/ and implementations/mcp/). Confidence: 0.65
