@@ -5,7 +5,7 @@ import warnings
 from dotenv import load_dotenv
 
 # Load .env TRƯỚC khi import các module khác
-load_dotenv()
+load_dotenv(override=True)
 
 import discord  # noqa: E402
 from discord.ext import commands  # noqa: E402

@@ -51,6 +51,7 @@ from src.services.tools.mcp_server import MCPServer
 from src.services.tools.mcp_client import MCPClient
 from src.services.tools.mcp_transport import InMemoryTransport
 from src.services.tools.tool_discovery import discover_and_register_tools
+from src.services.tools.approval_gate import ApprovalGate
 
 # --- External Services ---
 from src.services.external.tavily_client import TavilyClient
@@ -86,7 +87,7 @@ class AppContainer:
 
     async def initialize(self):
         """Khởi tạo toàn bộ hệ thống."""
-        load_dotenv()
+        load_dotenv(override=True)
         logger.info("⚡ Đang khởi động Trạm Điện (AppContainer)...")
 
         # 1. CHỌN ĐỘNG CƠ LLM (Chat)
@@ -161,6 +162,8 @@ class AppContainer:
         # 6. KHỞI TẠO MCP TOOL SYSTEM
         self.tavily_client = self._init_tavily_client()
         self.codebox_client = self._init_codebox_client()
+
+        approval_gate = ApprovalGate()
         tool_registry = ToolRegistry()
 
         tool_dependencies = {
@@ -170,6 +173,9 @@ class AppContainer:
             "base_memory_path": "memories",
             "tavily_client": self.tavily_client,
             "codebox_client": self.codebox_client,
+            "approval_gate": approval_gate,
+            "executor_url": Config.BASH_EXECUTOR_URL,
+            "timeout": Config.BASH_EXECUTOR_TIMEOUT,
         }
 
         tools_dir = "src/services/tools/implementations"
@@ -212,6 +218,7 @@ class AppContainer:
         self.tool_registry = tool_registry
         self.evernight_agent = evernight_agent
         self.evernight_spawner = evernight_spawner
+        self.approval_gate = approval_gate
 
         logger.info("✅ Hệ thống đã sẵn sàng online!")
 

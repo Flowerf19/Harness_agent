@@ -36,6 +36,7 @@ services:
       - ../gateway:/app/gateway:Z
       - ../memories:/app/memories:Z
       - ../config.py:/app/config.py:Z
+      - ../.env:/app/.env:Z
       - hf_cache:/app/.cache/huggingface
     # Tự động khởi động lại tiến trình Python khi sửa code
     command: >

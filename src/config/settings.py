@@ -88,6 +88,15 @@ class Config:
     CODEBOX_MAX_OUTPUT_CHARS = int(os.getenv("CODEBOX_MAX_OUTPUT_CHARS", "2000"))  # Discord limit
     CODEBOX_SESSION_TTL = int(os.getenv("CODEBOX_SESSION_TTL", "1800"))  # 30 minutes
 
+    # Bash Executor configuration (execute_host_bash tool)
+    BASH_EXECUTOR_URL = os.getenv(
+        "BASH_EXECUTOR_URL", "http://host.docker.internal:8374"
+    )
+    BASH_EXECUTOR_TIMEOUT = int(os.getenv("BASH_EXECUTOR_TIMEOUT", "30"))
+    BASH_EXECUTOR_ALLOWED_ORIGINS = os.getenv(
+        "BASH_EXECUTOR_ALLOWED_ORIGINS", "march7-bot,http://localhost:8374,http://host.docker.internal:8374"
+    )
+
     # Search Memory configuration
     SEARCH_TOP_K_SEMANTIC = int(os.getenv("SEARCH_TOP_K_SEMANTIC", "5"))
     SEARCH_TOP_K_TIME = int(os.getenv("SEARCH_TOP_K_TIME", "10"))

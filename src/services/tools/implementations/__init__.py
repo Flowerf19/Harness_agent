@@ -25,6 +25,7 @@ from src.services.tools.implementations.update_profile_tool import UpdateUserPro
 from src.services.tools.implementations.update_personality_tool import UpdatePersonalityTool
 from src.services.tools.implementations.tavily_search_tool import TavilySearchTool
 from src.services.tools.implementations.code_interpreter_tool import CodeInterpreterTool
+from src.services.tools.implementations.execute_host_bash_tool import ExecuteHostBashTool
 
 __all__ = [
     "SearchMemoryTool",
@@ -32,4 +33,5 @@ __all__ = [
     "UpdatePersonalityTool",
     "TavilySearchTool",
     "CodeInterpreterTool",
+    "ExecuteHostBashTool",
 ]

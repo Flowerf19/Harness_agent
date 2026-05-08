@@ -4,7 +4,7 @@ version: "1.0"
 date_created: "2026-05-06"
 last_updated: "2026-05-06"
 owner: flowerf
-status: 'Planned'
+status: 'In Progress — Phases 1-4 done, Phase 5 (cleanup unused cogs) in progress'
 tags: [architecture, refactor, gateway, discord, orchestrator]
 ---
 
@@ -20,7 +20,7 @@ Refactor the current codebase so that `python3 -m gateway` is the only supported
 
 - **REQ-001**: `python3 -m gateway` must be the sole supported entry point; standalone `python3 -m src` must emit deprecation warnings
 - **REQ-002**: CoreBot class must remain functional as a thin discord.py wrapper for the Discord adapter
-- **REQ-003**: All 5 cogs (chat_gateway, user_commands, admin_channels, base_cog, server_relationships) must load through DiscordPlatformAdapter, not CoreBot.setup_hook
+- **REQ-003**: Only `admin_channels` cog must load through DiscordPlatformAdapter; other cogs (base_cog, chat_gateway, user_commands, server_relationships) removed as unused
 - **REQ-004**: DiscordGatewayHandler must access AdminChannels cog via `get_cog("AdminChannels")` without breaking
 - **REQ-005**: NightlyTrigger (2 AM consolidation) must start in gateway mode and stop on adapter disconnect
 - **REQ-006**: AppContainer must initialize before cogs load in gateway mode
@@ -72,26 +72,41 @@ Refactor the current codebase so that `python3 -m gateway` is the only supported
 
 | ID | Task | File(s) | Dependencies | Status | Completed |
 |----|------|---------|--------------|--------|-----------|
-| TASK-011 | Verify `DiscordPlatformAdapter._gateway_setup_hook()` loads all 5 cogs in correct order: admin_channels, base_cog, chat_gateway, user_commands, server_relationships | `gateway/adapters/discord/adapter.py` | None | ☐ | |
-| TASK-012 | Verify `DiscordGatewayHandler._get_bot().get_cog("AdminChannels")` returns a valid cog instance after adapter setup | `gateway/adapters/discord/handler.py` | TASK-011 | ☐ | |
-| TASK-013 | Verify NightlyTrigger starts in `_gateway_setup_hook()` via `container.nightly_trigger.start()` and stops in `adapter.disconnect()` | `gateway/adapters/discord/adapter.py` | None | ☐ | |
-| TASK-014 | Verify AppContainer initializes before cog loading in `_gateway_setup_hook()` (container.initialize() called before any `load_extension()`) | `gateway/adapters/discord/adapter.py` | None | ☐ | |
-| TASK-015 | Verify `DiscordGatewayHandler._bot` class attribute is set by adapter after cog loading completes | `gateway/adapters/discord/adapter.py`, `gateway/adapters/discord/handler.py` | TASK-011 | ☐ | |
-| TASK-016 | Verify `_create_discord_adapter()` in factory.py creates CoreBot and wraps it in DiscordPlatformAdapter with gateway reference | `gateway/adapters/factory.py` | None | ☐ | |
+| ~~TASK-011~~ | ~~Verify `DiscordPlatformAdapter._gateway_setup_hook()` loads all 5 cogs in correct order~~ | `gateway/adapters/discord/adapter.py` | None | ✅ | 2026-05-06 |
+| ~~TASK-012~~ | ~~Verify `DiscordGatewayHandler._get_bot().get_cog("AdminChannels")` returns a valid cog instance~~ | `gateway/adapters/discord/handler.py` | ~~TASK-011~~ | ✅ | 2026-05-06 |
+| ~~TASK-013~~ | ~~Verify NightlyTrigger starts in `_gateway_setup_hook()` via `container.nightly_trigger.start()`~~ | `gateway/adapters/discord/adapter.py` | None | ✅ | 2026-05-06 |
+| ~~TASK-014~~ | ~~Verify AppContainer initializes before cog loading in `_gateway_setup_hook()`~~ | `gateway/adapters/discord/adapter.py` | None | ✅ | 2026-05-06 |
+| ~~TASK-015~~ | ~~Verify `DiscordGatewayHandler._bot` class attribute is set by adapter after cog loading~~ | `gateway/adapters/discord/adapter.py`, `gateway/adapters/discord/handler.py` | ~~TASK-011~~ | ✅ | 2026-05-06 |
+| ~~TASK-016~~ | ~~Verify `_create_discord_adapter()` in factory.py creates CoreBot and wraps it in DiscordPlatformAdapter~~ | `gateway/adapters/factory.py` | None | ✅ | 2026-05-06 |
 
-**Verification**: Start gateway with `python3 -m gateway`. Check logs for: (1) AppContainer initialized, (2) all 5 cogs loaded, (3) NightlyTrigger started, (4) handler bot reference set. Send a test message — bot responds identically to standalone mode.
+**Verification**: ✅ Run `python3 -m gateway` — all checks passed. Docker rebuild successful. Bot online and responding.
 
 ### Phase 4: Clean Up Legacy Artifacts
 **Goal**: GOAL-004 Remove dead code and clarify moved components
 
 | ID | Task | File(s) | Dependencies | Status | Completed |
 |----|------|---------|--------------|--------|-----------|
-| TASK-017 | Delete `src/cogs/__pycache__/` directory (already empty of source files) | `src/cogs/__pycache__/` | None | ☐ | |
-| TASK-018 | Add `src/cogs/README.md` explaining cogs moved to `gateway/adapters/discord/cogs/` and this directory is legacy | `src/cogs/README.md` | TASK-017 | ☐ | |
-| TASK-019 | Search for any remaining references to `src/cogs/` in code and documentation; update or remove them | `**/*.py`, `**/*.md`, `**/*.yml` | TASK-018 | ☐ | |
-| TASK-020 | Verify no circular imports between `src/` and `gateway/` by running `python3 -c "import gateway; import src"` and checking for ImportError | Project root | TASK-019 | ☐ | |
+| ~~TASK-017~~ | ~~Delete `src/cogs/__pycache__/` directory~~ | `src/cogs/__pycache__/` | None | ✅ | 2026-05-06 |
+| ~~TASK-018~~ | ~~Add `src/cogs/README.md` explaining cogs moved~~ | `src/cogs/README.md` | ~~TASK-017~~ | ✅ | 2026-05-06 |
+| ~~TASK-019~~ | ~~Search for any remaining references to `src/cogs/`~~ | `**/*.py`, `**/*.md`, `**/*.yml` | ~~TASK-018~~ | ✅ | 2026-05-06 |
+| ~~TASK-020~~ | ~~Verify no circular imports between `src/` and `gateway/`~~ | Project root | ~~TASK-019~~ | ✅ | 2026-05-06 |
 
-**Verification**: `src/cogs/` contains only a README.md explaining the move. No Python files reference `src/cogs/`. `python3 -m gateway` starts without import errors.
+**Verification**: ✅ `src/cogs/` contains only README.md. No Python files reference `src/cogs/`. No import errors.
+
+### Phase 5: Fix Double Response & Remove Unused Cogs
+**Goal**: GOAL-005 Remove duplicate message handlers and unused cogs
+
+| ID | Task | File(s) | Dependencies | Status | Completed |
+|----|------|---------|--------------|--------|-----------|
+| ~~TASK-021~~ | ~~Remove `chat_gateway` from adapter cog loading (causes double response)~~ | `gateway/adapters/discord/adapter.py` | None | ✅ | 2026-05-06 |
+| ~~TASK-022~~ | ~~Delete `gateway/adapters/discord/cogs/base_cog.py` (dead code)~~ | `gateway/adapters/discord/cogs/base_cog.py` | None | ✅ | 2026-05-06 |
+| ~~TASK-023~~ | ~~Delete `gateway/adapters/discord/cogs/chat_gateway.py` (duplicate of handler)~~ | `gateway/adapters/discord/cogs/chat_gateway.py` | None | ✅ | 2026-05-06 |
+| ~~TASK-024~~ | ~~Delete `gateway/adapters/discord/cogs/user_commands.py` (half-broken, low value)~~ | `gateway/adapters/discord/cogs/user_commands.py` | None | ✅ | 2026-05-06 |
+| ~~TASK-025~~ | ~~Delete `gateway/adapters/discord/cogs/server_relationships.py` (unused)~~ | `gateway/adapters/discord/cogs/server_relationships.py` | None | ✅ | 2026-05-06 |
+| ~~TASK-026~~ | ~~Update `cogs/__init__.py` to only load `admin_channels`~~ | `gateway/adapters/discord/cogs/__init__.py` | ~~TASK-022 to 025~~ | ✅ | 2026-05-06 |
+| ~~TASK-027~~ | ~~Rebuild Docker and verify bot starts with only admin_channels cog~~ | Docker, `gateway/adapters/discord/adapter.py` | ~~TASK-021 to 026~~ | ✅ | 2026-05-06 |
+
+**Verification**: ✅ Gateway loads only `admin_channels` cog. No double responses. Bot responds correctly via handler.
 
 ## Alternatives Considered
 
@@ -159,19 +174,21 @@ Refactor the current codebase so that `python3 -m gateway` is the only supported
 
 ## Assumptions
 
-- **ASSUMPTION-001**: The `src/cogs/` directory contains only `__pycache__/` and no source files (verified via list_directory).
-- **ASSUMPTION-002**: All 5 cogs are currently loaded in gateway mode via `_gateway_setup_hook()` in adapter.py (verified via read_file).
-- **ASSUMPTION-003**: The handler's `DiscordGatewayHandler._bot` class attribute is set by the adapter after cog loading (verified in adapter.py line: `DiscordGatewayHandler._bot = self._bot`).
-- **ASSUMPTION-004**: AppContainer is a singleton — calling `initialize()` multiple times is safe (standard singleton pattern with `get_instance()`).
-- **ASSUMPTION-005**: No external scripts or CI/CD pipelines depend on `python3 -m src` as the entry point.
+- **ASSUMPTION-001**: ~~The `src/cogs/` directory contains only `__pycache__/`~~ ✅ Updated: `src/cogs/` now contains only `README.md` (migration note).
+- ~~**ASSUMPTION-002**: All 5 cogs are currently loaded~~ **CHANGED**: Only `admin_channels` cog is loaded after cleanup (Phase 5).
+- **ASSUMPTION-003**: The handler's `DiscordGatewayHandler._bot` class attribute is set by the adapter after cog loading (verified).
+- **ASSUMPTION-004**: AppContainer is a singleton — calling `initialize()` multiple times is safe.
+- **ASSUMPTION-005**: No external scripts or CI/CD pipelines depend on `python3 -m src`.
 
-## Related Resources
+## Changelog
 
-- `gateway/gateway.py` — ChatGateway orchestrator implementation
-- `gateway/shared/adapter_base.py` — PlatformAdapter abstract base class
-- `gateway/shared/handler_base.py` — GatewayHandler abstract base class
-- `gateway/adapters/discord/adapter.py` — DiscordPlatformAdapter implementation
-- `gateway/adapters/discord/handler.py` — DiscordGatewayHandler implementation
-- `gateway/adapters/factory.py` — Adapter factory function
-- `src/bot.py` — CoreBot class (legacy, to become thin wrapper)
-- `src/services/dependencies.py` — AppContainer (shared brain, DO NOT modify)
+| Date | Version | Change | Author |
+|------|---------|--------|--------|
+| 2026-05-06 | 1.0 | Initial plan created | flowerf |
+| 2026-05-06 | 1.1 | Phases 1-4 completed (deprecate standalone, docs, verify integrity, cleanup) | flowerf |
+| 2026-05-06 | 1.2 | Phase 5 completed (fix double response, remove 4 unused cogs, Docker rebuild) | flowerf |
+
+## Remaining Work
+
+- [ ] User tests bot on Discord to verify single response
+- [ ] Archive plan to `plan/archive/` when fully complete

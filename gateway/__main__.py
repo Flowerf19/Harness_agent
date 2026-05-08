@@ -16,7 +16,7 @@ import sys
 # Load .env before anything else.
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 from src.config.logging_config import setup_logging  # noqa: E402
 

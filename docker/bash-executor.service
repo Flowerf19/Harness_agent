@@ -1,0 +1,29 @@
+[Unit]
+Description=March7 Bash Executor - Runs bash commands from Discord bot
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/path/to/march7
+EnvironmentFile=/path/to/march7/.env.bash_executor
+Environment="PYTHONPATH=/path/to/march7"
+ExecStart=/usr/bin/python3 -m src.server.bash_executor
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/tmp
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bash-executor
+
+[Install]
+WantedBy=multi-user.target
