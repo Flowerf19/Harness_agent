@@ -1,0 +1,28 @@
+services:
+  bash_executor:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    container_name: march7_bash_executor
+    restart: unless-stopped
+    pid: "host"
+    privileged: true
+    security_opt:
+      - label:disable
+    user: root
+    networks:
+      - march7_net
+    env_file:
+      - ../.env.bash_executor
+    environment:
+      - BASH_EXECUTOR_HOST=0.0.0.0
+      - BASH_EXECUTOR_PORT=8374
+    volumes:
+      - ../src:/app/src:Z
+    command: python -m src.server.bash_executor
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8374/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

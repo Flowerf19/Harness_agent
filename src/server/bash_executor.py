@@ -15,6 +15,8 @@ Security:
 
 import asyncio
 import logging
+import os
+import shlex
 import time
 import signal
 import sys
@@ -106,8 +108,14 @@ async def handle_execute(request: web.Request) -> web.Response:
 
     # Execute command
     try:
+        clean_command = command.strip()
+
+        # When running inside Docker, use nsenter to execute on the host
+        if os.path.exists("/.dockerenv"):
+            clean_command = f"nsenter -t 1 -m -u -i -n -p -- bash -c {shlex.quote(clean_command)}"
+
         proc = await asyncio.create_subprocess_shell(
-            command.strip(),
+            clean_command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

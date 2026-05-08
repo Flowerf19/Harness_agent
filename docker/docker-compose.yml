@@ -6,4 +6,5 @@ include:
   - docker-compose.redis.yml
   - docker-compose.qdrant.yml
   - docker-compose.codebox.yml
+  - docker-compose.bash-executor.yml
   - docker-compose.bot.yml

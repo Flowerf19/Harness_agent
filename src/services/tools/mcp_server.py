@@ -26,6 +26,7 @@ import asyncio
 from typing import Dict, Any, Optional
 
 from src.services.tools.tool_registry import ToolRegistry
+from src.services.tools.exceptions import BashExecutorUnavailableError
 from src.services.tools.mcp_protocol import (
     MCPRequest,
     MCPResponse,
@@ -133,6 +134,8 @@ class MCPServer:
             
             return MCPResponse.success(result, request.id)
             
+        except BashExecutorUnavailableError:
+            raise
         except ToolExecutionError as e:
             logger.error(f"Tool execution error: {e}")
             return MCPResponse.create_error(

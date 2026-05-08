@@ -15,6 +15,7 @@ import aiohttp
 
 from src.services.tools.base_tool import BaseTool, ToolExecutionError
 from src.services.tools.approval_gate import ApprovalGate
+from src.services.tools.exceptions import BashExecutorUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +197,10 @@ class ExecuteHostBashTool(BaseTool):
 
         except aiohttp.ClientConnectionError as e:
             logger.error(f"Không kết nối được Bash Executor: {e}")
-            return {"error": f"Không kết nối được đến Bash Executor tại {self.executor_url}. Hãy đảm bảo service đang chạy."}
+            raise BashExecutorUnavailableError(
+                executor_url=self.executor_url,
+                message=f"Không kết nối được đến Bash Executor tại {self.executor_url}. Hãy khởi động service.",
+            )
         except aiohttp.ClientError as e:
             logger.error(f"HTTP error khi gọi Bash Executor: {e}")
             return {"error": f"Lỗi giao tiếp với Bash Executor: {e}"}

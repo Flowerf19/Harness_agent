@@ -26,6 +26,7 @@ services:
       - QDRANT_URL=http://qdrant:6333
       - QDRANT_COLLECTION_NAME=episodic_memory
       - CODEBOX_API_URL=http://codebox:8069
+      - BASH_EXECUTOR_URL=http://bash_executor:8374
       - ENTRYPOINT_CMD=gateway
       - GATEWAY_ENABLED_PLATFORMS=discord
       - DISCORD_GATEWAY_ENABLED=true

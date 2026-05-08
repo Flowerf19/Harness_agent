@@ -17,6 +17,7 @@ import logging
 from typing import Dict, List, Optional, Any
 
 from src.services.tools.base_tool import BaseTool, ToolExecutionError
+from src.services.tools.exceptions import BashExecutorUnavailableError
 from src.services.tools.mcp_protocol import ToolDefinition
 
 logger = logging.getLogger(__name__)
@@ -223,6 +224,8 @@ class ToolRegistry:
         try:
             result = await tool.execute(**arguments)
             return result
+        except BashExecutorUnavailableError:
+            raise
         except Exception as e:
             logger.error(f"❌ Tool '{tool_name}' execution failed: {e}")
             raise ToolExecutionError(tool_name, str(e), original_error=e)

@@ -11,6 +11,7 @@ from src.services.llm.base_llm_service import BaseLLMService
 from src.services.llm.llm_response import LLMResponse
 from src.services.memories.memory_manager import MemoryManager
 from src.services.tools.mcp_client import MCPClient
+from src.services.tools.exceptions import BashExecutorUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +184,9 @@ class ChatCoordinator:
 
                             logger.debug(f"✅ Tool '{tool_name}' executed successfully")
 
+                        except BashExecutorUnavailableError:
+                            raise
+
                         except asyncio.TimeoutError:
                             logger.warning(f"⚠️ Tool '{tool_name}' timeout after {TOOL_EXECUTION_TIMEOUT}s")
                             tool_result = f"Lỗi: Tool '{tool_name}' đã timeout sau {TOOL_EXECUTION_TIMEOUT} giây."
@@ -230,6 +234,8 @@ class ChatCoordinator:
 
             return bot_response
 
+        except BashExecutorUnavailableError:
+            raise
         except Exception as e:
             logger.error(f"❌ ChatCoordinator: Lỗi nghiêm trọng khi xử lý tin nhắn: {e}")
             return "Xin lỗi, hệ thống não bộ của tôi đang gặp chút trục trặc. Bạn chờ xíu nhé!"

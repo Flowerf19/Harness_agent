@@ -16,6 +16,8 @@ from underthesea import sent_tokenize
 
 from gateway.shared.handler_base import GatewayHandler
 from gateway.shared.model import UnifiedEvent, UnifiedMessage
+from src.services.tools.exceptions import BashExecutorUnavailableError
+from src.services.tools.approval_context import set_current_message, clear_current_message
 
 if TYPE_CHECKING:
     import discord
@@ -81,17 +83,22 @@ class DiscordGatewayHandler(GatewayHandler):
 
         # --- 4. TYPING INDICATOR + COORDINATOR CALL + RESPONSE ---
         try:
+            set_current_message(raw_message)
             async with raw_message.channel.typing():
                 response = await coordinator.process_message(
                     user_id=user_id, content=content
                 )
             await self._send_response(raw_message, response)
+        except BashExecutorUnavailableError:
+            await self._handle_bash_executor_unavailable(raw_message, user_id, content)
         except Exception:
             logger.exception("Error in ChatCoordinator.process_message")
             try:
                 await raw_message.channel.send(ERROR_MESSAGE)
             except Exception:
                 logger.exception("Failed to send error message to user")
+        finally:
+            clear_current_message()
 
         # Handler sends directly via raw channel, so return empty
         # to prevent gateway from double-sending.
@@ -99,6 +106,59 @@ class DiscordGatewayHandler(GatewayHandler):
 
     async def handle_event(self, event: UnifiedEvent, msg: UnifiedMessage) -> None:
         logger.debug("Discord event %s for message %s (no-op)", event, msg.message_id)
+
+    # ------------------------------------------------------------------
+    # Bash Executor unavailable handling
+    # ------------------------------------------------------------------
+
+    async def _handle_bash_executor_unavailable(
+        self,
+        raw_message: discord.Message,
+        user_id: str,
+        content: str,
+    ) -> None:
+        from gateway.adapters.discord.views.bash_executor_start import (
+            BashExecutorStartView,
+        )
+
+        view = BashExecutorStartView(
+            handler=self,
+            raw_message=raw_message,
+            user_id=user_id,
+            content=content,
+        )
+        await raw_message.channel.send(
+            "⚠️ **Host tool chưa sẵn sàng.**\n"
+            "Nếu bạn vừa khởi động lại hệ thống, hãy đợi Docker khởi động xong rồi bấm thử lại.",
+            view=view,
+        )
+
+    async def retry_process_message(
+        self,
+        raw_message: discord.Message,
+        user_id: str,
+        content: str,
+    ) -> None:
+        coordinator = self._get_coordinator()
+        if coordinator is None:
+            await raw_message.channel.send("❌ Không thể retry: coordinator chưa sẵn sàng.")
+            return
+
+        try:
+            set_current_message(raw_message)
+            async with raw_message.channel.typing():
+                response = await coordinator.process_message(
+                    user_id=user_id, content=content
+                )
+            await self._send_response(raw_message, response)
+        except Exception:
+            logger.exception("Retry process_message failed")
+            try:
+                await raw_message.channel.send(ERROR_MESSAGE)
+            except Exception:
+                logger.exception("Failed to send error message to user")
+        finally:
+            clear_current_message()
 
     # ------------------------------------------------------------------
     # Response sending (replicates original ChatGateway._send_response)
