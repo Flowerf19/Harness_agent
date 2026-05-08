@@ -55,3 +55,14 @@ tests
 docker/volumes/**
 !docker/volumes/**/.gitkeep
 
+# Command Code & AI tools
+.commandcode/
+**/.claude/
+**/.codebuddy/
+**/.cursor/
+**/.continue/
+
+# Conda environment cache (mounted from Docker)
+docker/volumes/conda_envs/
+
+
