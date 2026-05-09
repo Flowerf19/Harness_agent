@@ -28,7 +28,6 @@ env/
 
 # Plan/docs
 plan/
-memories/
 
 # Docker files (not needed for build)
 docker/volumes/

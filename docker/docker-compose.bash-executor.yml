@@ -7,8 +7,6 @@ services:
     restart: unless-stopped
     pid: "host"
     privileged: true
-    security_opt:
-      - label:disable
     user: root
     networks:
       - march7_net
@@ -18,8 +16,8 @@ services:
       - BASH_EXECUTOR_HOST=0.0.0.0
       - BASH_EXECUTOR_PORT=8374
     volumes:
-      - ../src:/app/src:Z
-    command: python -m src.server.bash_executor
+      - ../scripts:/app/scripts:z
+    command: python /app/scripts/bash_executor_standalone.py
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8374/health || exit 1"]
       interval: 15s

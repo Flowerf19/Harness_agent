@@ -1,7 +1,6 @@
 """Entry point for ``python3 -m gateway``.
 
-Loads configuration from environment variables, initialises the shared
-``AppContainer`` (the platform-agnostic brain), instantiates the gateway
+Loads configuration from environment variables, initialises the gateway
 orchestrator and all configured platform adapters, then runs until
 SIGINT / SIGTERM.
 """
@@ -13,18 +12,14 @@ import logging
 import signal
 import sys
 
-# Load .env before anything else.
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-from src.config.logging_config import setup_logging  # noqa: E402
+from twin.shared.config.logging_config import setup_logging
 
 setup_logging()
 
-# Suppress discord.py internal reconnect stack traces.
-# discord.client logs verbose tracebacks on every network hiccup.
-# Our adapter already classifies errors cleanly — we don't need the dump.
 _discord_client_logger = logging.getLogger("discord.client")
 _discord_client_logger.addFilter(lambda record: "Attempting a reconnect" not in record.getMessage())
 
@@ -32,35 +27,33 @@ logger = logging.getLogger("gateway.main")
 
 
 async def _run_gateway() -> None:
-    from gateway.config import GatewayConfig  # noqa: E402
-    from gateway.gateway import ChatGateway  # noqa: E402
-    from gateway.adapters.factory import create_adapter  # noqa: E402
+    from gateway.config import GatewayConfig
+    from gateway.gateway import ChatGateway
+    from gateway.adapters.discord.a2a_client import GatewayA2AClient
+    from gateway.adapters.discord.handler import DiscordGatewayHandler
+    from gateway.adapters.factory import create_adapters
 
     config = GatewayConfig.from_env()
     logger.info("Gateway configuration: enabled_platforms=%s", config.enabled_platforms)
 
-    # Lazy import of handler — avoids circular imports with src/.
-    from gateway.adapters.discord.handler import DiscordGatewayHandler  # noqa: E402
+    # Create A2A client for routing to agents
+    a2a_client = GatewayA2AClient(
+        march7_url=config.march7_url,
+        evernight_url=config.evernight_url,
+    )
 
-    handler = DiscordGatewayHandler()
+    handler = DiscordGatewayHandler(a2a_client=a2a_client)
     gateway = ChatGateway(handler)
 
-    # Create and register adapters based on config.
-    for platform_name in config.enabled_platforms:
-        if not config.platform_enabled(platform_name):
-            logger.info("Platform %s is disabled in config — skipping", platform_name)
-            continue
-        try:
-            adapter = create_adapter(platform_name, config, gateway=gateway)
-            gateway.register_adapter(platform_name, adapter)
-        except Exception:
-            logger.exception("Failed to create adapter for %s — skipping", platform_name)
+    # Create and register adapters
+    adapters = create_adapters(config, gateway)
+    for name, adapter in adapters.items():
+        gateway.register_adapter(name, adapter)
 
     if not gateway.adapter_names:
-        logger.warning("No platform adapters registered — gateway will do nothing.")
+        logger.warning("No platform adapters registered")
         return
 
-    # Set up graceful shutdown on SIGINT / SIGTERM.
     loop = asyncio.get_running_loop()
     shutdown_event = asyncio.Event()
 
@@ -71,14 +64,11 @@ async def _run_gateway() -> None:
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, _signal_handler)
 
-    # Start all adapters.
     await gateway.start_all()
-
-    # Wait until shutdown signal.
     await shutdown_event.wait()
 
-    # Stop everything gracefully.
     await gateway.stop_all()
+    await a2a_client.close()
     logger.info("Gateway shut down cleanly.")
 
 

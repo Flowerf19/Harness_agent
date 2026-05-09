@@ -17,6 +17,12 @@ class GatewayConfig:
     discord_token: str = ""
     discord_enabled: bool = True
 
+    discord_march7_token: str = ""
+    discord_evernight_token: str = ""
+
+    march7_url: str = "http://localhost:8000"
+    evernight_url: str = "http://localhost:8001"
+
     zalo_access_token: str = ""
     zalo_app_id: str = ""
     zalo_enabled: bool = False
@@ -33,6 +39,10 @@ class GatewayConfig:
         # Re-use the existing Discord token env var — no new variable name.
         discord_token = os.getenv("DISCORD_LLM_BOT_TOKEN", "")
 
+        # Dual bot tokens
+        discord_march7_token = os.getenv("DISCORD_MARCH7_TOKEN", discord_token)
+        discord_evernight_token = os.getenv("DISCORD_EVERNIGHT_TOKEN", "")
+
         zalo_enabled_env = os.getenv("ZALO_ENABLED", "false").lower()
         zalo_enabled = zalo_enabled_env in ("1", "true", "yes")
 
@@ -40,6 +50,10 @@ class GatewayConfig:
             enabled_platforms=enabled_platforms,
             discord_token=discord_token,
             discord_enabled=discord_enabled,
+            discord_march7_token=discord_march7_token,
+            discord_evernight_token=discord_evernight_token,
+            march7_url=os.getenv("MARCH7_URL", "http://localhost:8000"),
+            evernight_url=os.getenv("EVERNIGHT_URL", "http://localhost:8001"),
             zalo_access_token=os.getenv("ZALO_ACCESS_TOKEN", ""),
             zalo_app_id=os.getenv("ZALO_APP_ID", ""),
             zalo_enabled=zalo_enabled,
