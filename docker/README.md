@@ -4,105 +4,126 @@
 
 ```
 docker/
-├── Dockerfile                  # Multi-stage build with uv
-├── docker-compose.yml           # Master file (network + includes)
-├── docker-compose.redis.yml     # Redis service
-├── docker-compose.qdrant.yml    # Qdrant service
+├── docker-compose.yml           # Master compose (network + includes)
+├── docker-compose.redis.yml     # Redis (T1 Active Memory)
+├── docker-compose.qdrant.yml    # Qdrant (T2 Wiki Pages)
 ├── docker-compose.codebox.yml   # CodeBox sandbox
-├── docker-compose.bot.yml       # March7 bot application
-├── .dockerignore                # Build context exclusions
+├── docker-compose.bot.yml       # Gateway + Twin Agents
+├── docker-compose.bash-executor.yml  # Bash executor on host
+│
+├── Dockerfile                   # Legacy multi-stage build (đang migrate)
+├── shared/Dockerfile.base       # Base image cho tất cả services
+├── gateway/Dockerfile           # Gateway orchestrator
+├── march7/Dockerfile            # March7 Agent (trợ lý chính)
+├── evernight/Dockerfile         # Evernight Agent (self-healing)
+├── twin/Dockerfile              # Twin agents combined
+│
+├── bash-executor.service        # systemd unit cho bash executor
+├── bash-executor-starter.service
 ├── README.md                    # This file
+│
 └── volumes/                     # Persistent data (bind mounts)
-    ├── redis_data/              # Redis - Active Memory (T1)
-    ├── qdrant_data/             # Qdrant - Episodic Memory (T2)
-    └── hf_cache/                # HuggingFace model cache
+    ├── redis_data/              # Redis AOF — T1 Active Memory
+    ├── qdrant_data/             # Qdrant vectors — T2 Wiki Pages
+    └── hf_cache/                # HuggingFace embedding models
 ```
 
 ## Architecture
 
-### Multi-stage Dockerfile
-- **Stage 1 (Builder):** `python:3.11-slim` + `uv` for fast package installation with cache mounts
-- **Stage 2 (Runtime):** Minimal image with non-root `march7_user`, copies venv from builder
-- **Entry point:** `ENTRYPOINT_CMD=gateway` (default) → `python -m gateway`; `ENTRYPOINT_CMD=src` → `python src/bot.py`
-- **Hot-reload:** `watchmedo auto-restart` watches `./gateway` and `./src` for `.py` changes
+### Twin-Soul Agent Services
 
-### Modular Docker Compose
-Each service lives in its own file for clarity. The master `docker-compose.yml` includes them all via the `include` directive (Docker Compose v2+).
+| Service | Container | Image | Port | Purpose |
+|---------|-----------|-------|------|---------|
+| `redis` | `march7_redis` | `redis:alpine` | 6379 | T1 Active Memory + Queue |
+| `qdrant` | `march7_qdrant` | `qdrant/qdrant` | 6333 | T2 Wiki Pages (semantic search) |
+| `codebox` | `march7_codebox` | `codebox` | 8069 | Python sandbox |
+| `gateway` | `march7_gateway` | `march7_gateway` | — | Discord → A2A routing |
+| `march7` | `march7_agent` | `march7_agent` | 8000 | Trợ lý chính (A2A endpoint) |
+| `evernight` | `evernight_agent` | `evernight_agent` | 8001 | Self-healing + Consolidation (A2A endpoint) |
 
-| File | Service | Container | Limits |
-|------|---------|-----------|--------|
-| `docker-compose.redis.yml` | Redis | `march7_redis` | 512M memory |
-| `docker-compose.qdrant.yml` | Qdrant | `march7_qdrant` | 1G memory, 1.0 CPU |
-| `docker-compose.codebox.yml` | CodeBox | `march7_codebox` | 512M memory, 0.5 CPU |
-| `docker-compose.bot.yml` | Bot | `march7_bot` | - |
+Kiến trúc tuân theo taste rule: **mỗi service Dockerfile riêng biệt, không gom chung**.
 
-All services communicate over the `march7_net` bridge network.
+### Multi-stage Build (Dockerfile.base)
+
+- **shared/Dockerfile.base**: Base image với Python 3.11 + uv + dependencies chung
+- **gateway/Dockerfile**, **march7/Dockerfile**, **evernight/Dockerfile**: Kế thừa base image, thêm code riêng
+- **twin/Dockerfile**: Build gộp cả March7 + Evernight (cho development)
+
+### Legacy Dockerfile
+
+`Dockerfile` ở root docker/ là legacy multi-stage build cho bot đơn luồng cũ. Đang được migrate sang các Dockerfile mới trong `gateway/`, `march7/`, `evernight/`.
 
 ## Quick Start
 
 ### Clean start (first time or after changes)
+
 ```bash
 cd docker
 docker compose down
-docker rmi march7_bot:latest 2>/dev/null || true
-DOCKER_BUILDKIT=1 docker compose build march7_bot
+DOCKER_BUILDKIT=1 docker compose build
 docker compose up -d
-docker compose logs -f march7_bot
+docker compose logs -f
 ```
 
 ### From project root
+
 ```bash
 docker compose -f docker/docker-compose.yml up -d
-docker compose -f docker/docker-compose.yml logs -f march7_bot
+docker compose -f docker/docker-compose.yml logs -f
 ```
 
 ### Individual service operations
-```bash
-# Start only Redis
-docker compose -f docker/docker-compose.redis.yml up -d
 
-# Start only bot (requires Redis + Qdrant + CodeBox running)
+```bash
+# Chỉ start infrastructure
+docker compose -f docker/docker-compose.redis.yml \
+               -f docker/docker-compose.qdrant.yml \
+               -f docker/docker-compose.codebox.yml up -d
+
+# Start riêng gateway + agents
 docker compose -f docker/docker-compose.bot.yml up -d
 
-# Rebuild only bot (other services unaffected)
-DOCKER_BUILDKIT=1 docker compose -f docker/docker-compose.bot.yml build march7_bot
+# Rebuild một service
+DOCKER_BUILDKIT=1 docker compose -f docker/docker-compose.bot.yml build march7
 ```
 
 ## Data Persistence
 
-All data is stored in `docker/volumes/` via bind mounts:
+Tất cả dữ liệu lưu trong `docker/volumes/` qua bind mounts:
 
-| Directory | Purpose |
-|-----------|---------|
-| `redis_data/` | Redis append-only file (conversation history, T1 Active Memory) |
-| `qdrant_data/` | Qdrant vectors (episodic memories, T2 Wiki Pages) |
-| `hf_cache/` | Downloaded HuggingFace embedding models |
+| Directory | Purpose | Storage |
+|-----------|---------|---------|
+| `redis_data/` | T1 Active Memory | Redis AOF (append-only file) |
+| `qdrant_data/` | T2 Wiki Pages | Qdrant vectors + payload |
+| `hf_cache/` | Embedding models | HuggingFace cache (~500MB) |
 
 ## Commands Reference
 
 ```bash
-# Start all services
+# Start all
 docker compose up -d
 
-# Stop all services
+# Stop all
 docker compose down
 
-# Stop + remove volumes (⚠️ deletes all data)
+# Stop + remove volumes (⚠️ xóa toàn bộ dữ liệu)
 docker compose down -v
 
-# Rebuild bot image
-DOCKER_BUILDKIT=1 docker compose build march7_bot
+# Rebuild tất cả
+DOCKER_BUILDKIT=1 docker compose build
 
-# View logs
-docker compose logs -f march7_bot    # Bot only
-docker compose logs -f redis         # Redis only
-docker compose logs -f               # All services
+# Logs
+docker compose logs -f march7     # March7 agent
+docker compose logs -f evernight  # Evernight agent
+docker compose logs -f gateway    # Gateway
+docker compose logs -f            # All
 
-# Restart bot
-docker compose restart march7_bot
+# Restart
+docker compose restart march7
 
-# Exec into bot container
-docker exec -it march7_bot bash
+# Exec
+docker exec -it march7_agent bash
+docker exec -it evernight_agent bash
 
 # Health check
 docker compose ps
@@ -110,15 +131,15 @@ docker compose ps
 
 ## Hot-Reload
 
-Code changes in `src/`, `gateway/`, `memories/`, or `config.py` take effect automatically via `watchmedo auto-restart` — no rebuild or container restart needed.
+Code changes trong `twin/`, `gateway/`, hoặc `memories/` được watch tự động bởi `watchmedo` — không cần rebuild container.
 
-Only rebuild the image when:
-- Changing `requirements.txt` (new dependencies)
-- Modifying the `Dockerfile` itself
+Chỉ rebuild image khi:
+- Thay đổi `requirements.txt` (dependencies mới)
+- Sửa Dockerfile
 
 ## Environment Variables
 
-The bot service reads from `../.env` plus inline `environment` overrides. Key variables:
+Bot service đọc từ `../.env`. Key variables:
 
 ```env
 # Discord
@@ -126,15 +147,15 @@ DISCORD_LLM_BOT_TOKEN=your_bot_token
 DISCORD_LLM_BOT_CLIENT_ID=your_client_id
 
 # Gateway
-ENTRYPOINT_CMD=gateway
 GATEWAY_ENABLED_PLATFORMS=discord
 DISCORD_GATEWAY_ENABLED=true
 
 # LLM
+LLM_PROVIDER=qwen
+LLM_MODEL=qwen3.6-max-preview
 TOOL_LLM_ENDPOINT=http://host.docker.internal:1234/v1
-TOOL_LLM_MODEL=qwen3-coder-30b-a3b-instruct
 
-# Infrastructure (internal Docker network addresses)
+# Infrastructure (internal Docker network)
 REDIS_URL=redis://redis:6379
 QDRANT_URL=http://qdrant:6333
 CODEBOX_API_URL=http://codebox:8069

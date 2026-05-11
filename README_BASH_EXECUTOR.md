@@ -1,10 +1,10 @@
-# Bash Executor - Hướng Dẫn Sử Dụng
+# Bash Executor — Hướng Dẫn Sử Dụng
 
 ## Tổng quan
 
-Bash Executor là service chạy trên host, cho phép bot March 7 (Bé Bảy) thực thi lệnh bash trên máy của bạn. Bot có thể kiểm tra nhiệt độ, RAM, disk, quản lý Docker, đọc log, restart service...
+Bash Executor là service chạy trên host, cho phép **March7 Agent** thực thi lệnh bash trên máy của bạn. Agent có thể kiểm tra nhiệt độ, RAM, disk, quản lý Docker, đọc log, restart service...
 
-**Mỗi lần bot muốn chạy lệnh, bạn sẽ nhận được popup xác nhận trên Discord.** (Phase 2)
+**Mỗi lần agent muốn chạy lệnh, bạn sẽ nhận được popup xác nhận trên Discord.**
 
 ---
 
@@ -12,20 +12,20 @@ Bash Executor là service chạy trên host, cho phép bot March 7 (Bé Bảy) t
 
 | Rủi ro | Mức độ | Chi tiết |
 |--------|--------|----------|
-| **Prompt injection** | **CAO** | Kẻ tấn công có thể lừa bot chạy `rm -rf /`, `shutdown`, xóa container |
-| **Lộ dữ liệu** | Trung bình | Bot có thể đọc file `.env`, token, cấu hình |
+| **Prompt injection** | **CAO** | Kẻ tấn công có thể lừa agent chạy `rm -rf /`, `shutdown`, xóa container |
+| **Lộ dữ liệu** | Trung bình | Agent có thể đọc file `.env`, token, cấu hình |
 | **Resource exhaustion** | Trung bình | Fork bomb, chiếm CPU/RAM |
 | **Privilege escalation** | Thấp | Service chạy non-root nên giới hạn quyền |
 
 ### Biện pháp bảo vệ (đã có trong code)
 
-- **Trạm Gác (ApprovalGate)**: Mọi lệnh đều log và yêu cầu xác nhận
+- **ApprovalGate**: Mọi lệnh đều log và yêu cầu xác nhận
 - **Non-root user**: Service chạy dưới user thường, không có sudo
-- **Origin validation**: Chỉ bot container được phép gọi
+- **Origin validation**: Chỉ container gateway/agent được phép gọi
 - **Timeout**: Mỗi lệnh tối đa 120 giây
 - **Output truncation**: Giới hạn 8000 ký tự output
 
-### Khuyến nghị cho bạn
+### Khuyến nghị
 
 1. **Chạy trong VM riêng** nếu có thể — tách biệt hoàn toàn với máy chính
 2. **Dùng firewall** giới hạn IP được gọi port 8374: `sudo ufw allow from 172.17.0.0/16 to any port 8374`
@@ -51,9 +51,9 @@ Script sẽ kiểm tra Python, cài aiohttp, tạo file `.env.bash_executor`.
 Chỉnh sửa `.env.bash_executor` nếu cần:
 
 ```env
-BASH_EXECUTOR_HOST=127.0.0.1   # Chỉ listen localhost
-BASH_EXECUTOR_PORT=8374         # Port mặc định
-BASH_EXECUTOR_MAX_TIMEOUT=120   # Timeout tối đa mỗi lệnh
+BASH_EXECUTOR_HOST=127.0.0.1
+BASH_EXECUTOR_PORT=8374
+BASH_EXECUTOR_MAX_TIMEOUT=120
 ```
 
 ### Bước 3: Khởi động
@@ -107,13 +107,13 @@ curl -H 'Origin: evil.com' \
 # → 403 Forbidden
 ```
 
-### Test với bot
+### Test với agent
 
-Chat với bot trên Discord:
+Chat với Bé Bảy trên Discord:
 
-- "kiểm tra RAM máy" → bot gọi `free -h`
-- "docker đang chạy gì" → bot gọi `docker ps`
-- "nhiệt độ CPU" → bot gọi `sensors` (cần cài `lm-sensors`)
+- "kiểm tra RAM máy" → agent gọi `free -h`
+- "docker đang chạy gì" → agent gọi `docker ps`
+- "nhiệt độ CPU" → agent gọi `sensors` (cần cài `lm-sensors`)
 
 ---
 
@@ -135,13 +135,10 @@ Chat với bot trên Discord:
 ## Gỡ cài đặt
 
 ```bash
-# Dừng service
 sudo systemctl stop bash-executor
 sudo systemctl disable bash-executor
 sudo rm /etc/systemd/system/bash-executor.service
 sudo systemctl daemon-reload
-
-# Xóa file
 rm -f .env.bash_executor
 ```
 
