@@ -20,9 +20,6 @@ class GatewayConfig:
     discord_march7_token: str = ""
     discord_evernight_token: str = ""
 
-    march7_url: str = "http://localhost:8000"
-    evernight_url: str = "http://localhost:8001"
-
     zalo_access_token: str = ""
     zalo_app_id: str = ""
     zalo_enabled: bool = False
@@ -52,8 +49,6 @@ class GatewayConfig:
             discord_enabled=discord_enabled,
             discord_march7_token=discord_march7_token,
             discord_evernight_token=discord_evernight_token,
-            march7_url=os.getenv("MARCH7_URL", "http://localhost:8000"),
-            evernight_url=os.getenv("EVERNIGHT_URL", "http://localhost:8001"),
             zalo_access_token=os.getenv("ZALO_ACCESS_TOKEN", ""),
             zalo_app_id=os.getenv("ZALO_APP_ID", ""),
             zalo_enabled=zalo_enabled,

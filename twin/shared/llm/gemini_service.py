@@ -11,8 +11,8 @@ from .llm_response import LLMResponse
 
 
 class GeminiService(BaseLLMService):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, persona_path: str = "memories"):
+        super().__init__(persona_path=persona_path)
 
         self.api_key = os.getenv("GEMINI_API_KEY")
         self.api_url = os.getenv(

@@ -59,11 +59,11 @@ class EvernightContainer:
         # LLM Service
         provider = getattr(Config, "LLM_PROVIDER", "gemini").lower()
         if provider == "qwen":
-            self.llm_service = QwenService()
+            self.llm_service = QwenService(persona_path=self.config.persona_path)
         elif provider == "lms":
-            self.llm_service = LMStudioService()
+            self.llm_service = LMStudioService(persona_path=self.config.persona_path)
         else:
-            self.llm_service = GeminiService()
+            self.llm_service = GeminiService(persona_path=self.config.persona_path)
 
         # Embedding Service
         embedding_provider = getattr(Config, "EMBEDDING_PROVIDER", "local").lower()

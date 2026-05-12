@@ -32,12 +32,10 @@ class DiscordPlatformAdapter(PlatformAdapter):
         bot: CoreBot,
         gateway: ChatGateway,
         bot_name: str = "march7",
-        agent_url: str = "http://localhost:8000",
     ) -> None:
         self._bot = bot
         self._gateway = gateway
         self._bot_name = bot_name
-        self._agent_url = agent_url
         self._task: asyncio.Task | None = None
         self._setup_done = False
         self._register_events()
@@ -67,6 +65,7 @@ class DiscordPlatformAdapter(PlatformAdapter):
             is_mentioned = self._bot.user in message.mentions
             if is_mentioned:
                 content = content.replace(f"<@{self._bot.user.id}>", "")
+                content = content.replace(f"<@!{self._bot.user.id}>", "")
 
             try:
                 unified = DiscordMessageConverter.to_unified(
@@ -76,7 +75,6 @@ class DiscordPlatformAdapter(PlatformAdapter):
                 )
                 exts = dict(unified.extensions or {})
                 exts["bot_name"] = self._bot_name
-                exts["agent_url"] = self._agent_url
                 object.__setattr__(unified, "extensions", exts)
                 await self._gateway.route_message(f"discord_{self._bot_name}", unified)
             except Exception:

@@ -99,8 +99,8 @@ class March7Agent:
 
                 if isinstance(llm_response, LLMResponse) and llm_response.has_tool_calls():
                     tool_calls = llm_response.tool_calls
-                    logger.debug(
-                        f"March7 wants {len(tool_calls)} tools: "
+                    logger.info(
+                        f"🔧 March7 wants {len(tool_calls)} tools: "
                         f"{[tc['name'] for tc in tool_calls]} (iteration {i+1}/{max_iterations})"
                     )
 
@@ -117,12 +117,15 @@ class March7Agent:
                                 self.tool_registry.execute_tool(tool_name, tool_args),
                                 timeout=TOOL_EXECUTION_TIMEOUT,
                             )
+                            logger.info(f"✅ Tool '{tool_name}' executed successfully")
                         except BashExecutorUnavailableError:
                             raise
                         except asyncio.TimeoutError:
                             tool_result = f"Lỗi: Tool '{tool_name}' timeout."
+                            logger.warning(f"⏱️ Tool '{tool_name}' timed out")
                         except Exception as tool_err:
                             tool_result = f"Lỗi: {tool_err}"
+                            logger.error(f"❌ Tool '{tool_name}' failed: {tool_err}")
 
                         tool_result_msg = self._format_tool_result_message(
                             tool_call_id, tool_name, tool_result

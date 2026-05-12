@@ -58,11 +58,11 @@ class March7Container:
         # LLM Service
         provider = getattr(Config, "LLM_PROVIDER", "gemini").lower()
         if provider == "qwen":
-            self.llm_service = QwenService()
+            self.llm_service = QwenService(persona_path=self.config.persona_path)
         elif provider == "lms":
-            self.llm_service = LMStudioService()
+            self.llm_service = LMStudioService(persona_path=self.config.persona_path)
         else:
-            self.llm_service = GeminiService()
+            self.llm_service = GeminiService(persona_path=self.config.persona_path)
 
         # Embedding Service
         embedding_provider = getattr(Config, "EMBEDDING_PROVIDER", "local").lower()
@@ -134,14 +134,14 @@ class March7Container:
             registry=tool_registry,
             dependencies=tool_dependencies,
         )
-        logger.debug(f"System tools loaded: {len(system_tools)}")
+        logger.info(f"✅ System tools loaded: {len(system_tools)} - {[t.name for t in system_tools]}")
 
         mcp_tools = discover_and_register_tools(
             tools_dir="twin/shared/tools/implementations/mcp",
             registry=tool_registry,
             dependencies=tool_dependencies,
         )
-        logger.debug(f"MCP tools loaded: {len(mcp_tools)}")
+        logger.info(f"✅ MCP tools loaded: {len(mcp_tools)} - {[t.name for t in mcp_tools]}")
 
         self.llm_service.set_tool_registry(tool_registry)
 

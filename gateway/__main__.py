@@ -29,20 +29,30 @@ logger = logging.getLogger("gateway.main")
 async def _run_gateway() -> None:
     from gateway.config import GatewayConfig
     from gateway.gateway import ChatGateway
-    from gateway.adapters.discord.a2a_client import GatewayA2AClient
+    from gateway.adapters.discord.agent_router import AgentRouter
     from gateway.adapters.discord.handler import DiscordGatewayHandler
     from gateway.adapters.factory import create_adapters
+    from twin.march7.container import March7Container
+    from twin.march7.config import March7Config
+    from twin.evernight.container import EvernightContainer
+    from twin.evernight.config import EvernightConfig
 
     config = GatewayConfig.from_env()
     logger.info("Gateway configuration: enabled_platforms=%s", config.enabled_platforms)
 
-    # Create A2A client for routing to agents
-    a2a_client = GatewayA2AClient(
-        march7_url=config.march7_url,
-        evernight_url=config.evernight_url,
+    # Initialise agent containers in-process
+    march7_container = March7Container.get_instance(config=March7Config.from_env())
+    await march7_container.initialize()
+
+    evernight_container = EvernightContainer.get_instance(config=EvernightConfig.from_env())
+    await evernight_container.initialize()
+
+    agent_router = AgentRouter(
+        march7=march7_container.agent,
+        evernight=evernight_container.agent,
     )
 
-    handler = DiscordGatewayHandler(a2a_client=a2a_client)
+    handler = DiscordGatewayHandler(agent_router=agent_router)
     gateway = ChatGateway(handler)
 
     # Create and register adapters
@@ -68,7 +78,9 @@ async def _run_gateway() -> None:
     await shutdown_event.wait()
 
     await gateway.stop_all()
-    await a2a_client.close()
+    await agent_router.close()
+    await march7_container.shutdown()
+    await evernight_container.shutdown()
     logger.info("Gateway shut down cleanly.")
 
 

@@ -17,38 +17,35 @@ class BaseLLMService(abc.ABC):
     Đã được nâng cấp để hỗ trợ kiến trúc Memory 3 Tầng (List of Dicts) và Tracing.
     """
 
-    def __init__(self):
+    def __init__(self, persona_path: str = "memories"):
         self.session = None
         self.logger = logging.getLogger(f"discord_bot.{self.__class__.__name__}")
         self.tool_registry = None
 
+        # persona_path: "memories" (legacy shared) or "twin/march7/personas" or "twin/evernight/personas"
+        self._persona_path = persona_path
+
         # Load file tính cách từ Markdown (Static Persona)
-        # File này sẽ làm nền tảng, còn Core Memory (T3) sẽ bổ sung phần Dynamic Persona
-        self.static_identity = self._load_prompt("IDENTITY.md", "memories")
-        self.static_soul = self._load_prompt("SOUL.md", "memories")
-        self.static_tools = self._load_prompt("TOOL.md", "memories")
+        self.static_identity = self._load_prompt("IDENTITY.md")
+        self.static_soul = self._load_prompt("SOUL.md")
+        self.static_tools = self._load_prompt("TOOL.md")
 
     def set_tool_registry(self, tool_registry) -> None:
         """Inject ToolRegistry vào LLM Service để lấy tool schemas."""
         self.tool_registry = tool_registry
         self.logger.debug("ToolRegistry đã được inject vào LLM Service")
 
-    def _load_prompt(self, filename: str, folder: str = "prompts") -> str:
-        """Load prompt content from file.
-
-        Args:
-            filename: Tên file cần load (VD: "IDENTITY.md", "SOUL.md")
-            folder: Thư mục chứa file (VD: "memories", "prompts")
-        """
+    def _load_prompt(self, filename: str) -> str:
+        """Load prompt content from persona_path."""
         try:
             base_dir = os.path.dirname(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))
-            ))
-            filepath = os.path.join(base_dir, folder, filename)
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            )
+            filepath = os.path.join(base_dir, self._persona_path, filename)
             if os.path.exists(filepath):
                 with open(filepath, "r", encoding="utf-8") as f:
                     content = f.read().strip()
-                    self.logger.debug(f"✅ Loaded prompt: {filename} from {folder}")
+                    self.logger.debug(f"✅ Loaded prompt: {filename} from {self._persona_path}")
                     return content
             else:
                 self.logger.warning(f"⚠️ Prompt file not found: {filepath}")

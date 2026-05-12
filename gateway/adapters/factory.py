@@ -66,7 +66,6 @@ def _create_discord_adapters(
             bot=march7_bot,
             gateway=gateway,
             bot_name="march7",
-            agent_url=config.march7_url,
         )
         logger.info("Created Discord adapter for March7 bot")
 
@@ -80,7 +79,6 @@ def _create_discord_adapters(
             bot=evernight_bot,
             gateway=gateway,
             bot_name="evernight",
-            agent_url=config.evernight_url,
         )
         logger.info("Created Discord adapter for Evernight bot")
 
@@ -94,7 +92,6 @@ def _create_discord_adapters(
             bot=bot,
             gateway=gateway,
             bot_name="march7",
-            agent_url=config.march7_url,
         )
         logger.info("Created Discord adapter (single bot, legacy mode)")
 
@@ -120,7 +117,6 @@ def _create_discord_adapter(
         bot=bot,
         gateway=gateway,
         bot_name="march7",
-        agent_url=config.march7_url,
     )
 
 

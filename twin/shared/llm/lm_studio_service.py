@@ -17,8 +17,8 @@ class LMStudioService(BaseLLMService):
     Sử dụng OpenAI-compatible API.
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, persona_path: str = "memories"):
+        super().__init__(persona_path=persona_path)
 
         self.api_key = os.getenv("LM_STUDIO_API_KEY", "dummy-key")
         self.api_url = os.getenv(

@@ -12,8 +12,8 @@ from .llm_response import LLMResponse
 
 
 class QwenService(BaseLLMService):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, persona_path: str = "memories"):
+        super().__init__(persona_path=persona_path)
 
         self.api_key = os.getenv("QWEN_API_KEY")
         self.api_url = os.getenv(

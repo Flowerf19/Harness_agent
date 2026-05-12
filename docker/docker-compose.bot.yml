@@ -1,72 +1,34 @@
 services:
-  gateway:
+  twin:
     build:
       context: ../
-      dockerfile: docker/gateway/Dockerfile
-    container_name: march7_gateway
+      dockerfile: docker/twin/Dockerfile
+    container_name: march7_twin
     restart: unless-stopped
     networks:
       - march7_net
     ports:
-      - "9000:9000"
+      - "8000:8000"
+      - "8001:8001"
     depends_on:
-      march7:
+      redis:
         condition: service_healthy
-      evernight:
+      qdrant:
+        condition: service_healthy
+      codebox:
         condition: service_started
     env_file:
       - ../.env
     environment:
       - DISCORD_MARCH7_TOKEN=${DISCORD_MARCH7_TOKEN}
       - DISCORD_EVERNIGHT_TOKEN=${DISCORD_EVERNIGHT_TOKEN}
-      - MARCH7_URL=http://march7:8000
-      - EVERNIGHT_URL=http://evernight:8001
       - GATEWAY_ENABLED_PLATFORMS=discord
       - DISCORD_GATEWAY_ENABLED=true
       - ENTRYPOINT_CMD=gateway
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - ../gateway:/app/gateway:z
-      - ../twin:/app/twin:z
-
-      - ../memories:/app/memories:z
-      - ../config.py:/app/config.py:z
-      - ../.env:/app/.env:z
-    healthcheck:
-      test: ["CMD-SHELL", "kill -0 1 || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-
-  march7:
-    build:
-      context: ../
-      dockerfile: docker/march7/Dockerfile
-    container_name: march7_agent
-    restart: unless-stopped
-    networks:
-      - march7_net
-    ports:
-      - "8000:8000"
-    depends_on:
-      redis:
-        condition: service_healthy
-      qdrant:
-        condition: service_healthy
-    env_file:
-      - ../.env
-    environment:
       - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379
       - REDIS_DB=0
       - QDRANT_URL=http://qdrant:6333
-      - MARCH7_A2A_PORT=8000
       - AGENT_NAME=march7
       - LM_STUDIO_API_URL=http://host.docker.internal:1234/v1
       - TOOL_LLM_ENDPOINT=http://host.docker.internal:1234/v1
@@ -77,63 +39,16 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ../twin:/app/twin:z
-
+      - ../gateway:/app/gateway:z
       - ../memories:/app/memories:z
       - ../config.py:/app/config.py:z
       - ../.env:/app/.env:z
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/.well-known/agent.json || exit 1"]
+      test: ["CMD-SHELL", "pgrep -f 'python -m gateway' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 60s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-
-  evernight:
-    build:
-      context: ../
-      dockerfile: docker/evernight/Dockerfile
-    container_name: evernight_agent
-    restart: unless-stopped
-    networks:
-      - march7_net
-    ports:
-      - "8001:8001"
-    depends_on:
-      redis:
-        condition: service_healthy
-      qdrant:
-        condition: service_healthy
-      march7:
-        condition: service_started
-    env_file:
-      - ../.env
-    environment:
-      - REDIS_ENABLED=true
-      - REDIS_URL=redis://redis:6379
-      - REDIS_DB=1
-      - QDRANT_URL=http://qdrant:6333
-      - EVERNIGHT_A2A_PORT=8001
-      - AGENT_NAME=evernight
-      - MARCH7_URL=http://march7:8000
-      - LM_STUDIO_API_URL=http://host.docker.internal:1234/v1
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - ../twin:/app/twin:z
-
-      - ../memories:/app/memories:z
-      - ../config.py:/app/config.py:z
-      - ../.env:/app/.env:z
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8001/.well-known/agent.json || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
+      start_period: 30s
     logging:
       driver: "json-file"
       options:

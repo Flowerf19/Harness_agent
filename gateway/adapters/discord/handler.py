@@ -21,7 +21,7 @@ from twin.shared.tools.approval_context import set_current_message, clear_curren
 
 if TYPE_CHECKING:
     import discord
-    from gateway.adapters.discord.a2a_client import GatewayA2AClient
+    from gateway.adapters.discord.agent_router import AgentRouter
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +33,8 @@ class DiscordGatewayHandler(GatewayHandler):
 
     _bot: commands.Bot | None = None
 
-    def __init__(self, a2a_client: GatewayA2AClient | None = None):
-        self._a2a_client = a2a_client
-
-    def set_a2a_client(self, client: GatewayA2AClient):
-        self._a2a_client = client
+    def __init__(self, agent_router: AgentRouter | None = None):
+        self._agent_router = agent_router
 
     async def handle_message(self, msg: UnifiedMessage) -> str:
         raw_message: discord.Message | None = None
@@ -73,19 +70,28 @@ class DiscordGatewayHandler(GatewayHandler):
         if not content:
             return ""
 
+        # Detect Evernight prefix: !en, !e
+        lower_content = content.lower()
+        if lower_content.startswith(("!en", "!e", "!en ", "!e ")):
+            bot_name = "evernight"
+            # Strip prefix
+            for pattern in ("!en", "!e", "!en ", "!e "):
+                if lower_content.startswith(pattern):
+                    content = content[len(pattern):].strip()
+                    break
+
         user_id = msg.user.platform_id
 
-        # Route to appropriate agent via A2A
+        # Route to appropriate agent in-process
         try:
             set_current_message(raw_message)
             logger.info("Routing to %s agent: user=%s content=%.80s", bot_name, user_id, content)
             async with raw_message.channel.typing():
-                if self._a2a_client:
-                    response = await self._a2a_client.send_chat_task(
-                        agent=bot_name,
+                if self._agent_router:
+                    response = await self._agent_router.route(
+                        agent_name=bot_name,
                         user_id=user_id,
                         content=content,
-                        msg_extensions=msg.extensions,
                     )
                 else:
                     response = await self._legacy_process(user_id, content)
@@ -147,9 +153,9 @@ class DiscordGatewayHandler(GatewayHandler):
         try:
             set_current_message(raw_message)
             async with raw_message.channel.typing():
-                if self._a2a_client:
-                    response = await self._a2a_client.send_chat_task(
-                        agent=bot_name,
+                if self._agent_router:
+                    response = await self._agent_router.route(
+                        agent_name=bot_name,
                         user_id=user_id,
                         content=content,
                     )
