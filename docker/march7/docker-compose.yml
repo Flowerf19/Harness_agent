@@ -1,14 +1,18 @@
 services:
-  twin:
+  march7:
+    image: march7-agent:latest
     build:
-      context: ../
-      dockerfile: docker/twin/Dockerfile
+      context: ../../
+      dockerfile: docker/march7/Dockerfile
+      additional_contexts:
+        base: service:base
     container_name: march7
     restart: unless-stopped
     networks:
       - march7_net
     ports:
       - "8000:8000"
+    command: ["python", "-m", "gateway"]
     depends_on:
       redis:
         condition: service_healthy
@@ -17,30 +21,40 @@ services:
       codebox:
         condition: service_started
     env_file:
-      - ../.env
+      - ../../.env
     environment:
-      - DISCORD_MARCH7_TOKEN=${DISCORD_MARCH7_TOKEN}
+      # March7-owned runtime
+      - AGENT_NAME=march7
+      - MARCH7_A2A_PORT=8000
+      - MARCH7_REDIS_DB=0
+      - MARCH7_PERSONA_PATH=twin/march7/personas
+
+      # Gateway-owned routing
       - GATEWAY_ENABLED_PLATFORMS=discord
       - DISCORD_GATEWAY_ENABLED=true
+
+      # Shared infrastructure
       - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379
       - REDIS_DB=0
       - QDRANT_URL=http://qdrant:6333
-      - AGENT_NAME=march7
+      - CODEBOX_API_URL=http://codebox:8069
+      - BASH_EXECUTOR_URL=http://bash-executor:8374
+
+      # Shared model/tool endpoints
       - LM_STUDIO_API_URL=http://host.docker.internal:1234/v1
       - TOOL_LLM_ENDPOINT=http://host.docker.internal:1234/v1
       - TOOL_LLM_MODEL=qwen3-coder-30b-a3b-instruct
-      - BASH_EXECUTOR_URL=http://bash_executor:8374
-      - CODEBOX_API_URL=http://codebox:8069
+
+      # Peer agent endpoint
       - EVERNIGHT_A2A_URL=http://evernight:8001
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ../twin:/app/twin:z
-      - ../gateway:/app/gateway:z
-      - ../memories:/app/memories:z
-      - ../config.py:/app/config.py:z
-      - ../.env:/app/.env:z
+      - ../../twin:/app/twin:z
+      - ../../gateway:/app/gateway:z
+      - ../../memories:/app/memories:z
+      - ../../.env:/app/.env:z
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/.well-known/agent.json || exit 1"]
       interval: 15s

@@ -1,7 +1,7 @@
 services:
   codebox:
     image: shroominic/codebox:latest
-    container_name: march7_codebox
+    container_name: march7-codebox
     restart: unless-stopped
     networks:
       - march7_net

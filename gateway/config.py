@@ -33,11 +33,8 @@ class GatewayConfig:
         discord_enabled_env = os.getenv("DISCORD_GATEWAY_ENABLED", "true").lower()
         discord_enabled = discord_enabled_env in ("1", "true", "yes")
 
-        # Re-use the existing Discord token env var — no new variable name.
-        discord_token = os.getenv("DISCORD_LLM_BOT_TOKEN", "")
-
-        # Dual bot tokens
-        discord_march7_token = os.getenv("DISCORD_MARCH7_TOKEN", discord_token)
+        discord_token = os.getenv("DISCORD_MARCH7_TOKEN", "")
+        discord_march7_token = os.getenv("DISCORD_MARCH7_TOKEN", "")
         discord_evernight_token = os.getenv("DISCORD_EVERNIGHT_TOKEN", "")
 
         zalo_enabled_env = os.getenv("ZALO_ENABLED", "false").lower()

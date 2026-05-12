@@ -3,9 +3,10 @@ networks:
     driver: bridge
 
 include:
-  - docker-compose.redis.yml
-  - docker-compose.qdrant.yml
-  - docker-compose.codebox.yml
-  - docker-compose.bash-executor.yml
-  - docker-compose.bot.yml
-  - docker-compose.evernight.yml
+  - shared/docker-compose.base.yml
+  - shared/docker-compose.redis.yml
+  - shared/docker-compose.qdrant.yml
+  - shared/docker-compose.codebox.yml
+  - shared/docker-compose.bash-executor.yml
+  - march7/docker-compose.yml
+  - evernight/docker-compose.yml

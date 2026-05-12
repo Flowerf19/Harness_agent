@@ -1,0 +1,28 @@
+FROM python:3.11-slim AS builder
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /build
+COPY requirements.txt .
+
+ENV VIRTUAL_ENV=/opt/bash_executor_env
+RUN uv venv $VIRTUAL_ENV
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --python $VIRTUAL_ENV --no-cache-dir -r requirements.txt
+
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+ENV VIRTUAL_ENV=/opt/bash_executor_env
+COPY --from=builder $VIRTUAL_ENV $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+ENV PYTHONPATH=/app
+
+COPY scripts/ /app/scripts/
+
+CMD ["python", "/app/scripts/bash_executor_standalone.py"]

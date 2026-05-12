@@ -1,7 +1,7 @@
 services:
   qdrant:
     image: qdrant/qdrant:latest
-    container_name: march7_qdrant
+    container_name: march7-qdrant
     restart: unless-stopped
     networks:
       - march7_net
@@ -30,8 +30,3 @@ services:
 volumes:
   qdrant_data:
     driver: local
-
-networks:
-  march7_net:
-    external: true
-    name: docker_march7_net

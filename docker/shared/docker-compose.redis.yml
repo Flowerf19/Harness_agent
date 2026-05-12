@@ -1,7 +1,7 @@
 services:
   redis:
     image: redis:7-alpine
-    container_name: march7_redis
+    container_name: march7-redis
     restart: unless-stopped
     networks:
       - march7_net
@@ -9,7 +9,6 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    # Tối ưu AOF cho RAG: Ghi log mỗi giây
     command: redis-server --appendonly yes --appendfsync everysec
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

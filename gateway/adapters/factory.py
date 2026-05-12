@@ -91,7 +91,7 @@ def _create_discord_adapter(
     """Create a single Discord adapter (legacy)."""
     if not config.discord_token:
         raise RuntimeError(
-            "Discord adapter requested but DISCORD_LLM_BOT_TOKEN is not set"
+            "Discord adapter requested but DISCORD_MARCH7_TOKEN is not set"
         )
     if gateway is None:
         raise RuntimeError("Discord adapter requires a gateway instance")

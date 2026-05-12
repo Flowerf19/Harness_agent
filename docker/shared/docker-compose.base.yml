@@ -1,0 +1,6 @@
+services:
+  base:
+    build:
+      context: ../../
+      dockerfile: docker/shared/Dockerfile.base
+    image: march7-base:latest

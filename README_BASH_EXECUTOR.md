@@ -68,7 +68,7 @@ BASH_EXECUTOR_MAX_TIMEOUT=120
 
 ```bash
 # 1. Sửa file service
-sudo cp docker/bash-executor.service /etc/systemd/system/
+sudo cp docker/shared/bash-executor.service /etc/systemd/system/
 sudo nano /etc/systemd/system/bash-executor.service
 # Sửa: User=YOUR_USERNAME, WorkingDirectory=/path/to/march7
 

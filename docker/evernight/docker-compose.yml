@@ -1,8 +1,11 @@
 services:
   evernight:
+    image: evernight-agent:latest
     build:
-      context: ../
-      dockerfile: docker/twin/Dockerfile
+      context: ../../
+      dockerfile: docker/evernight/Dockerfile
+      additional_contexts:
+        base: service:base
     container_name: evernight
     restart: unless-stopped
     networks:
@@ -16,34 +19,44 @@ services:
       qdrant:
         condition: service_healthy
     env_file:
-      - ../.env
+      - ../../.env
     environment:
-      - DISCORD_EVERNIGHT_TOKEN=${DISCORD_EVERNIGHT_TOKEN}
+      # Evernight-owned runtime
+      - AGENT_NAME=evernight
+      - EVERNIGHT_A2A_PORT=8001
+      - EVERNIGHT_REDIS_DB=1
+      - EVERNIGHT_PERSONA_PATH=twin/evernight/personas
+
+      # March7 coordination boundary
+      - MARCH7_URL=http://march7:8000
+      - MARCH7_REDIS_DB=0
+
+      # Shared infrastructure
       - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379
       - REDIS_DB=1
       - QDRANT_URL=http://qdrant:6333
-      - AGENT_NAME=evernight
+      - BASH_EXECUTOR_URL=http://bash-executor:8374
+      - BASH_EXECUTOR_TIMEOUT=30
+
+      # Shared model/tool endpoints
       - LM_STUDIO_API_URL=http://host.docker.internal:1234/v1
       - TOOL_LLM_ENDPOINT=http://host.docker.internal:1234/v1
       - TOOL_LLM_MODEL=qwen3-coder-30b-a3b-instruct
-      - BASH_EXECUTOR_URL=http://bash_executor:8374
-      - BASH_EXECUTOR_TIMEOUT=30
-      - MARCH7_URL=http://march7:8000
+
+      # Evernight background jobs
       - SELF_HEAL_ENABLED=true
       - SELF_HEAL_INTERVAL=30
       - SELF_HEAL_TIMEOUT=10
       - INACTIVITY_SECONDS=1800
       - POLL_INTERVAL=60
-      - ENTRYPOINT_CMD=evernight
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ../twin:/app/twin:z
-      - ../gateway:/app/gateway:z
-      - ../memories:/app/memories:z
-      - ../config.py:/app/config.py:z
-      - ../.env:/app/.env:z
+      - ../../twin:/app/twin:z
+      - ../../gateway:/app/gateway:z
+      - ../../memories:/app/memories:z
+      - ../../.env:/app/.env:z
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8001/.well-known/agent.json || exit 1"]
       interval: 15s

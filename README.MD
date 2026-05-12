@@ -141,15 +141,16 @@ twin/                            # Twin-Soul Agents
 
 docker/                          # Container infrastructure
 ├── docker-compose.yml           # Master compose
-├── docker-compose.redis.yml     # Redis (T1)
-├── docker-compose.qdrant.yml    # Qdrant (T2)
-├── docker-compose.codebox.yml   # CodeBox sandbox
-├── docker-compose.bot.yml       # Gateway + Agents
-├── gateway/Dockerfile
-├── march7/Dockerfile
-├── evernight/Dockerfile
-├── shared/Dockerfile.base
-└── twin/Dockerfile
+├── shared/                      # Shared base image + Redis/Qdrant/CodeBox/Bash executor compose
+│   ├── Dockerfile.base
+│   ├── Dockerfile.bash-executor
+│   └── docker-compose.*.yml
+├── march7/                      # March7-owned Docker image + compose
+│   ├── Dockerfile
+│   └── docker-compose.yml
+└── evernight/                   # Evernight-owned Docker image + compose
+    ├── Dockerfile
+    └── docker-compose.yml
 
 memories/                        # Legacy persona files (đang migrate → twin/march7/personas)
 scripts/                         # Host scripts (bash executor setup)
@@ -200,8 +201,9 @@ cp .env.example .env
 
 ```env
 # Discord
-DISCORD_LLM_BOT_TOKEN=your_token
-DISCORD_LLM_BOT_CLIENT_ID=your_client_id
+DISCORD_MARCH7_TOKEN=your_march7_token
+DISCORD_MARCH7_CLIENT_ID=your_march7_client_id
+DISCORD_EVERNIGHT_TOKEN=your_evernight_token
 
 # LLM
 LLM_PROVIDER=qwen

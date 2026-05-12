@@ -9,7 +9,7 @@ User=flowerf
 WorkingDirectory=/home/flowerf/Projects/march7
 EnvironmentFile=/home/flowerf/Projects/march7/.env.bash_executor
 Environment="PYTHONPATH=/home/flowerf/Projects/march7"
-ExecStart=/usr/bin/python3 -m src.server.bash_executor
+ExecStart=/usr/bin/python3 scripts/bash_executor_standalone.py
 Restart=on-failure
 RestartSec=5
 

@@ -5,21 +5,24 @@
 ```
 docker/
 ├── docker-compose.yml           # Master compose (network + includes)
-├── docker-compose.redis.yml     # Redis (T1 Active Memory)
-├── docker-compose.qdrant.yml    # Qdrant (T2 Wiki Pages)
-├── docker-compose.codebox.yml   # CodeBox sandbox
-├── docker-compose.bot.yml       # Gateway + Twin Agents
-├── docker-compose.bash-executor.yml  # Bash executor on host
 │
-├── Dockerfile                   # Legacy multi-stage build (đang migrate)
-├── shared/Dockerfile.base       # Base image cho tất cả services
-├── gateway/Dockerfile           # Gateway orchestrator
-├── march7/Dockerfile            # March7 Agent (trợ lý chính)
-├── evernight/Dockerfile         # Evernight Agent (self-healing)
-├── twin/Dockerfile              # Twin agents combined
+├── shared/
+│   ├── Dockerfile.base
+│   ├── Dockerfile.bash-executor
+│   ├── docker-compose.base.yml
+│   ├── docker-compose.redis.yml
+│   ├── docker-compose.qdrant.yml
+│   ├── docker-compose.codebox.yml
+│   ├── docker-compose.bash-executor.yml
+│   ├── bash-executor.service
+│   └── bash-executor-starter.service
+├── march7/
+│   ├── Dockerfile
+│   └── docker-compose.yml
+├── evernight/
+│   ├── Dockerfile
+│   └── docker-compose.yml
 │
-├── bash-executor.service        # systemd unit cho bash executor
-├── bash-executor-starter.service
 ├── README.md                    # This file
 │
 └── volumes/                     # Persistent data (bind mounts)
@@ -34,24 +37,25 @@ docker/
 
 | Service | Container | Image | Port | Purpose |
 |---------|-----------|-------|------|---------|
-| `redis` | `march7_redis` | `redis:alpine` | 6379 | T1 Active Memory + Queue |
-| `qdrant` | `march7_qdrant` | `qdrant/qdrant` | 6333 | T2 Wiki Pages (semantic search) |
-| `codebox` | `march7_codebox` | `codebox` | 8069 | Python sandbox |
-| `gateway` | `march7_gateway` | `march7_gateway` | — | Discord → A2A routing |
-| `march7` | `march7_agent` | `march7_agent` | 8000 | Trợ lý chính (A2A endpoint) |
-| `evernight` | `evernight_agent` | `evernight_agent` | 8001 | Self-healing + Consolidation (A2A endpoint) |
+| `redis` | `march7-redis` | `redis:alpine` | 6379 | Shared T1 storage + coordination markers |
+| `qdrant` | `march7-qdrant` | `qdrant/qdrant` | 6333 | T2 Wiki Pages (semantic search) |
+| `codebox` | `march7-codebox` | `shroominic/codebox` | 8069 | Python sandbox |
+| `bash-executor` | `march7-bash-executor` | `march7-bash-executor` | 8374 | Shared privileged host executor |
+| `base` | — | `march7-base` | — | Shared Python runtime |
+| `march7` | `march7` | `march7-agent` | 8000 | Gateway + March7 Discord bot + March7 A2A |
+| `evernight` | `evernight` | `evernight-agent` | 8001 | Evernight Discord bot + consolidation + self-healing |
 
-Kiến trúc tuân theo taste rule: **mỗi service Dockerfile riêng biệt, không gom chung**.
+Xem [ARCHITECTURE.md](./ARCHITECTURE.md) để biết ranh giới service nào là private và service nào dùng chung.
 
-### Multi-stage Build (Dockerfile.base)
+### Current Build
 
-- **shared/Dockerfile.base**: Base image với Python 3.11 + uv + dependencies chung
-- **gateway/Dockerfile**, **march7/Dockerfile**, **evernight/Dockerfile**: Kế thừa base image, thêm code riêng
-- **twin/Dockerfile**: Build gộp cả March7 + Evernight (cho development)
+- **shared/Dockerfile.base**: runtime Python + dependencies chung.
+- **march7/Dockerfile**: March7-owned image, entrypoint `python -m gateway`.
+- **evernight/Dockerfile**: Evernight-owned image, entrypoint `python -m twin.evernight`.
 
-### Legacy Dockerfile
+### Tool Images
 
-`Dockerfile` ở root docker/ là legacy multi-stage build cho bot đơn luồng cũ. Đang được migrate sang các Dockerfile mới trong `gateway/`, `march7/`, `evernight/`.
+`shared/Dockerfile.bash-executor` builds the `bash-executor` tool image. Shared tool containers use hyphenated Docker names, while Python files keep snake_case module names.
 
 ## Quick Start
 
@@ -76,15 +80,15 @@ docker compose -f docker/docker-compose.yml logs -f
 
 ```bash
 # Chỉ start infrastructure
-docker compose -f docker/docker-compose.redis.yml \
-               -f docker/docker-compose.qdrant.yml \
-               -f docker/docker-compose.codebox.yml up -d
+docker compose -f docker/shared/docker-compose.redis.yml \
+               -f docker/shared/docker-compose.qdrant.yml \
+               -f docker/shared/docker-compose.codebox.yml up -d
 
-# Start riêng gateway + agents
-docker compose -f docker/docker-compose.bot.yml up -d
+# Start riêng agents
+docker compose -f docker/docker-compose.yml up -d march7 evernight
 
 # Rebuild một service
-DOCKER_BUILDKIT=1 docker compose -f docker/docker-compose.bot.yml build march7
+DOCKER_BUILDKIT=1 docker compose -f docker/docker-compose.yml build march7
 ```
 
 ## Data Persistence
@@ -115,15 +119,14 @@ DOCKER_BUILDKIT=1 docker compose build
 # Logs
 docker compose logs -f march7     # March7 agent
 docker compose logs -f evernight  # Evernight agent
-docker compose logs -f gateway    # Gateway
 docker compose logs -f            # All
 
 # Restart
 docker compose restart march7
 
 # Exec
-docker exec -it march7_agent bash
-docker exec -it evernight_agent bash
+docker exec -it march7 bash
+docker exec -it evernight bash
 
 # Health check
 docker compose ps
@@ -143,8 +146,9 @@ Bot service đọc từ `../.env`. Key variables:
 
 ```env
 # Discord
-DISCORD_LLM_BOT_TOKEN=your_bot_token
-DISCORD_LLM_BOT_CLIENT_ID=your_client_id
+DISCORD_MARCH7_TOKEN=your_march7_bot_token
+DISCORD_MARCH7_CLIENT_ID=your_march7_client_id
+DISCORD_EVERNIGHT_TOKEN=your_evernight_bot_token
 
 # Gateway
 GATEWAY_ENABLED_PLATFORMS=discord

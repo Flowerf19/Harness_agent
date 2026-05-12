@@ -3,8 +3,8 @@ import os
 
 
 class Config:
-    DISCORD_BOT_TOKEN = os.getenv("DISCORD_LLM_BOT_TOKEN")
-    DISCORD_BOT_CLIENT_ID = os.getenv("DISCORD_LLM_BOT_CLIENT_ID")
+    DISCORD_BOT_TOKEN = os.getenv("DISCORD_MARCH7_TOKEN")
+    DISCORD_BOT_CLIENT_ID = os.getenv("DISCORD_MARCH7_CLIENT_ID")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     GEMINI_API_URL = os.getenv("GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/models")
     LLM_MODEL = os.getenv("LLM_MODEL", "gemini-2.5-flash")

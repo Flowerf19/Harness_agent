@@ -1,9 +1,10 @@
 services:
-  bash_executor:
+  bash-executor:
     build:
-      context: ../
-      dockerfile: docker/Dockerfile
-    container_name: march7_bash_executor
+      context: ../../
+      dockerfile: docker/shared/Dockerfile.bash-executor
+    image: march7-bash-executor:latest
+    container_name: march7-bash-executor
     restart: unless-stopped
     pid: "host"
     privileged: true
@@ -11,12 +12,10 @@ services:
     networks:
       - march7_net
     env_file:
-      - ../.env.bash_executor
+      - ../../.env.bash_executor
     environment:
       - BASH_EXECUTOR_HOST=0.0.0.0
       - BASH_EXECUTOR_PORT=8374
-    volumes:
-      - ../scripts:/app/scripts:z
     command: python /app/scripts/bash_executor_standalone.py
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8374/health || exit 1"]
