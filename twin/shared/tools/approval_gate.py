@@ -13,6 +13,7 @@ Architecture:
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING, Optional
 
 from twin.shared.tools.approval_context import get_current_message
@@ -51,8 +52,7 @@ class ApprovalGate:
     async def _request_user_approval(self, tool_name: str, command: str) -> bool:
         msg = get_current_message()
         if msg is None:
-            logger.warning("No Discord message in context, auto-approving")
-            return True
+            return self._handle_missing_context()
 
         # Try DM via Evernight first
         if self.dm_client:
@@ -75,8 +75,7 @@ class ApprovalGate:
         """Fallback: send approval request to the original channel."""
         msg = get_current_message()
         if msg is None:
-            logger.warning("No Discord message in context, auto-approving (channel fallback)")
-            return True
+            return self._handle_missing_context()
 
         from gateway.adapters.discord.views.approve_view import ApproveView
 
@@ -97,3 +96,15 @@ class ApprovalGate:
                 await sent_msg.delete()
             except Exception:
                 pass
+
+    def _handle_missing_context(self) -> bool:
+        auto_approve = os.getenv(
+            "APPROVAL_AUTO_APPROVE_WITHOUT_CONTEXT",
+            "false",
+        ).lower() in ("1", "true", "yes")
+        if auto_approve:
+            logger.warning("No Discord message in context, auto-approving by explicit dev config")
+            return True
+
+        logger.warning("No Discord message in context, rejecting approval request")
+        return False
