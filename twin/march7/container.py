@@ -10,6 +10,7 @@ from twin.shared.llm.qwen_service import QwenService
 from twin.shared.tools.tool_registry import ToolRegistry
 from twin.shared.tools.tool_discovery import discover_and_register_tools
 from twin.shared.tools.approval_gate import ApprovalGate
+from twin.shared.tools.dm_client import DMClient
 from twin.shared.memories.episodic_memory_manager import EpisodicMemoryManager
 from twin.shared.llm.embedding_service import LocalEmbeddingService
 from twin.shared.llm.remote_embedding_service import RemoteEmbeddingService
@@ -115,7 +116,15 @@ class March7Container:
         # Tool Registry
         tavily_client = self._init_tavily_client()
         codebox_client = self._init_codebox_client()
-        approval_gate = ApprovalGate()
+
+        # Approval Gate with DM support via Evernight
+        dm_client = None
+        evernight_url = getattr(Config, "EVERNIGHT_A2A_URL", None)
+        if evernight_url:
+            dm_client = DMClient(evernight_url=evernight_url)
+            logger.info("DM client configured: %s", evernight_url)
+
+        approval_gate = ApprovalGate(dm_client=dm_client)
 
         tool_registry = ToolRegistry()
         tool_dependencies = {

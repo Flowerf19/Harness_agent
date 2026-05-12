@@ -56,7 +56,7 @@ def _create_discord_adapters(
 ) -> dict[str, PlatformAdapter]:
     adapters = {}
 
-    # March7 bot
+    # March7 bot (gateway only creates March7 adapter)
     if config.discord_march7_token:
         from gateway.shared.core_bot import CoreBot
         from gateway.adapters.discord.adapter import DiscordPlatformAdapter
@@ -68,19 +68,6 @@ def _create_discord_adapters(
             bot_name="march7",
         )
         logger.info("Created Discord adapter for March7 bot")
-
-    # Evernight bot
-    if config.discord_evernight_token:
-        from gateway.shared.core_bot import CoreBot
-        from gateway.adapters.discord.adapter import DiscordPlatformAdapter
-
-        evernight_bot = CoreBot()
-        adapters["discord_evernight"] = DiscordPlatformAdapter(
-            bot=evernight_bot,
-            gateway=gateway,
-            bot_name="evernight",
-        )
-        logger.info("Created Discord adapter for Evernight bot")
 
     # Fallback to single bot (legacy)
     if not adapters and config.discord_token:

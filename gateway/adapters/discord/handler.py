@@ -39,11 +39,9 @@ class DiscordGatewayHandler(GatewayHandler):
     async def handle_message(self, msg: UnifiedMessage) -> str:
         raw_message: discord.Message | None = None
         is_mentioned = False
-        bot_name = "march7"
         if msg.extensions:
             raw_message = msg.extensions.get("_raw_discord_message")
             is_mentioned = msg.extensions.get("is_mentioned", False)
-            bot_name = msg.extensions.get("bot_name", "march7")
 
         if raw_message is None:
             logger.warning("No raw Discord message in extensions")
@@ -70,33 +68,23 @@ class DiscordGatewayHandler(GatewayHandler):
         if not content:
             return ""
 
-        # Detect Evernight prefix: !en, !e
-        lower_content = content.lower()
-        if lower_content.startswith(("!en", "!e", "!en ", "!e ")):
-            bot_name = "evernight"
-            # Strip prefix
-            for pattern in ("!en", "!e", "!en ", "!e "):
-                if lower_content.startswith(pattern):
-                    content = content[len(pattern):].strip()
-                    break
-
         user_id = msg.user.platform_id
 
-        # Route to appropriate agent in-process
+        # Route to March7 agent (all messages here are non-!9)
         try:
             set_current_message(raw_message)
-            logger.info("Routing to %s agent: user=%s content=%.80s", bot_name, user_id, content)
+            logger.info("Routing to march7 agent: user=%s content=%.80s", user_id, content)
             async with raw_message.channel.typing():
                 if self._agent_router:
                     response = await self._agent_router.route(
-                        agent_name=bot_name,
+                        agent_name="march7",
                         user_id=user_id,
                         content=content,
                     )
                 else:
                     response = await self._legacy_process(user_id, content)
 
-            logger.info("Got response from %s: %.80s", bot_name, response)
+            logger.info("Got response from march7: %.80s", response)
             await self._send_response(raw_message, response)
         except BashExecutorUnavailableError:
             await self._handle_bash_executor_unavailable(raw_message, user_id, content)

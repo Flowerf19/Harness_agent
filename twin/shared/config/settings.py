@@ -87,6 +87,9 @@ class Config:
     BASH_EXECUTOR_TIMEOUT = int(os.getenv("BASH_EXECUTOR_TIMEOUT", "30"))
     BASH_EXECUTOR_ALLOWED_ORIGINS = os.getenv("BASH_EXECUTOR_ALLOWED_ORIGINS", "march7-bot,http://localhost:8374,http://host.docker.internal:8374")
 
+    # Evernight A2A URL (for March7 gateway to reach Evernight container)
+    EVERNIGHT_A2A_URL = os.getenv("EVERNIGHT_A2A_URL", "http://evernight:8001")
+
     # Search Memory configuration
     SEARCH_TOP_K_SEMANTIC = int(os.getenv("SEARCH_TOP_K_SEMANTIC", "5"))
     SEARCH_TOP_K_TIME = int(os.getenv("SEARCH_TOP_K_TIME", "10"))

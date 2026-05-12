@@ -11,12 +11,12 @@ class InactivityTrigger:
     def __init__(
         self,
         redis_client: Any,
-        evernight_agent: Any,
+        consolidation_runner: Any,
         inactivity_seconds: int = 1800,
         poll_interval: int = 60,
     ):
         self.redis = redis_client
-        self.agent = evernight_agent
+        self.runner = consolidation_runner
         self.inactivity_seconds = inactivity_seconds
         self.poll_interval = poll_interval
         self._processed: set = set()
@@ -73,20 +73,22 @@ class InactivityTrigger:
         try:
             logger.info(f"InactivityTrigger: user {user_id} inactive, triggering consolidation")
 
-            # Try to get snapshot from March7's T1
-            try:
-                snapshot_key = f"march7:t1:{user_id}"
-                snapshot_data = await self.redis.lrange(snapshot_key, 0, -1)
-                if snapshot_data:
-                    import json
-                    snapshot = [json.loads(s) if isinstance(s, (str, bytes)) else s for s in snapshot_data]
-                    await self.agent.consolidate(user_id, snapshot)
-            except Exception as e:
-                logger.error(f"Failed to get March7 snapshot for {user_id}: {e}")
-
-            # Clear the activity key after consolidation
-            await self.redis.delete(key)
-            self._processed.discard(user_id)
-            logger.info(f"InactivityTrigger: consolidation triggered for {user_id}")
+            result = await self.runner.run_for_user(user_id, reason="inactivity")
+            if result.success:
+                await self.redis.delete(key)
+                logger.info(
+                    "InactivityTrigger: consolidation complete user=%s snapshot=%s cleared=%s",
+                    user_id,
+                    result.snapshot_count,
+                    result.cleared,
+                )
+            else:
+                logger.warning(
+                    "InactivityTrigger: consolidation failed user=%s error=%s",
+                    user_id,
+                    result.error,
+                )
         except Exception as e:
             logger.error(f"InactivityTrigger: consolidation failed for {user_id}: {e}")
+        finally:
+            self._processed.discard(user_id)

@@ -47,10 +47,17 @@ class March7A2AHandler:
     async def handle_get_snapshot(self, params: dict) -> AsyncIterator[A2AMessage]:
         session_id = params.get("sessionId", "unknown")
         snapshot = await self.agent.handle_get_snapshot(user_id=session_id)
-        import json
         yield A2AMessage(
             role="agent",
             parts=[Part(type="data", data={"snapshot": snapshot})],
+        )
+
+    async def handle_clear_session(self, params: dict) -> AsyncIterator[A2AMessage]:
+        session_id = params.get("sessionId", "unknown")
+        success = await self.agent.handle_clear_session(user_id=session_id)
+        yield A2AMessage(
+            role="agent",
+            parts=[Part(type="data", data={"success": success})],
         )
 
 
@@ -61,6 +68,7 @@ def start_server(agent: March7Agent, host="0.0.0.0", port=8000) -> A2AServer:
         skill_handlers={
             "chat": handler.handle_chat_task,
             "get_snapshot": handler.handle_get_snapshot,
+            "clear_session": handler.handle_clear_session,
         },
         host=host,
         port=port,

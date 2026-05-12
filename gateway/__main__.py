@@ -1,8 +1,11 @@
-"""Entry point for ``python3 -m gateway``.
+"""Entry point for ``python -m gateway``.
 
 Loads configuration from environment variables, initialises the gateway
 orchestrator and all configured platform adapters, then runs until
 SIGINT / SIGTERM.
+
+NOTE: This gateway ONLY boots the March7 agent. Evernight runs in its
+own container and is reached via A2A HTTP.
 """
 
 from __future__ import annotations
@@ -34,22 +37,32 @@ async def _run_gateway() -> None:
     from gateway.adapters.factory import create_adapters
     from twin.march7.container import March7Container
     from twin.march7.config import March7Config
-    from twin.evernight.container import EvernightContainer
-    from twin.evernight.config import EvernightConfig
 
     config = GatewayConfig.from_env()
     logger.info("Gateway configuration: enabled_platforms=%s", config.enabled_platforms)
 
-    # Initialise agent containers in-process
+    # Initialise March7 agent in-process (Evernight is in separate container)
     march7_container = March7Container.get_instance(config=March7Config.from_env())
     await march7_container.initialize()
 
-    evernight_container = EvernightContainer.get_instance(config=EvernightConfig.from_env())
-    await evernight_container.initialize()
+    # March7 A2A server (port 8000) — for Evernight and external callers
+    from twin.march7.server.a2a_server import start_server
+    a2a_server = start_server(march7_container.agent, port=march7_container.config.port)
+    await a2a_server.start()
+    logger.info(f"March7 A2A server listening on port {march7_container.config.port}")
+
+    # Evernight A2A client (HTTP to evernight container)
+    evernight_client = None
+    from twin.shared.config.settings import Config
+    evernight_url = getattr(Config, "EVERNIGHT_A2A_URL", None)
+    if evernight_url:
+        from gateway.adapters.discord.evernight_client import EvernightClient
+        evernight_client = EvernightClient(base_url=evernight_url)
+        logger.info("Evernight A2A client configured: %s", evernight_url)
 
     agent_router = AgentRouter(
         march7=march7_container.agent,
-        evernight=evernight_container.agent,
+        evernight_client=evernight_client,
     )
 
     handler = DiscordGatewayHandler(agent_router=agent_router)
@@ -79,8 +92,8 @@ async def _run_gateway() -> None:
 
     await gateway.stop_all()
     await agent_router.close()
+    await a2a_server.stop()
     await march7_container.shutdown()
-    await evernight_container.shutdown()
     logger.info("Gateway shut down cleanly.")
 
 

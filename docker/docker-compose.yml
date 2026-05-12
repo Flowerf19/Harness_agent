@@ -8,3 +8,4 @@ include:
   - docker-compose.codebox.yml
   - docker-compose.bash-executor.yml
   - docker-compose.bot.yml
+  - docker-compose.evernight.yml

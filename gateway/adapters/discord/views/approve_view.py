@@ -22,9 +22,11 @@ APPROVAL_TIMEOUT = 30
 
 
 class ApproveView(discord.ui.View):
-    def __init__(self, command: str):
-        super().__init__(timeout=APPROVAL_TIMEOUT)
+    def __init__(self, command: str, timeout: int = APPROVAL_TIMEOUT, context_label: str = ""):
+        super().__init__(timeout=timeout)
         self.command = command
+        self._timeout = timeout
+        self._context_label = context_label
         self._result: asyncio.Event = asyncio.Event()
         self._approved: bool = False
 
@@ -54,7 +56,7 @@ class ApproveView(discord.ui.View):
 
     async def wait_for_decision(self) -> bool:
         try:
-            await asyncio.wait_for(self._result.wait(), timeout=APPROVAL_TIMEOUT)
+            await asyncio.wait_for(self._result.wait(), timeout=self._timeout)
             return self._approved
         except asyncio.TimeoutError:
             self._disable_all()

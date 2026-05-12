@@ -1,9 +1,7 @@
-"""
-MCP Proxy Tools - BaseTool subclasses that proxy to external MCP servers.
+"""MCP (Model Context Protocol) tool implementations.
 
-These tools use MCPClient + HTTPTransport to call tools on remote MCP servers.
-They inherit from BaseTool so ToolRegistry and ChatCoordinator don't need
-to know they're proxies - they look like any other tool to the system.
+This package contains MCP proxy tool implementations that allow
+agents to call external MCP servers.
 """
 
 __all__ = []

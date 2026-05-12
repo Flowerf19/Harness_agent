@@ -62,6 +62,11 @@ class DiscordPlatformAdapter(PlatformAdapter):
                 return
 
             content = message.content
+
+            # Ignore !9 prefix — let Evernight bot handle it directly
+            if content.strip().lower().startswith("!9"):
+                return
+
             is_mentioned = self._bot.user in message.mentions
             if is_mentioned:
                 content = content.replace(f"<@{self._bot.user.id}>", "")

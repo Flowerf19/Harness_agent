@@ -7,19 +7,34 @@ yêu cầu xác nhận từ user qua Discord button UI.
 Architecture:
 - check_approval() là interface chính
 - _request_user_approval() gửi Discord View + đợi user click
+- Ưu tiên gửi DM qua Evernight bot, fallback về channel nếu không available
 """
 
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Optional
 
 from twin.shared.tools.approval_context import get_current_message
+
+if TYPE_CHECKING:
+    from twin.shared.tools.dm_client import DMClient
 
 logger = logging.getLogger(__name__)
 
 
 class ApprovalGate:
     """Trạm Gác - chặn và xác nhận execute_host_bash qua Discord UI."""
+
+    def __init__(self, dm_client: Optional["DMClient"] = None):
+        """
+        Initialize ApprovalGate.
+
+        Args:
+            dm_client: Client để gửi DM qua Evernight bot.
+                       Nếu None, sẽ dùng channel message (fallback).
+        """
+        self.dm_client = dm_client
 
     async def check_approval(self, tool_name: str, command: str) -> bool:
         logger.warning(f"🔐 APPROVAL REQUESTED: {tool_name} -> {command[:100]}")
@@ -37,6 +52,30 @@ class ApprovalGate:
         msg = get_current_message()
         if msg is None:
             logger.warning("No Discord message in context, auto-approving")
+            return True
+
+        # Try DM via Evernight first
+        if self.dm_client:
+            try:
+                from twin.shared.tools.dm_client import DEFAULT_USER_ID
+                dm_approved = await self.dm_client.request_approval(
+                    command=command,
+                    original_message=msg,
+                    user_id=DEFAULT_USER_ID,
+                )
+                return dm_approved
+            except Exception:
+                logger.warning("DM approval failed, falling back to channel approval")
+                # Fall through to channel-based approval
+
+        # Fallback: channel-based approval (original behavior)
+        return await self._request_channel_approval(command)
+
+    async def _request_channel_approval(self, command: str) -> bool:
+        """Fallback: send approval request to the original channel."""
+        msg = get_current_message()
+        if msg is None:
+            logger.warning("No Discord message in context, auto-approving (channel fallback)")
             return True
 
         from gateway.adapters.discord.views.approve_view import ApproveView

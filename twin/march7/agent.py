@@ -58,6 +58,7 @@ class March7Agent:
             skills=[
                 {"id": "chat", "name": "Chat", "description": "Conversational chat with memory and tools"},
                 {"id": "get_snapshot", "name": "Get Snapshot", "description": "Get T1 memory snapshot"},
+                {"id": "clear_session", "name": "Clear Session", "description": "Clear T1 memory after successful consolidation"},
             ],
         )
 
@@ -70,7 +71,7 @@ class March7Agent:
             await self.redis.set(
                 f"conversation:{user_id}:last_active",
                 str(time.time()),
-                ex=1800,
+                ex=7200,
             )
             await self.redis.setex(
                 f"agent:march7:heartbeat",
@@ -169,6 +170,14 @@ class March7Agent:
 
     async def clear_chat_history(self, user_id: str):
         await self.memory.clear_session(user_id)
+
+    async def handle_clear_session(self, user_id: str) -> bool:
+        try:
+            await self.memory.clear_session(user_id)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to clear session for {user_id}: {e}")
+            return False
 
     def _format_tool_call_message(self, tool_calls: List[Dict[str, Any]]) -> Dict[str, Any]:
         if self._llm_type == "gemini":
