@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from twin.shared.config.settings import Config
 from twin.shared.llm.gemini_service import GeminiService
 from twin.shared.llm.lm_studio_service import LMStudioService
+from twin.shared.llm.openai_service import OpenAIService
 from twin.shared.llm.qwen_service import QwenService
 from twin.shared.tools.tool_registry import ToolRegistry
 from twin.shared.tools.tool_discovery import discover_and_register_tools
@@ -60,6 +61,8 @@ class March7Container:
         provider = getattr(Config, "LLM_PROVIDER", "gemini").lower()
         if provider == "qwen":
             self.llm_service = QwenService(persona_path=self.config.persona_path)
+        elif provider == "openai":
+            self.llm_service = OpenAIService(persona_path=self.config.persona_path)
         elif provider == "lms":
             self.llm_service = LMStudioService(persona_path=self.config.persona_path)
         else:

@@ -11,9 +11,14 @@ class Config:
     SYNC_COMMANDS = os.getenv("SYNC_COMMANDS", "0")
 
     # LLM Provider settings
-    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # 'gemini', 'ollama', or 'qwen'
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # 'gemini', 'openai', 'qwen', or 'lms'
     OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434")
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:30b-a3b-instruct-2507-q4_K_M")
+
+    # Generic OpenAI-compatible API settings
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "dummy-key")
+    OPENAI_API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1")
+    OPENAI_MODEL = os.getenv("OPENAI_MODEL", os.getenv("LLM_MODEL", "gpt-4o-mini"))
 
     # Qwen API settings
     QWEN_API_KEY = os.getenv("QWEN_API_KEY")

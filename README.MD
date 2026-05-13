@@ -211,6 +211,12 @@ LLM_MODEL=qwen3.6-max-preview
 LLM_MAX_TOKENS=2000
 QWEN_API_KEY=your_key
 
+# OpenAI-compatible providers, including 9Router
+# LLM_PROVIDER=openai
+# OPENAI_API_KEY=dummy-key
+# OPENAI_API_URL=http://localhost:20128/v1
+# OPENAI_MODEL=your_9router_model_or_alias
+
 # Infrastructure
 REDIS_URL=redis://localhost:6379
 QDRANT_URL=http://localhost:6333

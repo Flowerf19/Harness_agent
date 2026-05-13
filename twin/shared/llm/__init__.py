@@ -9,6 +9,7 @@ def __getattr__(name):
         "LocalEmbeddingService": ".embedding_service",
         "RemoteEmbeddingService": ".remote_embedding_service",
         "GeminiService": ".gemini_service",
+        "OpenAIService": ".openai_service",
         "QwenService": ".qwen_service",
     }
     if name in _imports:
@@ -24,5 +25,6 @@ __all__ = [
     "RemoteEmbeddingService",
     "GeminiService",
     "LLMResponse",
+    "OpenAIService",
     "QwenService",
 ]
