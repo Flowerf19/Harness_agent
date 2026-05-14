@@ -57,12 +57,6 @@ class Config:
     # Message limit configuration
     MAX_MESSAGES = int(os.getenv("MAX_MESSAGES", "500"))
 
-    # LangSmith Tracing configuration
-    LANGCHAIN_API_KEY = os.getenv("LANGCHAIN_API_KEY")
-    LANGCHAIN_TRACING_V2 = os.getenv("LANGCHAIN_TRACING_V2", "true").lower() == "true"
-    LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "discord-bot")
-    LANGCHAIN_ENDPOINT = os.getenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
-
     # Redis configuration for Active Memory (Tier 1) storage
     REDIS_ENABLED = os.getenv("REDIS_ENABLED", "false").lower() == "true"
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")

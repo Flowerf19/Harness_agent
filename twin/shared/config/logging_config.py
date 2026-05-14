@@ -10,7 +10,6 @@ def setup_logging():
     - qdrant_client (Vector DB client logs)
     - redis (Redis client logs)
     - httpx (HTTP client logs)
-    - sentence_transformers (Embedding model logs)
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -24,7 +23,6 @@ def setup_logging():
         "qdrant_client",
         "redis",
         "httpx",
-        "sentence_transformers",
     ]
 
     for lib_logger in third_party_loggers:

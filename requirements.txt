@@ -4,7 +4,6 @@ aiohttp
 python-dotenv
 requests
 aiofiles
-google-generativeai
 
 # Redis for Active Memory storage
 redis[hiredis]
@@ -12,20 +11,13 @@ redis[hiredis]
 # Qdrant for Episodic Memory (Tier 2) storage
 qdrant-client
 
-# LangChain dependencies for auto-instrumentation
-langchain
-langchain-community
-openinference-instrumentation-langchain
-
 # Testing
 pytest
 pytest-asyncio
-sentence-transformers
-torch
-tiktoken
-langsmith
-underthesea
 pyyaml
+
+# Vietnamese NLP (still used in handler.py, evernight_adapter.py)
+underthesea
 
 # CodeBox for Python code execution (Sandbox)
 codeboxapi

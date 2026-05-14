@@ -13,7 +13,6 @@ from twin.shared.tools.tool_discovery import discover_and_register_tools
 from twin.shared.tools.approval_gate import ApprovalGate
 from twin.shared.tools.dm_client import DMClient
 from twin.shared.memories.episodic_memory_manager import EpisodicMemoryManager
-from twin.shared.llm.embedding_service import LocalEmbeddingService
 from twin.shared.llm.remote_embedding_service import RemoteEmbeddingService
 from twin.shared.external.tavily_client import TavilyClient
 from twin.shared.external.codebox_client import CodeBoxClient
@@ -28,7 +27,7 @@ from twin.march7.memories.activate_memory.storage.ram_storage import LocalMemory
 from twin.march7.memories.activate_memory.storage.redis_storage import create_redis_storage
 from twin.march7.memories.activate_memory.storage.base_storage import BaseStorage
 from twin.march7.memories.core_memory.core_manager import CoreManager
-from twin.march7.memories.core_memory import SmartUpdater, MarkdownStorage
+from twin.march7.memories.core_memory import MarkdownStorage
 from twin.march7.agent import March7Agent
 from twin.march7.config import March7Config
 
@@ -69,7 +68,7 @@ class March7Container:
             self.llm_service = GeminiService(persona_path=self.config.persona_path)
 
         # Embedding Service
-        embedding_provider = getattr(Config, "EMBEDDING_PROVIDER", "local").lower()
+        embedding_provider = getattr(Config, "EMBEDDING_PROVIDER", "qwen").lower()
         if embedding_provider == "qwen":
             self.embedding_service = RemoteEmbeddingService(
                 model_name=Config.EMBEDDING_MODEL_NAME,
@@ -77,8 +76,9 @@ class March7Container:
                 api_url=Config.EMBEDDING_API_URL,
             )
         else:
-            self.embedding_service = LocalEmbeddingService(
-                model_name=Config.EMBEDDING_MODEL_NAME
+            raise ValueError(
+                f"Unsupported embedding provider: {embedding_provider}. "
+                "Local embeddings removed. Use 'qwen' or other remote provider."
             )
 
         # T1 Active Memory
@@ -99,8 +99,8 @@ class March7Container:
 
         # T3 Core Memory
         t3_storage = MarkdownStorage()
-        t3_updater = SmartUpdater(llm_client=self.llm_service, storage=t3_storage)
-        t3_manager = CoreManager(storage=t3_storage, smart_updater=t3_updater)
+        # SmartUpdater removed - agent handles merge
+        t3_manager = CoreManager(storage=t3_storage)
 
         # T2 Episodic Memory (shared)
         wiki_storage = await self._get_wiki_storage()

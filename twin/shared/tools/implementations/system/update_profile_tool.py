@@ -1,13 +1,8 @@
 """
 UpdateUserProfileTool - Update Core Memory (T3).
 
-Tool for writing new facts to user profile in YAML database.
-Uses CoreManager's SmartUpdater for intelligent profile updates.
-
-Migration from ToolManager._update_user_profile():
-- Same logic, now encapsulated in a class
-- Dependency injection via constructor
-- Self-contained schema definition
+Tool for saving the complete user profile markdown to T3 storage.
+Agent handles fact detection and merge logic. Tool is storage-only.
 """
 
 import logging
@@ -17,35 +12,20 @@ from twin.shared.tools.base_tool import BaseTool, ToolExecutionError
 
 logger = logging.getLogger(__name__)
 
-
 class UpdateUserProfileTool(BaseTool):
     """
-    Tool for updating Core Memory (T3) user profile.
+    Tool for saving Core Memory (T3) user profile.
     
-    Writes new facts to user's YAML profile file.
-    Uses SmartUpdater to intelligently process and integrate facts.
+    Agent orchestrates: detect new facts → merge into profile → call this tool to persist.
+    Tool only validates and writes markdown to storage.
     
     Attributes:
         core_manager: CoreManager instance for T3 access
-    
-    Example:
-        tool = UpdateUserProfileTool(core_manager)
-        result = await tool.execute(user_id="123", new_fact="Tên là Hoàng")
     """
     
     def __init__(self, core_manager: Optional[Any] = None):
-        """
-        Initialize UpdateUserProfileTool.
-        
-        Args:
-            core_manager: CoreManager (T3) for profile updates
-        """
         self.core_manager = core_manager
         logger.debug(f"UpdateUserProfileTool initialized with core_manager={core_manager is not None}")
-    
-    # ==========================================
-    # BASE TOOL PROPERTIES
-    # ==========================================
     
     @property
     def name(self) -> str:
@@ -53,7 +33,7 @@ class UpdateUserProfileTool(BaseTool):
     
     @property
     def description(self) -> str:
-        return "Ghi info MỚI về user vào Core Memory (T3). Chi tiết cách dùng xem TOOL.md."
+        return "Lưu toàn bộ hồ sơ user (markdown) vào Core Memory (T3). Chi tiết cách dùng xem TOOL.md."
     
     @property
     def parameters_schema(self) -> Dict[str, Any]:
@@ -64,63 +44,47 @@ class UpdateUserProfileTool(BaseTool):
                     "type": "string",
                     "description": "Discord user ID (số) của user đang chat. VD: '726302130318868500'"
                 },
-                "new_fact": {
+                "new_profile_markdown": {
                     "type": "string",
-                    "description": "Thông tin cụ thể cần ghi nhớ. VD: 'Tên là Hoàng', 'Sở thích chơi game', 'Làm việc tại công ty ABC'"
+                    "description": "Toàn bộ nội dung markdown mới của hồ sơ user. Agent tự merge fact mới vào profile cũ trước khi gọi tool này. VD: '## Thông tin cơ bản\n- Danh xưng: Hoàng\n...'"
                 }
             },
-            "required": ["user_id", "new_fact"]
+            "required": ["user_id", "new_profile_markdown"]
         }
     
-    # ==========================================
-    # EXECUTION
-    # ==========================================
-    
-    async def execute(self, user_id: str, new_fact: str) -> str:
+    async def execute(self, user_id: str, new_profile_markdown: str) -> str:
         """
-        Update user profile with new fact.
+        Save complete user profile markdown to T3 storage.
         
         Args:
             user_id: Discord user ID (must be numeric)
-            new_fact: New information to add to profile
+            new_profile_markdown: Full markdown content to overwrite the profile
             
         Returns:
             str: Success or error message
         """
-        # Validate inputs
-        if not user_id or not new_fact:
-            return "Lỗi: Thiếu thông tin update."
+        if not user_id or not new_profile_markdown:
+            return "Lỗi: Thiếu user_id hoặc nội dung hồ sơ."
         
-        # Validate user_id format (Discord ID must be numeric)
         if not user_id.isdigit():
-            logger.warning(f"⚠️ Invalid user_id: {user_id} - không phải số")
-            return f"Lỗi: user_id '{user_id}' không hợp lệ. user_id phải là số ID của Discord user."
+            logger.warning(f"⚠️ Invalid user_id: {user_id}")
+            return f"Lỗi: user_id '{user_id}' không hợp lệ. Phải là số ID Discord."
         
-        # Check if core_manager is available
         if not self.core_manager:
             return "Lỗi: Hệ thống Core Memory (T3) chưa sẵn sàng."
         
-        # Check if updater is available
-        if not hasattr(self.core_manager, 'updater') or not self.core_manager.updater:
-            return "Lỗi: SmartUpdater của Core Memory chưa sẵn sàng."
-        
-        # Execute update
         try:
-            success = await self.core_manager.updater.update_profile_with_fact(
-                user_id=user_id,
-                new_fact=new_fact,
-                context=""  # Agent tự quyết định fact, không cần context từ T1
-            )
+            success = self.core_manager.save_profile(user_id, new_profile_markdown)
             
             if success:
-                logger.info(f"✅ UpdateUserProfileTool: Đã cập nhật T3 cho user {user_id}")
-                return f"Đã ghi nhớ thành công vào hồ sơ user: {new_fact}"
+                logger.info(f"✅ UpdateUserProfileTool: Đã lưu T3 cho user {user_id}")
+                return f"Đã lưu hồ sơ thành công cho user {user_id}."
             else:
-                return f"Lỗi: Không thể cập nhật hồ sơ user {user_id}."
+                return f"Lỗi: Không thể lưu hồ sơ cho user {user_id}."
                 
         except Exception as e:
-            logger.error(f"Lỗi khi gọi T3 updater: {e}")
-            raise ToolExecutionError(self.name, f"Lỗi hệ thống khi cập nhật hồ sơ: {e}", original_error=e)
+            logger.error(f"Lỗi khi lưu T3: {e}")
+            raise ToolExecutionError(self.name, f"Lỗi hệ thống khi lưu hồ sơ: {e}", original_error=e)
     
     def __repr__(self) -> str:
         return f"<UpdateUserProfileTool: core_manager={self.core_manager is not None}>"

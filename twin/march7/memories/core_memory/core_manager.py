@@ -5,13 +5,19 @@ from langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
-
 class CoreManager:
-    """T3 Core Memory Manager - reads/writes user profile (IDENTITY.md)."""
+    """T3 Core Memory Manager - reads/writes user profile."""
 
-    def __init__(self, storage, smart_updater):
+    def __init__(self, storage):
         self.storage = storage
-        self.updater = smart_updater
+
+    def get_profile(self, user_id: str) -> str:
+        """Đọc profile Markdown từ storage."""
+        return self.storage.get_profile(user_id)
+
+    def save_profile(self, user_id: str, content: str) -> bool:
+        """Ghi đè nội dung Markdown mới xuống storage."""
+        return self.storage.save_profile(user_id, content)
 
     @traceable(
         name="T3_Get_System_Prompt",

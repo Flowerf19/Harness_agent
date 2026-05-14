@@ -6,7 +6,6 @@ from .llm_response import LLMResponse
 
 def __getattr__(name):
     _imports = {
-        "LocalEmbeddingService": ".embedding_service",
         "RemoteEmbeddingService": ".remote_embedding_service",
         "GeminiService": ".gemini_service",
         "OpenAIService": ".openai_service",
@@ -21,7 +20,6 @@ def __getattr__(name):
 
 __all__ = [
     "BaseLLMService",
-    "LocalEmbeddingService",
     "RemoteEmbeddingService",
     "GeminiService",
     "LLMResponse",

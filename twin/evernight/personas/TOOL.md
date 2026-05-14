@@ -12,7 +12,7 @@
 | Live info, news, current events | `web_search` |
 | Math, data analysis, file processing | `run_python_code` |
 | Host system check: sensors, docker, logs, disk, RAM | `execute_host_bash` |
-| Save new fact about user | `update_user_profile` |
+| Save user profile to Core Memory (T3) | `update_user_profile` |
 | Change bot personality or communication style | `update_personality` |
 
 ---
@@ -92,26 +92,52 @@ Run bash commands on host machine. Requires user approval per call.
 - Output truncated at 8000 chars — use `head`/`tail` to limit
 - On connection error: executor not running — tell user to start it
 
-**Timeout guide:**
-- Fast (`echo`, `docker ps`): 10s
-- Medium (`docker logs --tail 50`): 30s
-- Slow (build, download): up to 120s
-
 ---
 
 ## update_user_profile
 
-Save a fact about the user to Core Memory (T3).
+Save the complete user profile to Core Memory (T3).
 
 | Param | Type | Detail |
 |---|---|---|
 | `user_id` | string (required) | Discord user ID |
-| `new_fact` | string (required) | Fact to save. Short, objective. E.g. `"Tên là Hoàng, 25 tuổi, ở Hà Nội"` |
+| `new_profile_markdown` | string (required) | **Full markdown content** of the updated profile. Overwrites entire file |
 
-**Rules:**
-- Only save permanent/stable facts (name, job, location, hobbies)
+### How to use this tool
+
+1. **Get current profile**: Read the existing profile from system prompt context
+2. **Detect new facts**: Identify permanent facts from the conversation (name, job, location, hobbies)
+3. **Merge**: Integrate new facts into the existing profile markdown. Resolve conflicts (e.g., old job → new job). Remove obsolete info.
+4. **Call tool**: Pass the **complete** updated markdown to `update_user_profile`
+
+### Example flow
+
+User: "Tôi chuyển sang làm AI Engineer rồi"
+1. Current profile has "Nghề nghiệp: Software Developer"
+2. Replace with "Nghề nghiệp: AI Engineer"
+3. Keep all other sections unchanged
+4. Call: `update_user_profile(user_id="123", new_profile_markdown="## Thông tin cơ bản\n- Danh xưng: Hoàng\n...\n## Nghề nghiệp & Xã hội\n- Nghề nghiệp: AI Engineer\n...")`
+
+### Rules
+- Only save permanent/stable facts (name, job, location, hobbies, preferences)
 - Do NOT save: temporary moods, guesses, one-time preferences
-- Write in Vietnamese, sentence case
+- Preserve existing information — do NOT delete unrelated facts
+- If profile is empty, create a new one using the standard structure:
+  ```
+  ## Thông tin cơ bản
+  - Danh xưng: ...
+  - Nhân khẩu học: ...
+  
+  ## Nghề nghiệp & Xã hội
+  - Nghề nghiệp: ...
+  
+  ## Sở thích & Thói quen
+  - Sở thích: ...
+  
+  ## Ràng buộc & Cấm kỵ
+  - ...
+  ```
+- Write in Vietnamese
 
 ---
 
@@ -142,5 +168,6 @@ Rewrite bot personality files. Auto-routes to IDENTITY.md or SOUL.md based on co
 | `run_python_code` with `requests.get()` for web data | `web_search` |
 | `execute_host_bash` for math (`echo $((1+1))`) | `run_python_code` |
 | `update_user_profile` for "user đang buồn" | Don't save — temporary state |
+| `update_user_profile` with just a fact | Merge fact into full markdown first |
 | Wrapping bash in \`\`\` marks | Send plain text command |
 | `execute_host_bash` with `rm -rf`, `shutdown` | Never — blocked |
