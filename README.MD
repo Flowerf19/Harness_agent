@@ -7,7 +7,15 @@ Bé Bảy là trợ lý AI trên Discord với persona March 7th (Honkai: Star R
 
 - **Trợ lý thông minh**: Hội thoại tự nhiên, nhớ ngữ cảnh, gọi tool (tìm kiếm web, chạy code, quản lý hệ thống)
 - **Self-healing (đang phát triển)**: Background agent (Evernight) giám sát lỗi, tự sửa, notify agent chính — bot tự phục hồi khi gặp vấn đề
-- **Trí nhớ 3 tầng**: Redis (hội thoại) → Qdrant (kiến thức) → YAML (hồ sơ người dùng)
+- **Trí nhớ 3 tầng**: Redis (hội thoại) → Qdrant (kiến thức) → Markdown (hồ sơ người dùng)
+
+## 🧭 Dành cho maintainer/agent (Copilot/LLM)
+
+Nếu bạn đang dùng agent để làm việc trong repo (đọc kiến trúc, cách chạy, workflow, testing, quy ước code…), hãy bắt đầu ở:
+
+- `.agents/README.md` (index + thứ tự đọc)
+
+Bộ tài liệu này giúp agent nắm đúng boundary (Bash Executor/A2A), cách chạy Docker/local, và checklist review.
 
 ## 🏗️ Kiến trúc Twin-Soul Agent
 
@@ -41,7 +49,7 @@ flowchart LR
     end
 
     subgraph T3["T3: Core Memory"]
-        Y["YAML"]
+        Y["Markdown"]
     end
 
     M7 --> T1
