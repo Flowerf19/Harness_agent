@@ -1,13 +1,13 @@
 """
-SearchOrchestrator - Điều phối tìm kiếm Wiki memory và Web search.
+SearchOrchestrator - Điều phối tìm kiếm T2 memory và Web search.
 
 Phối hợp giữa:
-- Wiki memory search (qua EpisodicMemoryManager)
+- T2 memory search
 - Web search (qua TavilyClient)
 
 Fallback chain:
-1. Wiki memory → nếu có kết quả, trả về
-2. Nếu Wiki trống → Web search → nếu có kết quả, trả về
+1. T2 memory → nếu có kết quả, trả về
+2. Nếu T2 trống → Web search → nếu có kết quả, trả về
 3. Nếu cả hai thất bại → thông báo lỗi graceful
 """
 
@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 class SearchOrchestrator:
     """
-    Điều phối tìm kiếm Wiki memory và Web search với fallback chain.
+    Điều phối tìm kiếm T2 memory và Web search với fallback chain.
 
-    Accepts memory_manager (EpisodicMemoryManager) and tavily_client (TavilyClient).
+    Accepts memory_manager (T2Memory) and tavily_client (TavilyClient).
     All are optional for graceful degradation.
 
     Example:
@@ -66,9 +66,9 @@ class SearchOrchestrator:
         Args:
             user_id: Discord user ID
             query: Search query string
-            mode: Search mode - "auto" (default), "wiki", or "web"
-                - "auto": Wiki → Web → error (fallback chain)
-                - "wiki": Wiki memory only
+            mode: Search mode - "auto" (default), "t2", or "web"
+                - "auto": T2 → Web → error (fallback chain)
+                - "t2": T2 memory only
                 - "web": Web search only
             **kwargs: Additional parameters passed to underlying searches
 
@@ -83,29 +83,29 @@ class SearchOrchestrator:
 
         if mode == "auto":
             return await self._search_auto(user_id, query, **kwargs)
-        elif mode == "wiki":
-            return await self._search_wiki_only(user_id, query, **kwargs)
+        elif mode == "t2":
+            return await self._search_t2_only(user_id, query, **kwargs)
         elif mode == "web":
             return await self._search_web_only(query, **kwargs)
         else:
-            return f"Lỗi: Mode '{mode}' không hợp lệ. Dùng: auto, wiki, hoặc web."
+            return f"Lỗi: Mode '{mode}' không hợp lệ. Dùng: auto, t2, hoặc web."
 
     async def _search_auto(self, user_id: str, query: str, **kwargs) -> str:
         """
-        Fallback chain: Wiki → Web → error.
+        Fallback chain: T2 → Web → error.
 
-        1. Try Wiki memory (semantic search) — if results found, return
-        2. If Wiki empty → try Tavily web search — if results found, return
+        1. Try T2 memory (semantic search) — if results found, return
+        2. If T2 empty → try Tavily web search — if results found, return
         3. If both fail → graceful error message
         """
-        # Step 1: Try Wiki memory
-        logger.info("📚 SearchOrchestrator: Trying Wiki memory search...")
-        wiki_results = await self._search_wiki(user_id, query)
-        if wiki_results:
-            logger.info(f"✅ SearchOrchestrator: Wiki returned {len(wiki_results)} results")
-            return self._format_wiki_results(wiki_results, query)
+        # Step 1: Try T2 memory
+        logger.info("📚 SearchOrchestrator: Trying T2 memory search...")
+        t2_results = await self._search_t2(user_id, query)
+        if t2_results:
+            logger.info(f"✅ SearchOrchestrator: T2 returned {len(t2_results)} results")
+            return self._format_t2_results(t2_results, query)
 
-        logger.info("📚 SearchOrchestrator: Wiki returned no results, trying Web search...")
+        logger.info("📚 SearchOrchestrator: T2 returned no results, trying Web search...")
 
         # Step 2: Try Web search
         web_result = await self._search_web(query, **kwargs)
@@ -114,18 +114,18 @@ class SearchOrchestrator:
             return self._format_web_result(web_result, query)
 
         # Step 3: Both failed
-        logger.warning(f"⚠️ SearchOrchestrator: Both Wiki and Web search failed for '{query[:50]}'")
+        logger.warning(f"⚠️ SearchOrchestrator: Both T2 and Web search failed for '{query[:50]}'")
         return (
             f"Không tìm thấy thông tin nào về '{query}' trong ký ức hoặc trên web. "
             "Bạn thử hỏi với từ khóa khác nhé?"
         )
 
-    async def _search_wiki_only(self, user_id: str, query: str, **kwargs) -> str:
-        """Wiki memory search only."""
-        logger.info("📚 SearchOrchestrator: Wiki-only search mode")
-        wiki_results = await self._search_wiki(user_id, query)
-        if wiki_results:
-            return self._format_wiki_results(wiki_results, query)
+    async def _search_t2_only(self, user_id: str, query: str, **kwargs) -> str:
+        """T2 memory search only."""
+        logger.info("📚 SearchOrchestrator: T2-only search mode")
+        t2_results = await self._search_t2(user_id, query)
+        if t2_results:
+            return self._format_t2_results(t2_results, query)
         return f"Không tìm thấy ký ức nào liên quan đến '{query}'."
 
     async def _search_web_only(self, query: str, **kwargs) -> str:
@@ -136,9 +136,9 @@ class SearchOrchestrator:
             return self._format_web_result(web_result, query)
         return f"Không tìm thấy kết quả web nào cho '{query}'."
 
-    async def _search_wiki(self, user_id: str, query: str) -> List[Any]:
+    async def _search_t2(self, user_id: str, query: str) -> List[Any]:
         if not self.memory:
-            logger.warning("SearchOrchestrator: memory_manager not available, skipping Wiki search")
+            logger.warning("SearchOrchestrator: memory_manager not available, skipping T2 search")
             return []
 
         try:
@@ -150,7 +150,7 @@ class SearchOrchestrator:
             )
             return results or []
         except Exception as e:
-            logger.error(f"SearchOrchestrator: Wiki search error: {e}")
+            logger.error(f"SearchOrchestrator: T2 search error: {e}")
             return []
 
     async def _search_web(self, query: str, **kwargs) -> Optional[SearchResult]:
@@ -203,17 +203,17 @@ class SearchOrchestrator:
 
     def merge_results(
         self,
-        wiki_results: List[Any],
+        t2_results: List[Any],
         web_result: Optional[SearchResult],
     ) -> str:
         """
-        Merge Wiki and Web results with Wiki first.
+        Merge T2 and Web results with T2 first.
 
         This is the public API for combining results from both sources.
-        Wiki results are listed first, followed Web search sources.
+        T2 results are listed first, followed Web search sources.
 
         Args:
-            wiki_results: List of WikiPagePayload objects
+            t2_results: List of T2Page objects
             web_result: Optional SearchResult from Tavily
 
         Returns:
@@ -221,9 +221,9 @@ class SearchOrchestrator:
         """
         lines = []
 
-        if wiki_results:
-            lines.append("📚 **Kết quả từ Wiki Memory:**")
-            lines.append(self._format_wiki_results(wiki_results, ""))
+        if t2_results:
+            lines.append("📚 **Kết quả từ T2 Memory:**")
+            lines.append(self._format_t2_results(t2_results, ""))
             lines.append("")
 
         if web_result and web_result.sources:
@@ -232,9 +232,9 @@ class SearchOrchestrator:
 
         return "\n".join(lines)
 
-    def _format_wiki_results(self, results: List[Any], query: str) -> str:
-        """Format Wiki results for LLM consumption."""
-        lines = [f"Đã tìm thấy {len(results)} kết quả trong Wiki Memory cho '{query}':\n"]
+    def _format_t2_results(self, results: List[Any], query: str) -> str:
+        """Format T2 results for LLM consumption."""
+        lines = [f"Đã tìm thấy {len(results)} kết quả trong T2 Memory cho '{query}':\n"]
 
         for i, page in enumerate(results, 1):
             lines.append(f"{i}. **{page.canonical_topic}** (Category: {page.category})")

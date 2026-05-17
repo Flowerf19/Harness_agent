@@ -62,6 +62,7 @@ class T2Chunk(BaseModel):
     updated_fact_ids: list[str] = Field(default_factory=list)
     superseded_fact_ids: list[str] = Field(default_factory=list)
     decision_changes: dict[str, Any] = Field(default_factory=dict)
+    source_message_ids: list[str] = Field(default_factory=list)
     embedding: list[float] | None = None
     expires_at: datetime | None = None
 

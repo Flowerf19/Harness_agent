@@ -63,7 +63,7 @@ class MemoryWorker:
             if snapshot is None:
                 snapshot = await self.march7_memory.get_snapshot(job.user_id)
             await self.queue.checkpoint(job.job_id, "processing", {"snapshot_size": len(snapshot)})
-            success = await self.agent.consolidate(job.user_id, snapshot)
+            success = await self.agent.consolidate(job.user_id, snapshot, reason=job.reason)
             if not success:
                 raise RuntimeError("consolidation failed")
             await self.queue.complete(job)

@@ -2,7 +2,6 @@
 import asyncio
 import json
 import logging
-import re
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -11,8 +10,7 @@ from langsmith import traceable
 from twin.shared.llm.base_llm_service import BaseLLMService
 from twin.shared.llm.llm_response import LLMResponse
 from twin.shared.tools.tool_registry import ToolRegistry
-from twin.shared.tools.exceptions import BashExecutorUnavailableError
-from twin.shared.memories.t2 import T2Memory, T2Merge, generate_topic_id
+from twin.shared.memories.t2 import T2Memory
 from twin.shared.a2a.types import AgentCard, A2AMessage, Part, TaskStatus
 from twin.evernight.memories.memory_manager import MemoryManager
 
@@ -20,33 +18,9 @@ logger = logging.getLogger(__name__)
 
 TOOL_EXECUTION_TIMEOUT = 60
 
-TOPIC_EXTRACTION_PROMPT = """Role: Topic_Extractor
-Task: Extract_Topics_From_Snapshot
-
-Input: A chat snapshot (list of messages)
-
-Extract distinct topics mentioned in this conversation. For each topic, provide:
-- canonical_topic: Normalized name (snake_case, e.g., "Evangelion_Anime")
-- category: One of [entertainment, relationship, work_study, casual, daily_mood]
-- summary: Brief summary about this topic from the conversation
-- key_points: List of specific facts/mentions
-- importance: 1-5 (how important this topic seems to the user)
-- confidence: 0.0-1.0 (how confident in extraction)
-
-Output: Return ONLY valid JSON array:
-[
-  {
-    "canonical_topic": "<topic_name>",
-    "category": "<category>",
-    "summary": "<brief summary>",
-    "key_points": ["<fact1>", "<fact2>"],
-    "importance": <1-5>,
-    "confidence": <0.0-1.0>
-  }
-]
-
-If no clear topics found, return: []
-"""
+CONSOLIDATION_SYSTEM_PROMPT = """You are Evernight's T2 consolidation controller.
+Call the consolidate_t2_memory tool exactly once with the provided user_id, snapshot, and reason.
+Do not summarize or answer conversationally."""
 
 
 class EvernightAgent:
@@ -54,16 +28,14 @@ class EvernightAgent:
         self,
         memory_manager: Any = None,
         episodic_memory: T2Memory = None,
-        wiki_merge: T2Merge = None,
         llm_service: BaseLLMService = None,
         tool_registry: Optional[ToolRegistry] = None,
         use_native_tools: bool = True,
         march7_url: str = "http://march7:8000",
         **kwargs,
     ):
-        self.memory = memory_manager or kwargs.pop("wiki_storage", None)
+        self.memory = memory_manager
         self.episodic = episodic_memory or self.memory
-        self.merge = wiki_merge
         self.llm = llm_service or kwargs.pop("llm_client", None)
         self._embedding_service = kwargs.pop("embedding_service", None)
         self.tool_registry = tool_registry
@@ -94,7 +66,7 @@ class EvernightAgent:
             capabilities=["chat", "consolidation", "streaming"],
             skills=[
                 {"id": "chat", "name": "Chat", "description": "Conversational chat with memory and tools"},
-                {"id": "consolidate", "name": "Consolidate", "description": "Consolidate T1 snapshot into T2 wiki"},
+                {"id": "consolidate", "name": "Consolidate", "description": "Consolidate T1 snapshot into T2"},
                 {"id": "get_snapshot", "name": "Get Snapshot", "description": "Get T1 memory snapshot"},
             ],
         )
@@ -103,100 +75,50 @@ class EvernightAgent:
         return {"status": "online", "model": self._model_name}
 
     # ------------------------------------------------------------------
-    # Consolidate (original Evernight logic)
+    # Consolidate
     # ------------------------------------------------------------------
 
-    @traceable(name="T2_Consolidate", run_type="chain", tags=["evernight", "consolidation"])
-    async def consolidate(self, user_id: str, snapshot: List[dict]) -> bool:
+    async def consolidate(self, user_id: str, snapshot: List[dict], reason: str = "manual") -> bool:
         logger.info(f"Evernight: Consolidating snapshot for user {user_id}")
         try:
-            topics = await self._extract_topics(snapshot)
-            if not topics:
-                logger.info("Evernight: No topics found in snapshot")
-                return True
+            if not self.llm or not self.tool_registry:
+                logger.error("Evernight: Missing LLM or ToolRegistry for consolidation")
+                return False
 
-            logger.info(f"Evernight: Found {len(topics)} topics")
-            success_count = 0
-            for topic_info in topics:
-                try:
-                    canonical_topic = topic_info.get("canonical_topic")
-                    if not canonical_topic:
-                        continue
+            response = await self.llm.generate_response(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {"user_id": user_id, "snapshot": snapshot, "reason": reason},
+                            ensure_ascii=False,
+                        ),
+                    }
+                ],
+                system_prompt=CONSOLIDATION_SYSTEM_PROMPT,
+                use_native_tools=True,
+            )
 
-                    page_id = generate_topic_id(user_id, canonical_topic)
-                    existing_page = await self.episodic.lookup_by_page_id(page_id)
-                    snapshot_text = self._format_snapshot(snapshot)
+            if not isinstance(response, LLMResponse) or not response.has_tool_calls():
+                logger.error("Evernight: Consolidation LLM did not call consolidate_t2_memory")
+                return False
 
-                    if existing_page:
-                        merged_page = await self.merge.merge(existing_page, topic_info)
-                        if merged_page:
-                            chunk = self.merge.create_chunk(user_id, merged_page, snapshot_text, topic_info)
-                            facts = self.merge.create_facts(
-                                user_id,
-                                merged_page,
-                                topic_info.get("facts") or topic_info.get("key_points", []),
-                                chunk.chunk_id,
-                            )
-                            merged_page.latest_chunk_id = chunk.chunk_id
-                            merged_page.active_fact_ids = list({*merged_page.active_fact_ids, *[f.fact_id for f in facts]})
-                            await self.episodic.upsert_page_with_chunk(merged_page, chunk, facts)
-                            success_count += 1
-                    else:
-                        new_page = self.merge.create_new_page(
-                            user_id=user_id,
-                            canonical_topic=canonical_topic,
-                            new_info=topic_info,
-                        )
-                        chunk = self.merge.create_chunk(user_id, new_page, snapshot_text, topic_info)
-                        facts = self.merge.create_facts(
-                            user_id,
-                            new_page,
-                            topic_info.get("facts") or topic_info.get("key_points", []),
-                            chunk.chunk_id,
-                        )
-                        new_page.latest_chunk_id = chunk.chunk_id
-                        new_page.active_fact_ids = [f.fact_id for f in facts]
-                        await self.episodic.upsert_page_with_chunk(new_page, chunk, facts)
-                        success_count += 1
-
-                except Exception as topic_error:
-                    logger.error(f"Evernight: Error processing topic: {topic_error}")
+            for tool_call in response.tool_calls:
+                if tool_call.get("name") != "consolidate_t2_memory":
                     continue
+                args = tool_call.get("arguments") or {}
+                result = await asyncio.wait_for(
+                    self.tool_registry.execute_tool("consolidate_t2_memory", args),
+                    timeout=TOOL_EXECUTION_TIMEOUT,
+                )
+                logger.info("Evernight: consolidate_t2_memory result: %s", result)
+                return result.startswith("OK:")
 
-            logger.info(f"Evernight: Consolidated {success_count}/{len(topics)} topics for {user_id}")
-            return success_count > 0
+            logger.error("Evernight: consolidate_t2_memory was not called")
+            return False
         except Exception as e:
             logger.error(f"Evernight: Consolidation failed: {e}", exc_info=True)
             return False
-
-    async def _extract_topics(self, snapshot: List[dict]) -> List[dict]:
-        try:
-            snapshot_text = self._format_snapshot(snapshot)
-            prompt = TOPIC_EXTRACTION_PROMPT + f"\n\nChat Snapshot:\n{snapshot_text}"
-
-            llm_response = await self.llm.generate_response(
-                messages=[{"role": "user", "content": prompt}]
-            )
-
-            if isinstance(llm_response, LLMResponse):
-                raw_text = llm_response.content
-            else:
-                raw_text = str(llm_response)
-
-            cleaned = raw_text.strip()
-            cleaned = re.sub(r"^```(?:json)?", "", cleaned, flags=re.IGNORECASE)
-            cleaned = re.sub(r"```$", "", cleaned).strip()
-
-            topics = json.loads(cleaned)
-            if isinstance(topics, list):
-                return topics
-            return []
-        except json.JSONDecodeError as e:
-            logger.error(f"Evernight: Failed to parse topics JSON: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"Evernight: Topic extraction failed: {e}")
-            return []
 
     def _format_snapshot(self, snapshot: List[dict]) -> str:
         lines = []

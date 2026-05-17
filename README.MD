@@ -129,7 +129,7 @@ twin/                            # Twin-Soul Agents
 │   ├── tools/                   # MCP protocol + tool registry + implementations
 │   │   ├── implementations/system/
 │   │   └── implementations/mcp/
-│   └── memories/                # T2 episodic memory (Redis Stack + T2 merge)
+│   └── memories/                # T2 episodic memory (Redis Stack)
 │
 ├── march7/                      # March7 Agent — Trợ lý chính
 │   ├── agent.py                 # March7Agent (max 10 iterations, native tool calling)
@@ -141,7 +141,6 @@ twin/                            # Twin-Soul Agents
 └── evernight/                   # Evernight Agent — Self-healing + Consolidation
     ├── agent.py                 # EvernightAgent (consolidation + chat capability)
     ├── container.py             # DI container
-    ├── spawner.py               # EvernightSpawner (dedup + checkpoint)
     ├── server/a2a_server.py     # A2A endpoint (port 8001)
     ├── triggers/                # Inactivity trigger (poll Redis mỗi 60s)
     ├── memories/                # T1 + T3 riêng

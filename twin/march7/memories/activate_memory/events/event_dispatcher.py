@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class ActiveMemoryEvent(str, Enum):
     """Events for T1 Active Memory overflow handling."""
-    TOKEN_LIMIT_REACHED = "token_limit_reached"  # Kích hoạt khi RAM > MAX_TOKENS → OverflowQueue
+    TOKEN_LIMIT_REACHED = "token_limit_reached"  # Kích hoạt khi RAM > MAX_TOKENS → MemoryJobQueue
 
 
 class EventDispatcher:

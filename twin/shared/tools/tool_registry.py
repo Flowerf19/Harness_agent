@@ -47,10 +47,11 @@ class ToolRegistry:
         result = await registry.execute_tool("search_memory", {"user_id": "123", "query": "test"})
     """
     
-    def __init__(self):
+    def __init__(self, agent_name: str | None = None):
         """Initialize empty registry."""
         self._tools: Dict[str, BaseTool] = {}
-        logger.debug("ToolRegistry initialized")
+        self.agent_name = agent_name
+        logger.debug("ToolRegistry initialized agent=%s", agent_name)
     
     # ==========================================
     # REGISTRATION METHODS
@@ -157,7 +158,11 @@ class ToolRegistry:
         Returns:
             List[Dict[str, Any]]: List of OpenAI tool schemas
         """
-        return [tool.get_openai_schema() for tool in self._tools.values()]
+        return [
+            tool.get_openai_schema()
+            for tool in self._tools.values()
+            if self._is_visible_to_agent(tool)
+        ]
     
     def get_all_mcp_schemas(self) -> List[ToolDefinition]:
         """
@@ -168,7 +173,11 @@ class ToolRegistry:
         Returns:
             List[ToolDefinition]: List of MCP tool definitions
         """
-        return [ToolDefinition.from_base_tool(tool) for tool in self._tools.values()]
+        return [
+            ToolDefinition.from_base_tool(tool)
+            for tool in self._tools.values()
+            if self._is_visible_to_agent(tool)
+        ]
     
     def get_tool_schema(self, tool_name: str) -> Optional[Dict[str, Any]]:
         """
@@ -181,7 +190,7 @@ class ToolRegistry:
             Optional[Dict[str, Any]]: Schema if found, None otherwise
         """
         tool = self.get_tool(tool_name)
-        if tool:
+        if tool and self._is_visible_to_agent(tool):
             return tool.get_openai_schema()
         return None
     
@@ -212,6 +221,14 @@ class ToolRegistry:
             error_msg = f"Tool '{tool_name}' not found in registry"
             logger.error(f"❌ {error_msg}")
             raise ToolExecutionError(tool_name, error_msg)
+
+        allowed_agents = tool.allowed_agents
+        if allowed_agents is not None and self.agent_name not in allowed_agents:
+            error_msg = (
+                f"Agent '{self.agent_name or 'unknown'}' không có quyền dùng tool '{tool_name}'."
+            )
+            logger.warning("⚠️ %s", error_msg)
+            raise ToolExecutionError(tool_name, error_msg)
         
         # 2. Validate parameters
         validation_error = tool.validate_parameters(arguments)
@@ -239,6 +256,12 @@ class ToolRegistry:
             int: Number of tools
         """
         return len(self._tools)
+
+    def _is_visible_to_agent(self, tool: BaseTool) -> bool:
+        visible_to_agents = tool.visible_to_agents
+        if visible_to_agents is None:
+            return True
+        return self.agent_name in visible_to_agents
     
     def clear(self) -> None:
         """

@@ -10,7 +10,7 @@ from twin.shared.llm.openai_embedding_service import OpenAIEmbeddingService
 from twin.shared.tools.tool_registry import ToolRegistry
 from twin.shared.tools.tool_discovery import discover_and_register_tools
 from twin.shared.tools.approval_gate import ApprovalGate
-from twin.shared.memories.t2 import T2Memory, T2Merge, T2Store
+from twin.shared.memories.t2 import T2Memory, T2Store
 from twin.shared.external.tavily_client import TavilyClient
 from twin.shared.external.codebox_client import CodeBoxClient
 
@@ -109,18 +109,16 @@ class EvernightContainer:
             embedding_service=self.embedding_service,
         )
 
-        # T2 Merge Service
-        wiki_merge = T2Merge(llm_client=self.llm_service)
-
         # Tool Registry
         tavily_client = self._init_tavily_client()
         codebox_client = self._init_codebox_client()
         approval_gate = ApprovalGate()
 
-        tool_registry = ToolRegistry()
+        tool_registry = ToolRegistry(agent_name="evernight")
         tool_dependencies = {
             "core_manager": t3_manager,
             "memory_manager": episodic_memory,
+            "llm_service": self.llm_service,
             "base_memory_path": self.config.persona_path,
             "tavily_client": tavily_client,
             "codebox_client": codebox_client,
@@ -146,7 +144,6 @@ class EvernightContainer:
         self.agent = EvernightAgent(
             memory_manager=self.memory_manager,
             episodic_memory=episodic_memory,
-            wiki_merge=wiki_merge,
             llm_service=self.llm_service,
             tool_registry=tool_registry,
             march7_url=self.config.march7_url,

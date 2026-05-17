@@ -11,6 +11,7 @@ from twin.shared.tools.implementations.system.update_personality_tool import Upd
 from twin.shared.tools.implementations.system.tavily_search_tool import TavilySearchTool
 from twin.shared.tools.implementations.system.code_interpreter_tool import CodeInterpreterTool
 from twin.shared.tools.implementations.system.execute_host_bash_tool import ExecuteHostBashTool
+from twin.shared.tools.implementations.system.consolidate_t2_memory_tool import ConsolidateT2MemoryTool
 
 __all__ = [
     "SearchMemoryTool",
@@ -19,4 +20,5 @@ __all__ = [
     "TavilySearchTool",
     "CodeInterpreterTool",
     "ExecuteHostBashTool",
+    "ConsolidateT2MemoryTool",
 ]

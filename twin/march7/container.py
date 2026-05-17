@@ -126,10 +126,11 @@ class March7Container:
 
         approval_gate = ApprovalGate(dm_client=dm_client)
 
-        tool_registry = ToolRegistry()
+        tool_registry = ToolRegistry(agent_name="march7")
         tool_dependencies = {
             "core_manager": t3_manager,
             "memory_manager": t2_memory,
+            "llm_service": self.llm_service,
             "base_memory_path": self.config.persona_path,
             "tavily_client": tavily_client,
             "codebox_client": codebox_client,

@@ -11,7 +11,7 @@ Design Pattern: Template Method + Strategy
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Set
 
 
 class BaseTool(ABC):
@@ -76,6 +76,24 @@ class BaseTool(ABC):
             Dict[str, Any]: JSON Schema dict
         """
         pass
+
+    @property
+    def allowed_agents(self) -> Optional[Set[str]]:
+        """
+        Agents allowed to execute this tool.
+
+        None means every agent can execute it.
+        """
+        return None
+
+    @property
+    def visible_to_agents(self) -> Optional[Set[str]]:
+        """
+        Agents allowed to see this tool in LLM schemas.
+
+        None means every agent can see it.
+        """
+        return None
     
     @abstractmethod
     async def execute(self, **kwargs) -> str:
