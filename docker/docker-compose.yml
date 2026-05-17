@@ -5,7 +5,6 @@ networks:
 include:
   - shared/docker-compose.base.yml
   - shared/docker-compose.redis.yml
-  - shared/docker-compose.qdrant.yml
   - shared/docker-compose.codebox.yml
   - shared/docker-compose.bash-executor.yml
   - march7/docker-compose.yml

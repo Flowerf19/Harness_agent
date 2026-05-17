@@ -23,7 +23,7 @@ Kiến trúc mức cao của dự án March7 (Twin-Soul Agents).
 - Expose A2A server (default port 8001)
 
 4) **Shared libs** (`twin/shared/`)
-- A2A protocol, LLM providers, tools, và T2 wiki memory (Qdrant)
+- A2A protocol, LLM services, tools, và T2 wiki memory (Qdrant)
 
 ## Luồng chạy (tóm tắt)
 
@@ -44,9 +44,16 @@ Kiến trúc mức cao của dự án March7 (Twin-Soul Agents).
 
 > Lưu ý: docs cũ có thể nhắc YAML; trong branch hiện tại, T3 storage đã là Markdown.
 
+## LLM + Embeddings
+
+Xem [README_LLM_PROVIDERS.md](../README_LLM_PROVIDERS.md) để biết:
+
+- provider hỗ trợ (gemini / openai_compat)
+- env vars cần set cho chat + embeddings
+
 ## Docker boundary / ownership
 
-Xem `docker/ARCHITECTURE.md` để biết:
+Xem [docker/ARCHITECTURE.md](../docker/ARCHITECTURE.md) để biết:
 
 - service nào owned by March7 vs Evernight
 - biến env nào private/shared

@@ -6,10 +6,10 @@ Mục tiêu: mô tả **dự án chạy như thế nào** theo kiến trúc hi�
 
 ### 1) Docker Compose (primary / khuyến nghị)
 
-Repo có cấu trúc Docker rõ ràng trong `docker/`.
+Repo có cấu trúc Docker rõ ràng trong [docker/](../docker/).
 
-- Master compose: `docker/docker-compose.yml` (gồm các include trong `docker/shared/` và service agents).
-- Tài liệu vận hành: `docker/README.md`
+- Master compose: [docker/docker-compose.yml](../docker/docker-compose.yml) (gồm các include trong `docker/shared/` và service agents).
+- Tài liệu vận hành: [docker/README.md](../docker/README.md)
 
 Các service chính (tổng hợp từ `docker/README.md`):
 
@@ -54,7 +54,7 @@ Thư mục `docker/volumes/conda_envs/discord_bot/` thể hiện có môi trư�
 
 ## Nhóm biến môi trường (tóm tắt)
 
-Nguồn tham chiếu chính: `gateway/config.py`, `twin/march7/config.py`, `twin/evernight/config.py`, và `docker/ARCHITECTURE.md`.
+Nguồn tham chiếu chính: [gateway/config.py](../gateway/config.py), [twin/march7/config.py](../twin/march7/config.py), [twin/evernight/config.py](../twin/evernight/config.py), và [docker/ARCHITECTURE.md](../docker/ARCHITECTURE.md).
 
 ### Shared (hạ tầng/LLM)
 
@@ -89,5 +89,5 @@ Nguồn tham chiếu chính: `gateway/config.py`, `twin/march7/config.py`, `twin
 
 ## Tooling & risk notes
 
-- Bash Executor: xem `README_BASH_EXECUTOR.md`.
-- Docker ownership boundary map: xem `docker/ARCHITECTURE.md`.
+- Bash Executor: xem [README_BASH_EXECUTOR.md](../README_BASH_EXECUTOR.md).
+- Docker ownership boundary map: xem [docker/ARCHITECTURE.md](../docker/ARCHITECTURE.md).

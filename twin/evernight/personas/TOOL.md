@@ -19,14 +19,16 @@
 
 ## search_memory
 
-Search user history in Wiki Pages (T2 consolidated memory).
+Search user history in Redis-backed T2 memory.
 
 | Param | Type | Detail |
 |---|---|---|
 | `user_id` | string (required) | Discord user ID |
-| `mode` | string | `semantic` (default): search by meaning<br>`time`: search recent by days<br>`topic`: exact keyword match |
+| `mode` | string | `auto` (default): infer mode<br>`semantic`: vector search<br>`time`: hard date/range filter<br>`topic`: current topic state<br>`topic_timeline`: ordered chunks<br>`related_context`: linked chunks<br>`recent`: latest pages |
 | `query` | string | Search query. Required for `semantic` mode. Be specific: `"sở thích anime"` not `"chuyện đó"` |
 | `days` | integer | Days to look back. Used for `time` mode. Default 7 |
+| `start_date`/`end_date` | string | Inclusive `YYYY-MM-DD` range for `time` or `topic_timeline` |
+| `limit` | integer | Max results. Default 5 |
 | `topic` | string | Keyword for `topic` mode. E.g. `"game"`, `"công việc"` |
 
 ---

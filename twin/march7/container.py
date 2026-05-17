@@ -5,15 +5,13 @@ from dotenv import load_dotenv
 
 from twin.shared.config.settings import Config
 from twin.shared.llm.gemini_service import GeminiService
-from twin.shared.llm.lm_studio_service import LMStudioService
 from twin.shared.llm.openai_service import OpenAIService
-from twin.shared.llm.qwen_service import QwenService
 from twin.shared.tools.tool_registry import ToolRegistry
 from twin.shared.tools.tool_discovery import discover_and_register_tools
 from twin.shared.tools.approval_gate import ApprovalGate
 from twin.shared.tools.dm_client import DMClient
-from twin.shared.memories.episodic_memory_manager import EpisodicMemoryManager
-from twin.shared.llm.remote_embedding_service import RemoteEmbeddingService
+from twin.shared.memories.t2 import MemoryJobQueue, T2Memory, T2Store
+from twin.shared.llm.openai_embedding_service import OpenAIEmbeddingService
 from twin.shared.external.tavily_client import TavilyClient
 from twin.shared.external.codebox_client import CodeBoxClient
 
@@ -58,19 +56,16 @@ class March7Container:
 
         # LLM Service
         provider = getattr(Config, "LLM_PROVIDER", "gemini").lower()
-        if provider == "qwen":
-            self.llm_service = QwenService(persona_path=self.config.persona_path)
-        elif provider == "openai":
+        if provider in {"openai", "openai_compat", "openai-compatible", "openai_compatible"}:
+            # OpenAI-compatible covers OpenAI, OpenRouter, LM Studio, Qwen compatible-mode, etc.
             self.llm_service = OpenAIService(persona_path=self.config.persona_path)
-        elif provider == "lms":
-            self.llm_service = LMStudioService(persona_path=self.config.persona_path)
         else:
             self.llm_service = GeminiService(persona_path=self.config.persona_path)
 
         # Embedding Service
-        embedding_provider = getattr(Config, "EMBEDDING_PROVIDER", "qwen").lower()
-        if embedding_provider == "qwen":
-            self.embedding_service = RemoteEmbeddingService(
+        embedding_provider = getattr(Config, "EMBEDDING_PROVIDER", "openai_compat").lower()
+        if embedding_provider in {"openai", "openai_compat", "openai-compatible", "openai_compatible", "qwen"}:
+            self.embedding_service = OpenAIEmbeddingService(
                 model_name=Config.EMBEDDING_MODEL_NAME,
                 api_key=Config.EMBEDDING_API_KEY,
                 api_url=Config.EMBEDDING_API_URL,
@@ -78,7 +73,7 @@ class March7Container:
         else:
             raise ValueError(
                 f"Unsupported embedding provider: {embedding_provider}. "
-                "Local embeddings removed. Use 'qwen' or other remote provider."
+                "Local embeddings removed. Use 'openai_compat' (or alias 'qwen')."
             )
 
         # T1 Active Memory
@@ -102,18 +97,20 @@ class March7Container:
         # SmartUpdater removed - agent handles merge
         t3_manager = CoreManager(storage=t3_storage)
 
-        # T2 Episodic Memory (shared)
-        wiki_storage = await self._get_wiki_storage()
-        episodic_memory = EpisodicMemoryManager(
-            wiki_storage=wiki_storage,
+        # T2 semantic memory (Redis Stack, shared)
+        t2_store = await self._get_t2_store()
+        t2_memory = T2Memory(
+            store=t2_store,
             embedding_service=self.embedding_service,
         )
+        overflow_queue = MemoryJobQueue(self.redis_client) if self.redis_client else None
 
         # Memory Manager (no overflow, no evernight)
         self.memory_manager = MemoryManager(
             active_memory=t1_service,
             core_memory=t3_manager,
             event_dispatcher=event_bus,
+            overflow_queue=overflow_queue,
         )
 
         # Tool Registry
@@ -132,7 +129,7 @@ class March7Container:
         tool_registry = ToolRegistry()
         tool_dependencies = {
             "core_manager": t3_manager,
-            "memory_manager": episodic_memory,
+            "memory_manager": t2_memory,
             "base_memory_path": self.config.persona_path,
             "tavily_client": tavily_client,
             "codebox_client": codebox_client,
@@ -196,15 +193,13 @@ class March7Container:
             logger.warning(f"Redis connection failed, using RAM: {e}")
             return LocalMemoryDB()
 
-    async def _get_wiki_storage(self):
-        from twin.shared.memories.wiki.wiki_storage import WikiStorage
-
+    async def _get_t2_store(self):
         try:
-            storage = WikiStorage(url=Config.QDRANT_URL, api_key=Config.QDRANT_API_KEY)
+            storage = T2Store(redis_client=self.redis_client)
             await storage.initialize()
             return storage
         except Exception as e:
-            raise RuntimeError(f"Wiki storage init failed: {e}")
+            raise RuntimeError(f"T2 storage init failed: {e}")
 
     def _init_tavily_client(self):
         if not Config.TAVILY_API_KEY:

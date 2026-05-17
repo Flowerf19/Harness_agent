@@ -16,8 +16,6 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      qdrant:
-        condition: service_healthy
     env_file:
       - ../../.env
     environment:
@@ -35,7 +33,6 @@ services:
       - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379
       - REDIS_DB=1
-      - QDRANT_URL=http://qdrant:6333
       - BASH_EXECUTOR_URL=http://bash-executor:8374
       - BASH_EXECUTOR_TIMEOUT=30
 

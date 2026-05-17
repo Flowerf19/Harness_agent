@@ -5,15 +5,12 @@ from dotenv import load_dotenv
 
 from twin.shared.config.settings import Config
 from twin.shared.llm.gemini_service import GeminiService
-from twin.shared.llm.lm_studio_service import LMStudioService
 from twin.shared.llm.openai_service import OpenAIService
-from twin.shared.llm.qwen_service import QwenService
-from twin.shared.llm.remote_embedding_service import RemoteEmbeddingService
+from twin.shared.llm.openai_embedding_service import OpenAIEmbeddingService
 from twin.shared.tools.tool_registry import ToolRegistry
 from twin.shared.tools.tool_discovery import discover_and_register_tools
 from twin.shared.tools.approval_gate import ApprovalGate
-from twin.shared.memories.episodic_memory_manager import EpisodicMemoryManager
-from twin.shared.memories.wiki.wiki_merge import WikiMergeService
+from twin.shared.memories.t2 import T2Memory, T2Merge, T2Store
 from twin.shared.external.tavily_client import TavilyClient
 from twin.shared.external.codebox_client import CodeBoxClient
 
@@ -58,19 +55,16 @@ class EvernightContainer:
 
         # LLM Service
         provider = getattr(Config, "LLM_PROVIDER", "gemini").lower()
-        if provider == "qwen":
-            self.llm_service = QwenService(persona_path=self.config.persona_path)
-        elif provider == "openai":
+        if provider in {"openai", "openai_compat", "openai-compatible", "openai_compatible"}:
+            # OpenAI-compatible covers OpenAI, OpenRouter, LM Studio, Qwen compatible-mode, etc.
             self.llm_service = OpenAIService(persona_path=self.config.persona_path)
-        elif provider == "lms":
-            self.llm_service = LMStudioService(persona_path=self.config.persona_path)
         else:
             self.llm_service = GeminiService(persona_path=self.config.persona_path)
 
         # Embedding Service
-        embedding_provider = getattr(Config, "EMBEDDING_PROVIDER", "qwen").lower()
-        if embedding_provider == "qwen":
-            self.embedding_service = RemoteEmbeddingService(
+        embedding_provider = getattr(Config, "EMBEDDING_PROVIDER", "openai_compat").lower()
+        if embedding_provider in {"openai", "openai_compat", "openai-compatible", "openai_compatible", "qwen"}:
+            self.embedding_service = OpenAIEmbeddingService(
                 model_name=Config.EMBEDDING_MODEL_NAME,
                 api_key=Config.EMBEDDING_API_KEY,
                 api_url=Config.EMBEDDING_API_URL,
@@ -78,7 +72,7 @@ class EvernightContainer:
         else:
             raise ValueError(
                 f"Unsupported embedding provider: {embedding_provider}. "
-                "Local embeddings removed. Use 'qwen' or other remote provider."
+                "Local embeddings removed. Use 'openai_compat' (or alias 'qwen')."
             )
 
         # T1 Active Memory
@@ -108,15 +102,15 @@ class EvernightContainer:
             event_dispatcher=event_bus,
         )
 
-        # T2 Episodic Memory (shared)
-        wiki_storage = await self._get_wiki_storage()
-        episodic_memory = EpisodicMemoryManager(
-            wiki_storage=wiki_storage,
+        # T2 semantic memory (Redis Stack, shared)
+        t2_store = await self._get_t2_store()
+        episodic_memory = T2Memory(
+            store=t2_store,
             embedding_service=self.embedding_service,
         )
 
-        # Wiki Merge Service
-        wiki_merge = WikiMergeService(llm_client=self.llm_service)
+        # T2 Merge Service
+        wiki_merge = T2Merge(llm_client=self.llm_service)
 
         # Tool Registry
         tavily_client = self._init_tavily_client()
@@ -189,15 +183,13 @@ class EvernightContainer:
             logger.warning(f"Redis connection failed, using RAM: {e}")
             return LocalMemoryDB()
 
-    async def _get_wiki_storage(self):
-        from twin.shared.memories.wiki.wiki_storage import WikiStorage
-
+    async def _get_t2_store(self):
         try:
-            storage = WikiStorage(url=Config.QDRANT_URL, api_key=Config.QDRANT_API_KEY)
+            storage = T2Store(redis_client=self.redis_client)
             await storage.initialize()
             return storage
         except Exception as e:
-            raise RuntimeError(f"Wiki storage init failed: {e}")
+            raise RuntimeError(f"T2 storage init failed: {e}")
 
     def _init_tavily_client(self):
         if not Config.TAVILY_API_KEY:

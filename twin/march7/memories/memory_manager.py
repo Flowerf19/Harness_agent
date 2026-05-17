@@ -31,16 +31,25 @@ class MemoryManager:
         self.overflow_queue = overflow_queue
         self.evernight_spawner = evernight_spawner
 
-        # Subscribe: when T1 reaches token limit, just clean up to free space
+        # Subscribe: when T1 reaches token limit, enqueue a snapshot for
+        # Evernight. T1 cleanup happens only after the enqueue succeeds.
         self.events.subscribe(
             ActiveMemoryEvent.TOKEN_LIMIT_REACHED, self._handle_memory_overflow
         )
 
-        logger.debug("MemoryManager: initialized (overflow/evernight removed)")
+        logger.debug("MemoryManager: initialized")
 
     async def _handle_memory_overflow(self, event_type: str, user_id: str, data: dict):
+        snapshot = data.get("snapshot", [])
+        if self.overflow_queue is not None:
+            await self.overflow_queue.push(user_id=user_id, snapshot=snapshot, reason="overflow")
+            if self.evernight_spawner is not None:
+                self.evernight_spawner.spawn()
+        else:
+            logger.warning("MemoryManager: overflow queue unavailable; preserving T1 for user %s", user_id)
+            return
         await self.t1.force_cleanup(user_id)
-        logger.debug(f"MemoryManager: T1 cleaned up for user {user_id}")
+        logger.debug("MemoryManager: T1 overflow snapshot enqueued and cleanup completed for user %s", user_id)
 
     @traceable(
         name="Master_Add_Message", run_type="chain", tags=["memory_manager", "write"]

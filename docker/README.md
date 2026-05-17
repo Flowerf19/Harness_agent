@@ -1,5 +1,7 @@
 # Docker Setup — March7
 
+> **Dành cho agent (Copilot/LLM)**: Trước khi làm việc với Docker, đọc [.agents/README.md](../.agents/README.md) để nắm kiến trúc, boundary, và workflow.
+
 ## Structure
 
 ```
@@ -11,8 +13,7 @@ docker/
 │   ├── Dockerfile.bash-executor
 │   ├── docker-compose.base.yml
 │   ├── docker-compose.redis.yml
-│   ├── docker-compose.qdrant.yml
-│   ├── docker-compose.codebox.yml
+│   ├── │   ├── docker-compose.codebox.yml
 │   ├── docker-compose.bash-executor.yml
 │   ├── bash-executor.service
 │   └── bash-executor-starter.service
@@ -26,9 +27,7 @@ docker/
 ├── README.md                    # This file
 │
 └── volumes/                     # Persistent data (bind mounts)
-    ├── redis_data/              # Redis AOF — T1 Active Memory
-    ├── qdrant_data/             # Qdrant vectors — T2 Wiki Pages
-    └── hf_cache/                # HuggingFace embedding models
+    ├── redis_data/              # Redis AOF/RDB — T1, T2, coordination, queue    └── hf_cache/                # HuggingFace embedding models
 ```
 
 ## Architecture
@@ -37,15 +36,14 @@ docker/
 
 | Service | Container | Image | Port | Purpose |
 |---------|-----------|-------|------|---------|
-| `redis` | `march7-redis` | `redis:alpine` | 6379 | Shared T1 storage + coordination markers |
-| `qdrant` | `march7-qdrant` | `qdrant/qdrant` | 6333 | T2 Wiki Pages (semantic search) |
+| `redis` | `march7-redis` | `redis/redis-stack-server` | 6379 | Shared T1 storage + coordination markers |
 | `codebox` | `march7-codebox` | `shroominic/codebox` | 8069 | Python sandbox |
 | `bash-executor` | `march7-bash-executor` | `march7-bash-executor` | 8374 | Shared privileged host executor |
 | `base` | — | `march7-base` | — | Shared Python runtime |
 | `march7` | `march7` | `march7-agent` | 8000 | Gateway + March7 Discord bot + March7 A2A |
 | `evernight` | `evernight` | `evernight-agent` | 8001 | Evernight Discord bot + consolidation + self-healing |
 
-Xem [ARCHITECTURE.md](./ARCHITECTURE.md) để biết ranh giới service nào là private và service nào dùng chung.
+Xem [ARCHITECTURE.md](ARCHITECTURE.md) để biết ranh giới service nào là private và service nào dùng chung.
 
 ### Current Build
 
@@ -80,9 +78,7 @@ docker compose -f docker/docker-compose.yml logs -f
 
 ```bash
 # Chỉ start infrastructure
-docker compose -f docker/shared/docker-compose.redis.yml \
-               -f docker/shared/docker-compose.qdrant.yml \
-               -f docker/shared/docker-compose.codebox.yml up -d
+docker compose -f docker/shared/docker-compose.redis.yml \               -f docker/shared/docker-compose.codebox.yml up -d
 
 # Start riêng agents
 docker compose -f docker/docker-compose.yml up -d march7 evernight
@@ -97,9 +93,7 @@ Tất cả dữ liệu lưu trong `docker/volumes/` qua bind mounts:
 
 | Directory | Purpose | Storage |
 |-----------|---------|---------|
-| `redis_data/` | T1 Active Memory | Redis AOF (append-only file) |
-| `qdrant_data/` | T2 Wiki Pages | Qdrant vectors + payload |
-| `hf_cache/` | Embedding models | HuggingFace cache (~500MB) |
+| `redis_data/` | T1 Active Memory | Redis AOF (append-only file) || `hf_cache/` | Embedding models | HuggingFace cache (~500MB) |
 
 ## Commands Reference
 
@@ -161,6 +155,5 @@ TOOL_LLM_ENDPOINT=http://host.docker.internal:1234/v1
 
 # Infrastructure (internal Docker network)
 REDIS_URL=redis://redis:6379
-QDRANT_URL=http://qdrant:6333
 CODEBOX_API_URL=http://codebox:8069
 ```

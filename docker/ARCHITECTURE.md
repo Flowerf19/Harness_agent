@@ -27,7 +27,6 @@ These services are shared by both agents:
 | --- | --- | --- | --- |
 | `base` | `shared/docker-compose.base.yml` | shared | common Python runtime image |
 | `redis` | `shared/docker-compose.redis.yml` | shared | T1 storage and coordination markers |
-| `qdrant` | `shared/docker-compose.qdrant.yml` | shared | T2 wiki/vector memory |
 | `codebox` | `shared/docker-compose.codebox.yml` | shared | sandboxed Python/code execution |
 | `bash-executor` | `shared/docker-compose.bash-executor.yml` | shared privileged tool | host command execution behind approval |
 | `march7_net` | `docker-compose.yml` | shared | service discovery network |
@@ -77,7 +76,6 @@ Evernight-private:
 Shared:
 
 - `REDIS_URL`
-- `QDRANT_URL`
 - `CODEBOX_API_URL`
 - `BASH_EXECUTOR_URL`
 - `LLM_*`

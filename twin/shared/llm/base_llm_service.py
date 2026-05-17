@@ -6,8 +6,6 @@ import os
 import re
 from typing import Dict, List, Optional, Union
 
-from langsmith import traceable
-
 from .llm_response import LLMResponse
 
 

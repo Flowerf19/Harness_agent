@@ -16,8 +16,6 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      qdrant:
-        condition: service_healthy
       codebox:
         condition: service_started
     env_file:
@@ -37,7 +35,6 @@ services:
       - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379
       - REDIS_DB=0
-      - QDRANT_URL=http://qdrant:6333
       - CODEBOX_API_URL=http://codebox:8069
       - BASH_EXECUTOR_URL=http://bash-executor:8374
 

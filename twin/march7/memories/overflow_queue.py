@@ -1,203 +1,47 @@
-"""OverflowQueue - Redis-based queue for T1 overflow snapshots."""
-import json
-import logging
-from typing import List, Optional, Tuple
+"""March7 compatibility wrapper for the shared T2 consolidation queue."""
+from __future__ import annotations
 
-import redis.asyncio as redis
-
-logger = logging.getLogger(__name__)
+from twin.shared.memories.t2.queue import MemoryJobQueue
 
 
-class OverflowQueue:
-    """
-    Redis-based queue for T1 overflow snapshots.
+class OverflowQueue(MemoryJobQueue):
+    """Deprecated name retained for existing March7 imports."""
 
-    SRP: Only handles queue operations (push/pop/checkpoint).
+    QUEUE_KEY = MemoryJobQueue.QUEUE_KEY
+    CHECKPOINT_KEY = "memory:consolidation:checkpoint"
 
-    Redis Structure:
-    - QUEUE_KEY: LIST for FIFO queue (LPUSH/RPOP)
-    - CHECKPOINT_KEY: HASH for recovery state (user_id -> checkpoint_data)
-    """
+    async def push(self, user_id: str, snapshot: list, reason: str = "overflow") -> None:
+        await super().push(user_id=user_id, snapshot=snapshot, reason=reason)
 
-    QUEUE_KEY = "evernight:overflow_queue"
-    CHECKPOINT_KEY = "evernight:checkpoint"
-
-    def __init__(self, redis_client: redis.Redis):
-        """
-        Initialize OverflowQueue.
-
-        Args:
-            redis_client: Redis client instance (shared with T1 storage)
-        """
-        self.redis = redis_client
-
-    async def push(self, user_id: str, snapshot: List) -> None:
-        """
-        Push snapshot to queue for processing.
-
-        Args:
-            user_id: Discord user ID
-            snapshot: List of MemoryEntry objects or dicts from T1 memory
-        """
-        try:
-            # Convert Pydantic MemoryEntry objects to dicts if needed
-            snapshot_dicts = []
-            for entry in snapshot:
-                if hasattr(entry, "model_dump"):
-                    # Pydantic v2: use model_dump(mode='json') to serialize datetime
-                    snapshot_dicts.append(entry.model_dump(mode='json'))
-                elif hasattr(entry, "dict"):
-                    # Pydantic v1: use dict()
-                    snapshot_dicts.append(entry.dict())
-                else:
-                    # Already a dict
-                    snapshot_dicts.append(entry)
-
-            payload = json.dumps({
-                "user_id": user_id,
-                "snapshot": snapshot_dicts,
-            })
-            await self.redis.lpush(self.QUEUE_KEY, payload)
-            logger.info(f"📤 OverflowQueue: Pushed snapshot for user {user_id} ({len(snapshot_dicts)} messages)")
-        except Exception as e:
-            logger.error(f"❌ OverflowQueue: Failed to push for user {user_id}: {e}")
-            raise
-
-    async def pop(self) -> Optional[Tuple[str, List[dict]]]:
-        """
-        Pop next item from queue.
-
-        Returns:
-            Tuple of (user_id, snapshot) or None if queue empty
-        """
-        try:
-            payload = await self.redis.rpop(self.QUEUE_KEY)
-            if payload is None:
-                return None
-
-            data = json.loads(payload)
-            user_id = data["user_id"]
-            snapshot = data["snapshot"]
-            logger.debug(f"📥 OverflowQueue: Popped snapshot for user {user_id}")
-            return (user_id, snapshot)
-
-        except json.JSONDecodeError as e:
-            logger.error(f"❌ OverflowQueue: Failed to decode payload: {e}")
+    async def pop(self):
+        job = await super().pop()
+        if not job:
             return None
-        except Exception as e:
-            logger.error(f"❌ OverflowQueue: Failed to pop: {e}")
-            raise
+        return (job.user_id, job.snapshot or [])
 
-    async def checkpoint(self, user_id: str, status: str, data: Optional[dict] = None) -> None:
-        """
-        Save checkpoint for error recovery.
+    async def checkpoint(self, user_id: str, status: str, data: dict | None = None) -> None:
+        await self.redis.hset(self.CHECKPOINT_KEY, user_id, self._checkpoint_payload(status, data))
 
-        Args:
-            user_id: Discord user ID
-            status: Current status (e.g., "processing", "completed", "failed")
-            data: Optional additional checkpoint data
-        """
-        try:
-            checkpoint_data = {
-                "status": status,
-                "data": data or {},
-            }
-            await self.redis.hset(
-                self.CHECKPOINT_KEY,
-                user_id,
-                json.dumps(checkpoint_data),
-            )
-            logger.debug(f"💾 OverflowQueue: Saved checkpoint for user {user_id} (status={status})")
-        except Exception as e:
-            logger.error(f"❌ OverflowQueue: Failed to save checkpoint: {e}")
-            # Don't raise - checkpoint failure shouldn't break processing
+    async def get_checkpoint(self, user_id: str):
+        import json
 
-    async def get_checkpoint(self, user_id: str) -> Optional[dict]:
-        """
-        Get checkpoint for a user.
-
-        Args:
-            user_id: Discord user ID
-
-        Returns:
-            Checkpoint dict or None if not found
-        """
-        try:
-            data = await self.redis.hget(self.CHECKPOINT_KEY, user_id)
-            if data is None:
-                return None
-            return json.loads(data)
-        except json.JSONDecodeError as e:
-            logger.error(f"❌ OverflowQueue: Failed to decode checkpoint: {e}")
+        raw = await self.redis.hget(self.CHECKPOINT_KEY, user_id)
+        if not raw:
             return None
-        except Exception as e:
-            logger.error(f"❌ OverflowQueue: Failed to get checkpoint: {e}")
-            raise
+        if isinstance(raw, bytes):
+            raw = raw.decode()
+        return json.loads(raw)
 
     async def clear_checkpoint(self, user_id: str) -> None:
-        """
-        Clear checkpoint after successful completion.
-
-        Args:
-            user_id: Discord user ID
-        """
-        try:
-            await self.redis.hdel(self.CHECKPOINT_KEY, user_id)
-            logger.debug(f"🗑️ OverflowQueue: Cleared checkpoint for user {user_id}")
-        except Exception as e:
-            logger.error(f"❌ OverflowQueue: Failed to clear checkpoint: {e}")
-            # Don't raise - checkpoint cleanup failure shouldn't break processing
-
-    async def get_queue_length(self) -> int:
-        """
-        Get number of pending items in queue.
-
-        Returns:
-            Number of items in queue
-        """
-        try:
-            length = await self.redis.llen(self.QUEUE_KEY)
-            return length
-        except Exception as e:
-            logger.error(f"❌ OverflowQueue: Failed to get queue length: {e}")
-            raise
-
-    async def peek_all(self) -> List[Tuple[str, List[dict]]]:
-        """
-        Peek at all items in queue without removing them.
-
-        Used for debugging/monitoring.
-
-        Returns:
-            List of (user_id, snapshot) tuples
-        """
-        try:
-            items = await self.redis.lrange(self.QUEUE_KEY, 0, -1)
-            result = []
-            for item in items:
-                try:
-                    data = json.loads(item)
-                    result.append((data["user_id"], data["snapshot"]))
-                except json.JSONDecodeError:
-                    continue
-            return result
-        except Exception as e:
-            logger.error(f"❌ OverflowQueue: Failed to peek queue: {e}")
-            raise
+        await self.redis.hdel(self.CHECKPOINT_KEY, user_id)
 
     async def clear_queue(self) -> int:
-        """
-        Clear all items from queue.
+        length = await self.get_queue_length()
+        if length:
+            await self.redis.delete(self.QUEUE_KEY)
+        return length
 
-        Returns:
-            Number of items cleared
-        """
-        try:
-            length = await self.get_queue_length()
-            if length > 0:
-                await self.redis.delete(self.QUEUE_KEY)
-            logger.info(f"🗑️ OverflowQueue: Cleared {length} items from queue")
-            return length
-        except Exception as e:
-            logger.error(f"❌ OverflowQueue: Failed to clear queue: {e}")
-            raise
+    def _checkpoint_payload(self, status: str, data: dict | None = None) -> str:
+        import json
+
+        return json.dumps({"status": status, "data": data or {}}, ensure_ascii=False)

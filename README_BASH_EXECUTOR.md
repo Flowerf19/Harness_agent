@@ -1,5 +1,7 @@
 # Bash Executor — Hướng Dẫn Sử Dụng
 
+> **Dành cho agent (Copilot/LLM)**: Trước khi đề xuất dùng Bash Executor, đọc [.agents/AGENT_RULES.md](.agents/AGENT_RULES.md) và [.agents/README.md](.agents/README.md) để nắm rules bảo mật và boundary.
+
 ## Tổng quan
 
 Bash Executor là service chạy trên host, cho phép **March7 Agent** thực thi lệnh bash trên máy của bạn. Agent có thể kiểm tra nhiệt độ, RAM, disk, quản lý Docker, đọc log, restart service...

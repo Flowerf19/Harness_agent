@@ -6,10 +6,9 @@ from .llm_response import LLMResponse
 
 def __getattr__(name):
     _imports = {
-        "RemoteEmbeddingService": ".remote_embedding_service",
+        "OpenAIEmbeddingService": ".openai_embedding_service",
         "GeminiService": ".gemini_service",
         "OpenAIService": ".openai_service",
-        "QwenService": ".qwen_service",
     }
     if name in _imports:
         import importlib
@@ -20,9 +19,8 @@ def __getattr__(name):
 
 __all__ = [
     "BaseLLMService",
-    "RemoteEmbeddingService",
+    "OpenAIEmbeddingService",
     "GeminiService",
     "LLMResponse",
     "OpenAIService",
-    "QwenService",
 ]

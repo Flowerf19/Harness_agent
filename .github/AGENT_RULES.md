@@ -12,11 +12,11 @@ Quy tắc khi agent làm việc trong repo này.
    - Chỉ dùng khi thật cần thiết.
    - Mọi lệnh phải được user approve (theo thiết kế tool).
    - Tránh lệnh destructive (`rm -rf`, `shutdown`, `mkfs`, `dd`, thay đổi firewall…) trừ khi user yêu cầu rõ.
-   - Tham chiếu: `README_BASH_EXECUTOR.md`.
+   - Tham chiếu: [README_BASH_EXECUTOR.md](../README_BASH_EXECUTOR.md).
 
 3. **Boundary March7 ↔ Evernight (A2A)**
    - Evernight **không đọc trực tiếp** Redis keys của March7 T1 nếu không được thiết kế cho coordination.
-   - Tương tác với March7 memory thông qua A2A (`get_snapshot`, `clear_session`, …) theo mô tả trong `docker/ARCHITECTURE.md`.
+   - Tương tác với March7 memory thông qua A2A (`get_snapshot`, `clear_session`, …) theo mô tả trong [docker/ARCHITECTURE.md](../docker/ARCHITECTURE.md).
 
 ## 2) Reliability / Quality
 
@@ -27,5 +27,5 @@ Quy tắc khi agent làm việc trong repo này.
 
 ## 3) Repo hygiene
 
-- Thay đổi kiến trúc/flow: cập nhật docs tương ứng trong `.agents/`.
+- Thay đổi kiến trúc/flow: cập nhật docs tương ứng trong `.github/`.
 - Thay đổi schema/key của memory: update tests + update `GLOSSARY.md`/`MEMORY.md`.

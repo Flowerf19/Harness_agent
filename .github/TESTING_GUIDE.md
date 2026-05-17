@@ -20,4 +20,4 @@ Repo dùng `pytest` và phân tầng tests.
 - Integration/E2E thường cần:
   - Redis
   - Qdrant
-- Khuyến nghị dùng Docker để provision dễ dàng: xem `docker/README.md`.
+- Khuyến nghị dùng Docker để provision dễ dàng: xem [docker/README.md](../docker/README.md).

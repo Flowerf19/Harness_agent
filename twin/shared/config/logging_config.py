@@ -7,7 +7,6 @@ def setup_logging():
 
     Suppresses verbose INFO logs from:
     - discord.client, discord.gateway (Discord library connection logs)
-    - qdrant_client (Vector DB client logs)
     - redis (Redis client logs)
     - httpx (HTTP client logs)
     """
@@ -20,7 +19,6 @@ def setup_logging():
     third_party_loggers = [
         "discord.client",
         "discord.gateway",
-        "qdrant_client",
         "redis",
         "httpx",
     ]

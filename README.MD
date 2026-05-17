@@ -7,13 +7,13 @@ Bé Bảy là trợ lý AI trên Discord với persona March 7th (Honkai: Star R
 
 - **Trợ lý thông minh**: Hội thoại tự nhiên, nhớ ngữ cảnh, gọi tool (tìm kiếm web, chạy code, quản lý hệ thống)
 - **Self-healing (đang phát triển)**: Background agent (Evernight) giám sát lỗi, tự sửa, notify agent chính — bot tự phục hồi khi gặp vấn đề
-- **Trí nhớ 3 tầng**: Redis (hội thoại) → Qdrant (kiến thức) → Markdown (hồ sơ người dùng)
+- **Trí nhớ 3 tầng**: Redis Stack (T1 + T2 + coordination) → Markdown (hồ sơ người dùng)
 
 ## 🧭 Dành cho maintainer/agent (Copilot/LLM)
 
 Nếu bạn đang dùng agent để làm việc trong repo (đọc kiến trúc, cách chạy, workflow, testing, quy ước code…), hãy bắt đầu ở:
 
-- `.agents/README.md` (index + thứ tự đọc)
+- [`.agents/README.md`](.agents/README.md) (index + thứ tự đọc)
 
 Bộ tài liệu này giúp agent nắm đúng boundary (Bash Executor/A2A), cách chạy Docker/local, và checklist review.
 
@@ -29,7 +29,7 @@ Discord → Gateway → A2A Protocol ──→ March7 (port 8000): Trợ lý h�
 | **March7 (Bay)** | Trợ lý chính — chat, tool calling, quản lý T1/T3 | 8000 |
 | **Evernight** | Background agent — self-healing, giám sát lỗi, consolidation T2 | 8001 |
 
-Hai agent giao tiếp với nhau qua **Google A2A Protocol** (HTTP JSON-RPC + SSE), chia sẻ T2 memory (Qdrant) nhưng độc lập T1/T3.
+Hai agent giao tiếp với nhau qua **Google A2A Protocol** (HTTP JSON-RPC + SSE), chia sẻ T2 memory (Redis Stack) nhưng độc lập T1/T3.
 
 ### Luồng tổng quát
 
@@ -45,7 +45,7 @@ flowchart LR
     end
 
     subgraph T2["T2: Wiki Pages"]
-        Q["Qdrant"]
+        Q["Redis Stack T2 keys + vectors"]
     end
 
     subgraph T3["T3: Core Memory"]
@@ -69,7 +69,7 @@ Evernight là **background agent** chạy liên tục, giám sát và tự sửa
 | **Giám sát lỗi** | Phát hiện lỗi từ March7 agent (tool crash, LLM timeout, rate limit) | 🔄 Đang phát triển |
 | **Tự phục hồi** | Restart tool, retry request, fallback LLM provider | 🔄 Đang phát triển |
 | **Thông báo** | Notify March7 agent khi có sự cố, đề xuất hành động | 🔄 Đang phát triển |
-| **Consolidation** | Tự động tổng hợp hội thoại → Wiki pages trong Qdrant | ✅ Đã hoàn thành |
+| **Consolidation** | Tự động tổng hợp hội thoại → Wiki pages trong Redis Stack | ✅ Đã hoàn thành |
 | **Inactivity trigger** | Sau 30 phút user không chat → trigger consolidation | ✅ Đã hoàn thành |
 
 **Luồng self-healing điển hình**:
@@ -87,16 +87,16 @@ Evernight là **background agent** chạy liên tục, giám sát và tự sửa
 - **Giới hạn**: 2000 tokens (tự động overflow)
 - **Handler**: March7 agent
 
-### T2: Wiki Pages (Qdrant)
+### T2: Topic Pages (Redis Stack)
 - **Mục đích**: Kiến thức tổng hợp về user (sở thích, sự kiện, mối quan hệ)
 - **Upsert pattern**: Same topic = Same page_id = Merge/Update
 - **Embedding**: Qwen3-Embedding-0.6B (1024 dims)
 - **Handler**: Evernight agent (background)
 
-### T3: Core Memory (YAML)
+### T3: Core Memory (Markdown)
 - **Mục đích**: Hồ sơ người dùng (tên, quê quán, mối quan hệ...)
-- **Storage**: `twin/march7/memories/core_memory/users/{user_id}.yaml`
-- **Handler**: March7 agent qua MCP tool
+- **Storage**: `memories/{user_id}.md` (mặc định)
+- **Handler**: March7 agent (qua tool `update_user_profile`)
 
 ---
 
@@ -104,8 +104,8 @@ Evernight là **background agent** chạy liên tục, giám sát và tự sửa
 
 | Tool | Mô tả | Handler |
 |------|-------|---------|
-| `search_memory` | Tìm kiếm Wiki Pages (T2) | Qdrant |
-| `update_user_profile` | Cập nhật T3 profile | YAML |
+| `search_memory` | Tìm kiếm T2 memory | Redis Stack |
+| `update_user_profile` | Cập nhật T3 profile | Markdown |
 | `web_search` | Tavily web search | Tavily API |
 | `run_python_code` | Python sandbox | CodeBox (Docker) |
 | `execute_bash` | Lệnh bash trên host (cần xác nhận) | Bash Executor |
@@ -129,13 +129,13 @@ twin/                            # Twin-Soul Agents
 │   ├── tools/                   # MCP protocol + tool registry + implementations
 │   │   ├── implementations/system/
 │   │   └── implementations/mcp/
-│   └── memories/                # T2 episodic memory (Qdrant + wiki merge)
+│   └── memories/                # T2 episodic memory (Redis Stack + T2 merge)
 │
 ├── march7/                      # March7 Agent — Trợ lý chính
 │   ├── agent.py                 # March7Agent (max 10 iterations, native tool calling)
 │   ├── container.py             # DI container
 │   ├── server/a2a_server.py     # A2A endpoint (port 8000)
-│   ├── memories/                # T1 (Redis) + T3 (YAML) riêng
+│   ├── memories/                # T1 (Redis) + T3 (Markdown) riêng
 │   └── personas/                # Persona files (IDENTITY, SOUL, TOOL...)
 │
 └── evernight/                   # Evernight Agent — Self-healing + Consolidation
@@ -149,7 +149,7 @@ twin/                            # Twin-Soul Agents
 
 docker/                          # Container infrastructure
 ├── docker-compose.yml           # Master compose
-├── shared/                      # Shared base image + Redis/Qdrant/CodeBox/Bash executor compose
+├── shared/                      # Shared base image + Redis Stack/CodeBox/Bash executor compose
 │   ├── Dockerfile.base
 │   ├── Dockerfile.bash-executor
 │   └── docker-compose.*.yml
@@ -227,7 +227,6 @@ QWEN_API_KEY=your_key
 
 # Infrastructure
 REDIS_URL=redis://localhost:6379
-QDRANT_URL=http://localhost:6333
 CODEBOX_API_URL=http://localhost:8069
 
 # Tavily Search

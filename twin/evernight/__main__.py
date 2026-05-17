@@ -69,8 +69,9 @@ async def main():
         await self_heal.start()
         logger.info(f"Self-heal monitor started (interval={config.self_heal_interval}s)")
 
-    # Start inactivity trigger against March7's coordination Redis DB.
+    # Start queue worker and inactivity trigger against March7's coordination Redis.
     trigger = None
+    memory_worker = None
     coordination_storage = None
     try:
         from twin.evernight.memories.activate_memory.storage.redis_storage import create_redis_storage
@@ -87,6 +88,16 @@ async def main():
         logger.exception("Coordination Redis unavailable - inactivity trigger disabled")
 
     if coordination_storage:
+        from twin.shared.memories.t2 import MemoryJobQueue, MemoryWorker
+
+        memory_worker = MemoryWorker(
+            queue=MemoryJobQueue(coordination_storage.redis),
+            evernight_agent=container.agent,
+            march7_memory=march7_memory,
+            poll_interval=2.0,
+        )
+        await memory_worker.start()
+
         trigger = InactivityTrigger(
             redis_client=coordination_storage.redis,
             consolidation_runner=consolidation_runner,
@@ -115,6 +126,8 @@ async def main():
         await self_heal.stop()
     if trigger:
         await trigger.stop()
+    if memory_worker:
+        await memory_worker.stop()
     await consolidation_runner.close()
     if coordination_storage:
         await coordination_storage.close()

@@ -1,6 +1,6 @@
 services:
   redis:
-    image: redis:7-alpine
+    image: redis/redis-stack-server:7.2.0-v18
     container_name: march7-redis
     restart: unless-stopped
     networks:
@@ -9,7 +9,7 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --appendfsync everysec
+    command: redis-stack-server --appendonly yes --appendfsync everysec --save 900 1 --save 300 10 --save 60 10000
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s

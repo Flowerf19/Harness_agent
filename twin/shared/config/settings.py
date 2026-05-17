@@ -11,7 +11,10 @@ class Config:
     SYNC_COMMANDS = os.getenv("SYNC_COMMANDS", "0")
 
     # LLM Provider settings
-    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # 'gemini', 'openai', 'qwen', or 'lms'
+    # Only two providers are supported at runtime:
+    # - gemini: GeminiService (Gemini protocol)
+    # - openai / openai_compat: OpenAIService (OpenAI-compatible /chat/completions)
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")
     OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434")
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:30b-a3b-instruct-2507-q4_K_M")
 
@@ -19,11 +22,6 @@ class Config:
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "dummy-key")
     OPENAI_API_URL = os.getenv("OPENAI_API_URL", "https://api.openai.com/v1")
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", os.getenv("LLM_MODEL", "gpt-4o-mini"))
-
-    # Qwen API settings
-    QWEN_API_KEY = os.getenv("QWEN_API_KEY")
-    QWEN_API_URL = os.getenv("QWEN_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-    QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen-max")
 
     # Typing simulation settings
     ENABLE_TYPING_SIMULATION = os.getenv("ENABLE_TYPING_SIMULATION", "1") == "1"
@@ -47,9 +45,10 @@ class Config:
     LLM_TOP_P = float(os.getenv("LLM_TOP_P", "0.9"))
     LLM_TOP_K = int(os.getenv("LLM_TOP_K", "40"))
 
-    # LM Studio settings
-    LM_STUDIO_API_URL = os.getenv("LM_STUDIO_API_URL", "http://localhost:1234")
-    LM_STUDIO_MODEL = os.getenv("LM_STUDIO_MODEL", "local-model")
+    # LM Studio (or any OpenAI-compatible local server) can be used by setting:
+    #   OPENAI_API_URL=http://localhost:1234/v1
+    #   OPENAI_API_KEY=dummy-key
+    #   OPENAI_MODEL=<your-local-model>
 
     # Logging configuration
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
@@ -63,10 +62,8 @@ class Config:
     REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
     REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 
-    # Qdrant configuration for Wiki Pages (Tier 2) storage
-    QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-    QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
-    # Note: WikiStorage uses hardcoded collection "wiki_pages" (defined in wiki_storage.py)
+    # T2 semantic memory uses the same Redis Stack service as T1/coordination.
+    # Key prefixes separate tiers; logical Redis DB separation is kept only for compatibility.
 
     # Tavily API configuration for Web Search
     TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", None)
@@ -96,8 +93,13 @@ class Config:
     SEARCH_MIN_RELEVANCE = float(os.getenv("SEARCH_MIN_RELEVANCE", "0.3"))
 
     # Embedding model configuration
-    EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "qwen")
+    # Only OpenAI-compatible embeddings are supported (POST /embeddings).
+    # Use EMBEDDING_PROVIDER=openai_compat (or openai) to make this explicit.
+    # Backwards-compat: "qwen" is accepted as an alias for openai_compat.
+    EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "openai_compat")
     EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "text-embedding-v3")
     EMBEDDING_API_URL = os.getenv("EMBEDDING_API_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
+    # Backwards-compatible fallback: if you previously used QWEN_API_KEY for embeddings,
+    # it will still be picked up when EMBEDDING_API_KEY is not set.
     EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY", os.getenv("QWEN_API_KEY"))
     EMBEDDING_VECTOR_SIZE = int(os.getenv("EMBEDDING_VECTOR_SIZE", "1024"))

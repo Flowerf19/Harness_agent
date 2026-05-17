@@ -12,9 +12,7 @@ from twin.shared.llm.base_llm_service import BaseLLMService
 from twin.shared.llm.llm_response import LLMResponse
 from twin.shared.tools.tool_registry import ToolRegistry
 from twin.shared.tools.exceptions import BashExecutorUnavailableError
-from twin.shared.memories.episodic_memory_manager import EpisodicMemoryManager
-from twin.shared.memories.wiki.models.wiki_page import WikiPagePayload, generate_page_id
-from twin.shared.memories.wiki.wiki_merge import WikiMergeService
+from twin.shared.memories.t2 import T2Memory, T2Merge, generate_topic_id
 from twin.shared.a2a.types import AgentCard, A2AMessage, Part, TaskStatus
 from twin.evernight.memories.memory_manager import MemoryManager
 
@@ -55,8 +53,8 @@ class EvernightAgent:
     def __init__(
         self,
         memory_manager: Any = None,
-        episodic_memory: EpisodicMemoryManager = None,
-        wiki_merge: WikiMergeService = None,
+        episodic_memory: T2Memory = None,
+        wiki_merge: T2Merge = None,
         llm_service: BaseLLMService = None,
         tool_registry: Optional[ToolRegistry] = None,
         use_native_tools: bool = True,
@@ -125,13 +123,23 @@ class EvernightAgent:
                     if not canonical_topic:
                         continue
 
-                    page_id = generate_page_id(user_id, canonical_topic)
+                    page_id = generate_topic_id(user_id, canonical_topic)
                     existing_page = await self.episodic.lookup_by_page_id(page_id)
+                    snapshot_text = self._format_snapshot(snapshot)
 
                     if existing_page:
                         merged_page = await self.merge.merge(existing_page, topic_info)
                         if merged_page:
-                            await self.episodic.embed_page(merged_page)
+                            chunk = self.merge.create_chunk(user_id, merged_page, snapshot_text, topic_info)
+                            facts = self.merge.create_facts(
+                                user_id,
+                                merged_page,
+                                topic_info.get("facts") or topic_info.get("key_points", []),
+                                chunk.chunk_id,
+                            )
+                            merged_page.latest_chunk_id = chunk.chunk_id
+                            merged_page.active_fact_ids = list({*merged_page.active_fact_ids, *[f.fact_id for f in facts]})
+                            await self.episodic.upsert_page_with_chunk(merged_page, chunk, facts)
                             success_count += 1
                     else:
                         new_page = self.merge.create_new_page(
@@ -139,7 +147,16 @@ class EvernightAgent:
                             canonical_topic=canonical_topic,
                             new_info=topic_info,
                         )
-                        await self.episodic.embed_page(new_page)
+                        chunk = self.merge.create_chunk(user_id, new_page, snapshot_text, topic_info)
+                        facts = self.merge.create_facts(
+                            user_id,
+                            new_page,
+                            topic_info.get("facts") or topic_info.get("key_points", []),
+                            chunk.chunk_id,
+                        )
+                        new_page.latest_chunk_id = chunk.chunk_id
+                        new_page.active_fact_ids = [f.fact_id for f in facts]
+                        await self.episodic.upsert_page_with_chunk(new_page, chunk, facts)
                         success_count += 1
 
                 except Exception as topic_error:

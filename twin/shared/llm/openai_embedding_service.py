@@ -1,5 +1,5 @@
-"""RemoteEmbeddingService - Gọi embedding qua API (Qwen/OpenAI-compatible)."""
-import asyncio
+"""OpenAIEmbeddingService - Call embeddings via an OpenAI-compatible API."""
+
 import logging
 from typing import List
 
@@ -10,26 +10,26 @@ from twin.shared.config.settings import Config
 logger = logging.getLogger(__name__)
 
 
-class RemoteEmbeddingService:
-    """Trạm nhúng vector từ xa, qua API OpenAI-compatible."""
+class OpenAIEmbeddingService:
+    """Remote embeddings via an OpenAI-compatible API (POST /embeddings)."""
 
     def __init__(
         self,
         model_name: str = "text-embedding-v3",
-        api_key: str = None,
-        api_url: str = None,
+        api_key: str | None = None,
+        api_url: str | None = None,
     ):
         self.model_name = model_name
         self.api_key = api_key or Config.EMBEDDING_API_KEY
         self.api_url = (api_url or Config.EMBEDDING_API_URL).rstrip("/")
-        self._session = None
-        self._cache = {}
+        self._session: aiohttp.ClientSession | None = None
+        self._cache: dict[str, List[float]] = {}
 
     async def initialize(self):
         if not self.api_key:
-            logger.warning("RemoteEmbeddingService: No API key configured")
+            logger.warning("OpenAIEmbeddingService: No API key configured")
 
-    async def _get_session(self):
+    async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None:
             self._session = aiohttp.ClientSession()
         return self._session
@@ -56,7 +56,9 @@ class RemoteEmbeddingService:
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    logger.error(f"Embedding API error ({response.status}): {error_text}")
+                    logger.error(
+                        "Embedding API error (%s): %s", response.status, error_text
+                    )
                     return []
 
                 data = await response.json()
@@ -69,7 +71,7 @@ class RemoteEmbeddingService:
                 return vector
 
         except Exception as e:
-            logger.error(f"RemoteEmbeddingService error: {e}")
+            logger.error("OpenAIEmbeddingService error: %s", e)
             return []
 
     async def close(self):
