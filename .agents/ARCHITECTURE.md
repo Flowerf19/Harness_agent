@@ -11,7 +11,7 @@ Kiến trúc mức cao của dự án March7 (Twin-Soul Agents).
 2) **March7 agent** (`twin/march7/`)
 - Agent hội thoại chính
 - Quản lý:
-  - T1 (Active Memory) trong Redis (DB mặc định: 0)
+  - T1 (Active Memory) trong Redis Stack (DB mặc định: 0), cấu hình bằng `T1_STORAGE_PHASE`
   - T3 (Core Memory) lưu file Markdown (xem `twin/march7/memories/core_memory/storage/markdown_storage.py`)
 - Expose A2A server (default port 8000)
 
@@ -23,7 +23,7 @@ Kiến trúc mức cao của dự án March7 (Twin-Soul Agents).
 - Expose A2A server (default port 8001)
 
 4) **Shared libs** (`twin/shared/`)
-- A2A protocol, LLM services, tools, và T2 wiki memory (Qdrant)
+- A2A protocol, LLM services, tools, và T2 wiki memory (Redis Stack)
 
 ## Luồng chạy (tóm tắt)
 
@@ -33,13 +33,13 @@ Kiến trúc mức cao của dự án March7 (Twin-Soul Agents).
 4. March7 ghi T1 (Redis) và dùng LLM/tools để tạo response
 5. Khi user idle đủ lâu hoặc overflow:
    - Evernight trigger consolidation
-   - Lấy snapshot T1 → tổng hợp thành Wiki pages (T2) → lưu Qdrant
+  - Lấy snapshot T1 → tổng hợp thành Wiki pages (T2) → lưu Redis Stack
    - Dọn T1 (thông qua A2A boundary)
 
 ## Memory tiers
 
-- **T1 (Active Memory)**: Redis; ngữ cảnh phiên hiện tại.
-- **T2 (Episodic / Wiki Pages)**: Qdrant vector DB; tri thức dài hạn; dùng semantic search.
+- **T1 (Active Memory)**: Redis Stack; ngữ cảnh phiên hiện tại. Phase `redis_stack` là path chính; `legacy` chỉ còn là fallback rollback.
+- **T2 (Episodic / Wiki Pages)**: Redis Stack; tri thức dài hạn; dùng semantic search.
 - **T3 (Core Memory / Profile)**: Markdown per user, lưu dưới `memories/` (mặc định) bởi `MarkdownStorage`.
 
 > Lưu ý: docs cũ có thể nhắc YAML; trong branch hiện tại, T3 storage đã là Markdown.

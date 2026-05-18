@@ -4,11 +4,11 @@ Use these repo-specific guidelines when editing code in this workspace.
 
 ## Read-first docs
 
-- High-level architecture: [`.github/ARCHITECTURE.md`](../.github/ARCHITECTURE.md)
-- Agent rules / boundaries: [`.github/AGENT_RULES.md`](../.github/AGENT_RULES.md)
-- How to run: [`.github/PROJECT_CONTEXT.md`](../.github/PROJECT_CONTEXT.md)
-- Task workflow: [`.github/TASK_WORKFLOW.md`](../.github/TASK_WORKFLOW.md)
-- Testing guide: [`.github/TESTING_GUIDE.md`](../.github/TESTING_GUIDE.md)
+- High-level architecture: [`.agents/ARCHITECTURE.md`](./ARCHITECTURE.md)
+- Agent rules / boundaries: [`.agents/AGENT_RULES.md`](./AGENT_RULES.md)
+- How to run: [`.agents/PROJECT_CONTEXT.md`](./PROJECT_CONTEXT.md)
+- Task workflow: [`.agents/TASK_WORKFLOW.md`](./TASK_WORKFLOW.md)
+- Testing guide: [`.agents/TESTING_GUIDE.md`](./TESTING_GUIDE.md)
 - LLM & embeddings config: [`README_LLM_PROVIDERS.md`](../README_LLM_PROVIDERS.md)
 
 ## Architecture constraints
@@ -16,7 +16,7 @@ Use these repo-specific guidelines when editing code in this workspace.
 - Twin agents: **March7** (chat) and **Evernight** (background) communicate via A2A boundary.
 - Memory tiers:
   - T1 Active Memory: Redis
-  - T2 Episodic/Wiki: Qdrant
+  - T2 Episodic/Wiki: Redis Stack
   - T3 Core/Profile: Markdown files
 
 ## LLM services (keep it lean)
@@ -36,4 +36,4 @@ Use these repo-specific guidelines when editing code in this workspace.
 - After completing a change (feature/refactor/behavior change), update docs as needed:
   - Project-level README: [`README.MD`](../README.MD)
   - Relevant project docs (e.g. provider/config docs): [`README_LLM_PROVIDERS.md`](../README_LLM_PROVIDERS.md)
-  - Copilot instructions: [`.github/copilot-instructions.md`](../.github/copilot-instructions.md)
+  - Copilot instructions: [`.agents/copilot-instructions.md`](./copilot-instructions.md)

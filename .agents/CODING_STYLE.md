@@ -10,7 +10,7 @@ Tài liệu này mô tả conventions khi chỉnh sửa code trong repo.
 
 ## Async conventions
 
-- I/O (HTTP/Discord/Redis/Qdrant) ưu tiên async.
+- I/O (HTTP/Discord/Redis) ưu tiên async.
 - Mọi call ra ngoài cần có **timeout**.
 - Khi có background tasks: xử lý cancellation và shutdown cleanly.
 
@@ -28,7 +28,7 @@ Tài liệu này mô tả conventions khi chỉnh sửa code trong repo.
 
 ## Error handling / retries
 
-- External services có thể fail: Discord, LLM providers, Redis, Qdrant.
+- External services có thể fail: Discord, LLM providers, Redis.
 - Với lỗi transient: cân nhắc retry có backoff.
 - Với lỗi cấu hình: fail fast + log actionable message.
 

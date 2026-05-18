@@ -33,7 +33,7 @@
 ### Architecture
 
 - [ ] Không phá boundary March7 ↔ Evernight
-- [ ] Memory tiers vẫn đúng (T1 Redis, T2 Qdrant, T3 Markdown)
+- [ ] Memory tiers vẫn đúng (T1 Redis, T2 Redis Stack, T3 Markdown)
 
 ### Tests
 
@@ -42,4 +42,4 @@
 
 ### Docs
 
-- [ ] `.github/*` cập nhật nếu thay đổi facts/workflow
+- [ ] `.agents/*` cập nhật nếu thay đổi facts/workflow

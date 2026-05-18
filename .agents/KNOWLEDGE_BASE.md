@@ -32,7 +32,7 @@ Tài liệu gộp: **MEMORY.md** (facts đã verify) + **GLOSSARY.md** (thuật 
 ### Docker master compose
 
 - File: [docker/docker-compose.yml](../docker/docker-compose.yml)
-- Includes shared infra: redis/qdrant/codebox/bash-executor + agent services.
+- Includes shared infra: redis/codebox/bash-executor + agent services.
 
 ## Glossary
 
@@ -44,7 +44,7 @@ Tài liệu gộp: **MEMORY.md** (facts đã verify) + **GLOSSARY.md** (thuật 
 ### Memory tiers
 
 - **T1 (Active Memory)**: ngữ cảnh ngắn hạn; Redis.
-- **T2 (Wiki Pages / Episodic Memory)**: tri thức dài hạn; Qdrant vector DB.
+- **T2 (Wiki Pages / Episodic Memory)**: tri thức dài hạn; Redis Stack.
 - **T3 (Core Memory)**: hồ sơ user; Markdown files.
 
 ### Consolidation

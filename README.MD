@@ -1,15 +1,16 @@
-/home/flowerf/Projects/march7/src
-# Bé Bảy — AI Assistant với Self-Healing
+# Bé Bảy (March7) — Twin-Soul AI Assistant for Discord
 
-Bé Bảy là trợ lý AI trên Discord với persona March 7th (Honkai: Star Rail). Kiến trúc **Twin-Soul Agent** — hai agent độc lập giao tiếp qua A2A protocol, với cơ chế **self-healing** do background agent xử lý tự động.
+Bé Bảy là trợ lý AI trên Discord với kiến trúc **Twin-Soul Agents**: `march7` (chat chính) và `evernight` (background consolidation + self-heal), giao tiếp qua A2A.
 
-## ⚡ Định hướng
+## Tính năng chính
 
-- **Trợ lý thông minh**: Hội thoại tự nhiên, nhớ ngữ cảnh, gọi tool (tìm kiếm web, chạy code, quản lý hệ thống)
-- **Self-healing (đang phát triển)**: Background agent (Evernight) giám sát lỗi, tự sửa, notify agent chính — bot tự phục hồi khi gặp vấn đề
-- **Trí nhớ 3 tầng**: Redis Stack (T1 + T2 + coordination) → Markdown (hồ sơ người dùng)
+- **Discord AI assistant**: hội thoại tự nhiên + tool calling.
+- **Twin-Soul runtime**: tách chat runtime (`march7`) và background runtime (`evernight`).
+- **Memory 3 tầng**: T1 Redis Stack, T2 Redis Stack, T3 Markdown profile.
+- **Background consolidation**: tự động tổng hợp hội thoại khi inactivity/overflow.
+- **Self-heal loop**: có sẵn khung, đang tiếp tục phát triển.
 
-## 🧭 Dành cho maintainer/agent (Copilot/LLM)
+## Dành cho maintainer/agent
 
 Nếu bạn đang dùng agent để làm việc trong repo (đọc kiến trúc, cách chạy, workflow, testing, quy ước code…), hãy bắt đầu ở:
 
@@ -17,166 +18,57 @@ Nếu bạn đang dùng agent để làm việc trong repo (đọc kiến trúc,
 
 Bộ tài liệu này giúp agent nắm đúng boundary (Bash Executor/A2A), cách chạy Docker/local, và checklist review.
 
-## 🏗️ Kiến trúc Twin-Soul Agent
+## Kiến trúc tổng quan
 
-```
-Discord → Gateway → A2A Protocol ──→ March7 (port 8000): Trợ lý hội thoại
-                                  └─→ Evernight (port 8001): Self-healing + Consolidation
+```text
+Discord -> Gateway -> March7 (A2A :8000)
+                    -> Evernight (A2A :8001)
+March7 <-> Evernight qua A2A boundary
 ```
 
 | Agent | Vai trò | Port |
 |-------|---------|------|
-| **March7 (Bay)** | Trợ lý chính — chat, tool calling, quản lý T1/T3 | 8000 |
+| **March7** | Trợ lý chính — chat, tool calling, quản lý T1/T3 | 8000 |
 | **Evernight** | Background agent — self-healing, giám sát lỗi, consolidation T2 | 8001 |
 
-Hai agent giao tiếp với nhau qua **Google A2A Protocol** (HTTP JSON-RPC + SSE), chia sẻ T2 memory (Redis Stack) nhưng độc lập T1/T3.
+Hai agent giao tiếp qua A2A (HTTP JSON-RPC + SSE). Evernight phải truy cập memory của March7 qua boundary A2A (`get_snapshot`, `clear_session`), không đọc trực tiếp T1 keys của March7.
 
 ### Luồng tổng quát
 
 ```mermaid
 flowchart LR
-    User["👤 User"] -->|"Discord"| GW["Gateway"]
-    GW -->|"A2A"| M7["March7 Agent<br/>Trợ lý chính"]
-    GW -.->|"A2A"| EV["Evernight Agent<br/>Self-Healing"]
-    M7 <-->|"A2A"| EV
-
-    subgraph T1["T1: Active Memory"]
-        R["Redis"]
-    end
-
-    subgraph T2["T2: Wiki Pages"]
-        Q["Redis Stack T2 keys + vectors"]
-    end
-
-    subgraph T3["T3: Core Memory"]
-        Y["Markdown"]
-    end
-
-    M7 --> T1
-    M7 --> T3
-    EV --> T2
-    M7 <--> T2
+    U[User] --> D[Discord]
+    D --> G[Gateway]
+    G --> M[March7]
+    M <--> E[Evernight]
+    M --> R[(Redis T1)]
+    E --> Q[(Redis Stack T2)]
+    M --> T[(Markdown T3)]
 ```
 
 ---
 
-## 🩹 Cơ chế Self-Healing (Đang phát triển)
+## Cấu trúc thư mục chính
 
-Evernight là **background agent** chạy liên tục, giám sát và tự sửa lỗi:
+- `gateway/`: adapter + router cho platform (Discord).
+- `twin/march7/`: agent hội thoại chính.
+- `twin/evernight/`: background agent (consolidation, self-heal).
+- `twin/shared/`: A2A, LLM adapters, memories/tools dùng chung.
+- `docker/`: compose + Dockerfiles cho toàn hệ thống.
+- `tests/`: unit/integration/e2e/manual tests.
 
-| Cơ chế | Mô tả | Trạng thái |
-|---------|-------|------------|
-| **Giám sát lỗi** | Phát hiện lỗi từ March7 agent (tool crash, LLM timeout, rate limit) | 🔄 Đang phát triển |
-| **Tự phục hồi** | Restart tool, retry request, fallback LLM provider | 🔄 Đang phát triển |
-| **Thông báo** | Notify March7 agent khi có sự cố, đề xuất hành động | 🔄 Đang phát triển |
-| **Consolidation** | Tự động tổng hợp hội thoại → Wiki pages trong Redis Stack | ✅ Đã hoàn thành |
-| **Inactivity trigger** | Sau 30 phút user không chat → trigger consolidation | ✅ Đã hoàn thành |
+## Prerequisites
 
-**Luồng self-healing điển hình**:
-1. Evernight poll Redis mỗi 60s, phát hiện lỗi trong log của March7
-2. Evernight phân tích lỗi (tool crash? timeout? rate limit?)
-3. Tự động thực thi hành động phục hồi (retry với provider khác, clear cache...)
-4. Gửi status update cho March7 agent qua A2A
-
----
-
-## 🧠 Hệ thống Trí nhớ 3 Tầng
-
-### T1: Active Memory (Redis)
-- **Mục đích**: Lưu hội thoại hiện tại
-- **Giới hạn**: 2000 tokens (tự động overflow)
-- **Handler**: March7 agent
-
-### T2: Topic Pages (Redis Stack)
-- **Mục đích**: Kiến thức tổng hợp về user (sở thích, sự kiện, mối quan hệ)
-- **Upsert pattern**: Same topic = Same page_id = Merge/Update
-- **Embedding**: Qwen3-Embedding-0.6B (1024 dims)
-- **Handler**: Evernight agent (background)
-
-### T3: Core Memory (Markdown)
-- **Mục đích**: Hồ sơ người dùng (tên, quê quán, mối quan hệ...)
-- **Storage**: `memories/{user_id}.md` (mặc định)
-- **Handler**: March7 agent (qua tool `update_user_profile`)
-
----
-
-## 🤖 MCP Tools
-
-| Tool | Mô tả | Handler |
-|------|-------|---------|
-| `search_memory` | Tìm kiếm T2 memory | Redis Stack |
-| `update_user_profile` | Cập nhật T3 profile | Markdown |
-| `web_search` | Tavily web search | Tavily API |
-| `run_python_code` | Python sandbox | CodeBox (Docker) |
-| `execute_bash` | Lệnh bash trên host (cần xác nhận) | Bash Executor |
-
----
-
-## 📁 Cấu trúc Dự án
-
-```text
-gateway/                         # Gateway Orchestrator (entry point: python -m gateway)
-├── gateway.py                   # ChatGateway — quản lý adapter, routing, reconnect
-├── config.py                    # Gateway config
-├── shared/                      # UnifiedMessage, Adapter ABC
-└── adapters/
-    └── discord/                 # Discord adapter (cogs, converter, handler, agent_router)
-
-twin/                            # Twin-Soul Agents
-├── shared/                      # Shared package (dùng chung)
-│   ├── a2a/                     # A2A protocol (server, client, types)
-│   ├── llm/                     # LLM providers (Gemini, Qwen, LM Studio)
-│   ├── tools/                   # MCP protocol + tool registry + implementations
-│   │   ├── implementations/system/
-│   │   └── implementations/mcp/
-│   └── memories/                # T2 episodic memory (Redis Stack)
-│
-├── march7/                      # March7 Agent — Trợ lý chính
-│   ├── agent.py                 # March7Agent (max 10 iterations, native tool calling)
-│   ├── container.py             # DI container
-│   ├── server/a2a_server.py     # A2A endpoint (port 8000)
-│   ├── memories/                # T1 (Redis) + T3 (Markdown) riêng
-│   └── personas/                # Persona files (IDENTITY, SOUL, TOOL...)
-│
-└── evernight/                   # Evernight Agent — Self-healing + Consolidation
-    ├── agent.py                 # EvernightAgent (consolidation + chat capability)
-    ├── container.py             # DI container
-    ├── server/a2a_server.py     # A2A endpoint (port 8001)
-    ├── triggers/                # Inactivity trigger (poll Redis mỗi 60s)
-    ├── memories/                # T1 + T3 riêng
-    └── personas/                # Evernight persona
-
-docker/                          # Container infrastructure
-├── docker-compose.yml           # Master compose
-├── shared/                      # Shared base image + Redis Stack/CodeBox/Bash executor compose
-│   ├── Dockerfile.base
-│   ├── Dockerfile.bash-executor
-│   └── docker-compose.*.yml
-├── march7/                      # March7-owned Docker image + compose
-│   ├── Dockerfile
-│   └── docker-compose.yml
-└── evernight/                   # Evernight-owned Docker image + compose
-    ├── Dockerfile
-    └── docker-compose.yml
-
-memories/                        # Legacy persona files (đang migrate → twin/march7/personas)
-scripts/                         # Host scripts (bash executor setup)
-tests/                           # Test suite (unit, integration, e2e, manual)
-data/                            # Runtime data (bot_channels.json)
-```
-
----
-
-## 🚀 Quick Start
-
-### Yêu cầu
-
-- Python 3.11+
+- Python `3.11+`
 - Docker + Docker Compose v2
-- Discord Bot Token
-- API key cho LLM provider (Gemini/Qwen)
+- Discord bot token(s)
+- API key cho LLM provider
 
-### 1. Docker (Recommended)
+## Quick start
+
+---
+
+### 1) Docker (khuyến nghị)
 
 ```bash
 cd docker
@@ -186,87 +78,68 @@ docker compose up -d
 docker compose logs -f
 ```
 
-### 2. Local Development
+### 2) Local Python
 
 ```bash
-# Cài dependencies
 pip install -r requirements.txt
-
-# Chạy gateway (entry point chính)
 python -m gateway
-
-# Hoặc chạy riêng từng agent
-python -m twin.march7     # March7 agent (port 8000)
-python -m twin.evernight   # Evernight agent (port 8001)
-```
-
-### 3. Environment Variables
-
-```bash
-cp .env.example .env
-```
-
-```env
-# Discord
-DISCORD_MARCH7_TOKEN=your_march7_token
-DISCORD_MARCH7_CLIENT_ID=your_march7_client_id
-DISCORD_EVERNIGHT_TOKEN=your_evernight_token
-
-# LLM
-LLM_PROVIDER=qwen
-LLM_MODEL=qwen3.6-max-preview
-LLM_MAX_TOKENS=2000
-QWEN_API_KEY=your_key
-
-# OpenAI-compatible providers, including 9Router
-# LLM_PROVIDER=openai
-# OPENAI_API_KEY=dummy-key
-# OPENAI_API_URL=http://localhost:20128/v1
-# OPENAI_MODEL=your_9router_model_or_alias
-
-# Infrastructure
-REDIS_URL=redis://localhost:6379
-CODEBOX_API_URL=http://localhost:8069
-
-# Tavily Search
-TAVILY_API_KEY=your_key
-
-# Bash Executor (optional)
-BASH_EXECUTOR_URL=http://localhost:8374
+# hoặc chạy từng agent:
+python -m twin.march7
+python -m twin.evernight
 ```
 
 ---
 
-## 🧪 Testing
+> [!TIP]
+> Health endpoints kỳ vọng:
+> - `http://localhost:8000/.well-known/agent.json`
+> - `http://localhost:8001/.well-known/agent.json`
+
+## Cấu hình
+
+---
+
+Các nhóm biến chính (chi tiết ở `.agents/PROJECT_CONTEXT.md`):
+
+- Shared: `REDIS_URL`, `CODEBOX_API_URL`, `BASH_EXECUTOR_URL`, `T1_STORAGE_PHASE`
+- March7: `MARCH7_A2A_PORT`, `MARCH7_REDIS_DB`, `MARCH7_PERSONA_PATH`
+- Evernight: `EVERNIGHT_A2A_PORT`, `EVERNIGHT_REDIS_DB`, `INACTIVITY_SECONDS`, `SELF_HEAL_ENABLED`
+- Discord/Gateway: `DISCORD_MARCH7_TOKEN`, `DISCORD_EVERNIGHT_TOKEN`, `GATEWAY_ENABLED_PLATFORMS`
+
+`T1_STORAGE_PHASE` chọn storage T1:
+
+- `redis_stack`: chỉ dùng Redis Stack cho T1.
+- `legacy`: fallback Redis HASH cũ nếu cần rollback.
+
+T1 chat context dùng recent-window theo token budget:
+
+- `T1_CONTEXT_MAX_TOKENS`: số token T1 tối đa đưa vào prompt chat.
+- `T1_CONTEXT_MAX_MESSAGES`: hard cap số message gần nhất.
+
+LLM/embeddings: xem `README_LLM_PROVIDERS.md`.
+
+## Development & testing
 
 ```bash
-# Unit tests
 pytest tests/unit/ -v
-
-# Integration tests
 pytest tests/integration/ -v
-
-# E2E tests
 pytest tests/e2e/ -v
-
-# Manual tests (cần services đang chạy)
-python tests/manual/check_services.py
 ```
 
----
+## Tài liệu liên quan
 
-## 📝 Bot Identity
+- `.agents/ARCHITECTURE.md`
+- `.agents/PROJECT_CONTEXT.md`
+- `.agents/AGENT_RULES.md`
+- `README_LLM_PROVIDERS.md`
+- `README_BASH_EXECUTOR.md`
+- `docker/README.md`
 
-**Persona:** March 7th (Bé Bảy) — Honkai: Star Rail
+## Troubleshooting nhanh
 
-- Phong cách: Gen-Z Việt Nam, vui vẻ, lạc quan
-- Tự xưng: "tui", "Bé Bảy"
-- Icon: `:)))`, `:v`, `:3`, `^^`
+> [!WARNING]
+> Bash Executor là tool đặc quyền. Chỉ bật khi cần và luôn giữ luồng approve theo `README_BASH_EXECUTOR.md`.
 
-Persona files: `twin/march7/personas/` và `twin/evernight/personas/`
-
----
-
-## 📄 License
-
-MIT
+- Kiểm tra trạng thái containers: `docker compose -f docker/docker-compose.yml ps`
+- Xem logs: `docker compose -f docker/docker-compose.yml logs -f march7 evernight`
+- Kiểm tra A2A health endpoints ở cổng `8000` và `8001`

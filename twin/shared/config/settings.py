@@ -61,6 +61,12 @@ class Config:
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
     REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
     REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+    # T1 storage phases:
+    # - redis_stack: Redis Stack storage for T1
+    # - legacy: Redis HASH storage fallback
+    T1_STORAGE_PHASE = os.getenv("T1_STORAGE_PHASE", "redis_stack").lower()
+    T1_CONTEXT_MAX_TOKENS = int(os.getenv("T1_CONTEXT_MAX_TOKENS", "1800"))
+    T1_CONTEXT_MAX_MESSAGES = int(os.getenv("T1_CONTEXT_MAX_MESSAGES", "32"))
 
     # T2 semantic memory uses the same Redis Stack service as T1/coordination.
     # Key prefixes separate tiers; logical Redis DB separation is kept only for compatibility.

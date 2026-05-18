@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 from typing import Dict, List, Optional, Union
 
 import aiohttp
@@ -75,7 +74,10 @@ class OpenAIService(BaseLLMService):
                     self.logger.error("OpenAI-compatible API error: %s", error_text)
                     return "Error generating response."
 
-                response_data = await response.json()
+                # Some OpenAI-compatible gateways return valid JSON without
+                # a proper JSON content-type header. Keep parsing tolerant so
+                # existing providers continue to work unchanged.
+                response_data = await response.json(content_type=None)
                 usage = response_data.get("usage", {})
                 input_tokens = usage.get("prompt_tokens", 0)
                 output_tokens = usage.get("completion_tokens", 0)

@@ -17,6 +17,16 @@ from twin.shared.a2a.types import (
 
 logger = logging.getLogger(__name__)
 
+
+class _HealthCheckFilter(logging.Filter):
+    """Suppress access-log noise from healthcheck / agent-card polling."""
+
+    _QUIET_PATHS = frozenset(["/.well-known/agent.json"])
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(p in msg for p in self._QUIET_PATHS)
+
 TaskHandler = Callable[[dict], AsyncIterator[A2AMessage]]
 
 
@@ -47,6 +57,8 @@ class A2AServer:
 
     async def start(self):
         self._app = self.build_app()
+        access_logger = logging.getLogger("aiohttp.access")
+        access_logger.addFilter(_HealthCheckFilter())
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
         site = web.TCPSite(self._runner, self.host, self.port)

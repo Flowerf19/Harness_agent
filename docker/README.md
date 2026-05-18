@@ -2,6 +2,14 @@
 
 > **Dành cho agent (Copilot/LLM)**: Trước khi làm việc với Docker, đọc [.agents/README.md](../.agents/README.md) để nắm kiến trúc, boundary, và workflow.
 
+## Mục tiêu
+
+Docker Compose là runtime chính cho kiến trúc Twin-Soul của dự án:
+
+- `march7`: chat runtime + gateway + A2A `:8000`
+- `evernight`: background runtime + consolidation/self-heal + A2A `:8001`
+- shared infra: Redis, Codebox, Bash Executor
+
 ## Structure
 
 ```
@@ -13,7 +21,7 @@ docker/
 │   ├── Dockerfile.bash-executor
 │   ├── docker-compose.base.yml
 │   ├── docker-compose.redis.yml
-│   ├── │   ├── docker-compose.codebox.yml
+│   ├── docker-compose.codebox.yml
 │   ├── docker-compose.bash-executor.yml
 │   ├── bash-executor.service
 │   └── bash-executor-starter.service
@@ -27,7 +35,8 @@ docker/
 ├── README.md                    # This file
 │
 └── volumes/                     # Persistent data (bind mounts)
-    ├── redis_data/              # Redis AOF/RDB — T1, T2, coordination, queue    └── hf_cache/                # HuggingFace embedding models
+    ├── redis_data/              # Redis AOF/RDB — T1 + coordination
+    └── hf_cache/                # HuggingFace embedding models
 ```
 
 ## Architecture
@@ -43,7 +52,10 @@ docker/
 | `march7` | `march7` | `march7-agent` | 8000 | Gateway + March7 Discord bot + March7 A2A |
 | `evernight` | `evernight` | `evernight-agent` | 8001 | Evernight Discord bot + consolidation + self-healing |
 
-Xem [ARCHITECTURE.md](ARCHITECTURE.md) để biết ranh giới service nào là private và service nào dùng chung.
+Xem [ARCHITECTURE.md](ARCHITECTURE.md) để biết boundary private/shared chi tiết.
+
+> [!WARNING]
+> Evernight không đọc trực tiếp T1 keys của March7; truy cập memory qua A2A boundary (`get_snapshot`, `clear_session`).
 
 ### Current Build
 
@@ -67,6 +79,11 @@ docker compose up -d
 docker compose logs -f
 ```
 
+Health endpoints sau khi chạy:
+
+- `http://localhost:8000/.well-known/agent.json`
+- `http://localhost:8001/.well-known/agent.json`
+
 ### From project root
 
 ```bash
@@ -78,7 +95,8 @@ docker compose -f docker/docker-compose.yml logs -f
 
 ```bash
 # Chỉ start infrastructure
-docker compose -f docker/shared/docker-compose.redis.yml \               -f docker/shared/docker-compose.codebox.yml up -d
+docker compose -f docker/shared/docker-compose.redis.yml \
+    -f docker/shared/docker-compose.codebox.yml up -d
 
 # Start riêng agents
 docker compose -f docker/docker-compose.yml up -d march7 evernight
@@ -93,7 +111,8 @@ Tất cả dữ liệu lưu trong `docker/volumes/` qua bind mounts:
 
 | Directory | Purpose | Storage |
 |-----------|---------|---------|
-| `redis_data/` | T1 Active Memory | Redis AOF (append-only file) || `hf_cache/` | Embedding models | HuggingFace cache (~500MB) |
+| `redis_data/` | T1 + coordination | Redis AOF/RDB |
+| `hf_cache/` | Embedding models | HuggingFace cache |
 
 ## Commands Reference
 
@@ -148,12 +167,29 @@ DISCORD_EVERNIGHT_TOKEN=your_evernight_bot_token
 GATEWAY_ENABLED_PLATFORMS=discord
 DISCORD_GATEWAY_ENABLED=true
 
-# LLM
-LLM_PROVIDER=qwen
-LLM_MODEL=qwen3.6-max-preview
-TOOL_LLM_ENDPOINT=http://host.docker.internal:1234/v1
+# LLM chat
+LLM_PROVIDER=openai_compat
+OPENAI_API_URL=http://host.docker.internal:1234/v1
+OPENAI_API_KEY=dummy-key
+OPENAI_MODEL=your-model
+
+# Embeddings
+EMBEDDING_PROVIDER=openai_compat
+EMBEDDING_API_URL=http://host.docker.internal:1234/v1
+EMBEDDING_API_KEY=dummy-key
+EMBEDDING_MODEL_NAME=your-embedding-model
 
 # Infrastructure (internal Docker network)
 REDIS_URL=redis://redis:6379
 CODEBOX_API_URL=http://codebox:8069
 ```
+
+## T1 Redis Stack knobs
+
+`march7` chọn storage T1 qua biến môi trường `T1_STORAGE_PHASE`:
+
+- `redis_stack`: dùng Redis Stack cho T1.
+- `legacy`: fallback Redis HASH cũ nếu cần rollback.
+
+> [!TIP]
+> Chi tiết provider và mapping endpoint xem `README_LLM_PROVIDERS.md`.

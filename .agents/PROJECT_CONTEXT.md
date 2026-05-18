@@ -14,7 +14,6 @@ Repo có cấu trúc Docker rõ ràng trong [docker/](../docker/).
 Các service chính (tổng hợp từ `docker/README.md`):
 
 - `redis` (T1 + coordination)
-- `qdrant` (T2 Wiki Pages)
 - `codebox` (sandbox chạy code Python)
 - `bash-executor` (host command execution, có approval)
 - `march7` (Gateway + March7 Discord bot + March7 A2A)
@@ -24,7 +23,6 @@ Ports thường gặp:
 
 - March7 A2A: `8000`
 - Evernight A2A: `8001`
-- Qdrant: `6333`
 - Codebox: `8069`
 - Bash Executor: `8374`
 
@@ -43,7 +41,7 @@ Khi không cần Docker, có thể chạy local:
 
 Dependencies: `requirements.txt`.
 
-Lưu ý: integration/e2e thường vẫn cần Redis/Qdrant chạy (local hoặc docker).
+Lưu ý: integration/e2e thường vẫn cần Redis chạy (local hoặc docker).
 
 ### 3) Conda env `discord_bot` (test-only)
 
@@ -59,9 +57,10 @@ Nguồn tham chiếu chính: [gateway/config.py](../gateway/config.py), [twin/ma
 ### Shared (hạ tầng/LLM)
 
 - `REDIS_URL`
-- `QDRANT_URL`
 - `CODEBOX_API_URL`
 - `BASH_EXECUTOR_URL`
+- `T1_STORAGE_PHASE` (`redis_stack` | `legacy`)
+- `T1_CONTEXT_MAX_TOKENS` / `T1_CONTEXT_MAX_MESSAGES`
 - `LLM_PROVIDER` / các biến liên quan provider (Qwen/OpenAI/Gemini…)
 
 ### March7

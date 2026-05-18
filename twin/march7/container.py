@@ -23,6 +23,7 @@ from twin.march7.memories.activate_memory.management.smart_cleanup import SmartC
 from twin.march7.memories.activate_memory.management.token_counter import TokenCounter
 from twin.march7.memories.activate_memory.storage.ram_storage import LocalMemoryDB
 from twin.march7.memories.activate_memory.storage.redis_storage import create_redis_storage
+from twin.march7.memories.activate_memory.storage.redis_stack_storage import RedisStackStorage
 from twin.march7.memories.activate_memory.storage.base_storage import BaseStorage
 from twin.march7.memories.core_memory.core_manager import CoreManager
 from twin.march7.memories.core_memory import MarkdownStorage
@@ -186,6 +187,17 @@ class March7Container:
             if await storage.health_check():
                 self.redis_storage = storage
                 self.redis_client = storage.redis
+                phase = getattr(Config, "T1_STORAGE_PHASE", "legacy")
+                if phase == "redis_stack":
+                    stack_storage = RedisStackStorage(self.redis_client)
+                    try:
+                        await stack_storage.initialize()
+                    except Exception as e:
+                        logger.warning("T1 Redis Stack init failed, fallback legacy: %s", e)
+                        return storage
+
+                    logger.info("T1 Redis Stack phase=redis_stack (read=redis_stack, write=redis_stack)")
+                    return stack_storage
                 return storage
             else:
                 await storage.close()

@@ -8,6 +8,9 @@ Bash Executor là service chạy trên host, cho phép **March7 Agent** thực t
 
 **Mỗi lần agent muốn chạy lệnh, bạn sẽ nhận được popup xác nhận trên Discord.**
 
+> [!WARNING]
+> Đây là thành phần đặc quyền (privileged). Chỉ bật khi thực sự cần và luôn giữ luồng xác nhận thủ công.
+
 ---
 
 ## ⚠️ CẢNH BÁO BẢO MẬT - ĐỌC KỸ TRƯỚC KHI CÀI
@@ -43,10 +46,10 @@ Bash Executor là service chạy trên host, cho phép **March7 Agent** thực t
 
 ```bash
 cd /path/to/march7
-./scripts/setup_bash_executor.sh
+python scripts/bash_executor_starter.py --help
 ```
 
-Script sẽ kiểm tra Python, cài aiohttp, tạo file `.env.bash_executor`.
+Nếu bạn dùng luồng cũ, có thể vẫn chạy script setup/start theo môi trường nội bộ của bạn.
 
 ### Bước 2: Cấu hình
 
@@ -63,7 +66,7 @@ BASH_EXECUTOR_MAX_TIMEOUT=120
 **Cách A - Chạy tay (để test):**
 
 ```bash
-./scripts/start_bash_executor.sh
+python scripts/bash_executor_standalone.py
 ```
 
 **Cách B - systemd (recommended):**
@@ -108,6 +111,9 @@ curl -H 'Origin: evil.com' \
   -d '{"command": "whoami"}'
 # → 403 Forbidden
 ```
+
+> [!TIP]
+> Nếu chạy trong Docker stack của dự án, kiểm tra thêm logs container `bash-executor` bằng `docker compose -f docker/docker-compose.yml logs -f bash-executor`.
 
 ### Test với agent
 
