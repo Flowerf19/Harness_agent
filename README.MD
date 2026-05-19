@@ -6,7 +6,7 @@ Bé Bảy là trợ lý AI trên Discord với kiến trúc **Twin-Soul Agents**
 
 - **Discord AI assistant**: hội thoại tự nhiên + tool calling.
 - **Twin-Soul runtime**: tách chat runtime (`march7`) và background runtime (`evernight`).
-- **Memory 3 tầng**: T1 Redis Stack, T2 Redis Stack, T3 Markdown profile.
+- **Memory 3 tầng**: T1 Redis-backed active memory, T2 Redis Stack semantic/vector memory, T3 Markdown profile.
 - **Background consolidation**: tự động tổng hợp hội thoại khi inactivity/overflow.
 - **Self-heal loop**: có sẵn khung, đang tiếp tục phát triển.
 
@@ -41,7 +41,7 @@ flowchart LR
     D --> G[Gateway]
     G --> M[March7]
     M <--> E[Evernight]
-    M --> R[(Redis T1)]
+    M --> R[(Redis-backed T1)]
     E --> Q[(Redis Stack T2)]
     M --> T[(Markdown T3)]
 ```
@@ -108,8 +108,11 @@ Các nhóm biến chính (chi tiết ở `.agents/PROJECT_CONTEXT.md`):
 
 `T1_STORAGE_PHASE` chọn storage T1:
 
-- `redis_stack`: chỉ dùng Redis Stack cho T1.
-- `legacy`: fallback Redis HASH cũ nếu cần rollback.
+- `legacy`: Redis basic/HASH path, hiện là path ổn định cho T1.
+- `redis_stack`: Redis Stack JSON/Search adapter, dùng thử nghiệm hoặc cutover sau khi parity test ổn.
+
+> [!NOTE]
+> Runtime Redis trong Docker dùng `redis/redis-stack-server`, nên cùng một Redis Stack service có thể phục vụ cả T1 và T2. T1 không bắt buộc dùng JSON/Search; T2 mới là tầng semantic/vector cần Redis Stack features.
 
 T1 chat context dùng recent-window theo token budget:
 
