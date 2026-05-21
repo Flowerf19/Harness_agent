@@ -11,9 +11,6 @@ verified commands. Use CodeGraph for structural code questions.
    verified gotchas.
 3. [TESTING_GUIDE.md](TESTING_GUIDE.md) - test layout and verification commands.
 
-Read [plans/](plans/) only when the task names a specific plan or asks about
-active planning history.
-
 ## CodeGraph Usage
 
 Prefer CodeGraph over broad file reads for structural questions:

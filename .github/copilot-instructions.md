@@ -14,8 +14,7 @@ only when the task requires them.
 - Read [`.agents/TESTING_GUIDE.md`](../.agents/TESTING_GUIDE.md) before
   verification.
 
-Do not read every `.agents/*` file by default. Read `plans/` only when the user
-asks about a specific plan or the current task references one.
+Do not read every `.agents/*` file by default.
 
 ## CodeGraph Policy
 
