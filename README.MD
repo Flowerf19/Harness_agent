@@ -14,7 +14,7 @@ Bé Bảy là trợ lý AI trên Discord với kiến trúc **Twin-Soul Agents**
 
 Nếu bạn đang dùng agent để làm việc trong repo (đọc kiến trúc, cách chạy, workflow, testing, quy ước code…), hãy bắt đầu ở:
 
-- [`.agents/README.md`](.agents/README.md) (index + thứ tự đọc)
+- [`.agents/README.md`](.agents/README.md) (index + CodeGraph policy)
 
 Bộ tài liệu này giúp agent nắm đúng boundary (Bash Executor/A2A), cách chạy Docker/local, và checklist review.
 
@@ -131,9 +131,9 @@ pytest tests/e2e/ -v
 
 ## Tài liệu liên quan
 
-- `.agents/ARCHITECTURE.md`
 - `.agents/PROJECT_CONTEXT.md`
 - `.agents/AGENT_RULES.md`
+- `.agents/TESTING_GUIDE.md`
 - `README_LLM_PROVIDERS.md`
 - `README_BASH_EXECUTOR.md`
 - `docker/README.md`

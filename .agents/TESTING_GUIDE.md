@@ -1,22 +1,31 @@
 # TESTING_GUIDE
 
-Repo dùng `pytest` và phân tầng tests.
+March7 uses `pytest` with unit, integration, e2e, and manual test folders.
 
-## Cấu trúc tests
+## Test Layout
 
-- `tests/unit/`: logic đơn lẻ (queue, wiki, a2a, transport…)
-- `tests/integration/`: pipeline có phụ thuộc services (Redis)
-- `tests/e2e/`: full flow (chat overflow → consolidation → store)
-- `tests/manual/`: scripts kiểm tra thủ công
+- `tests/unit/`: isolated logic such as queue, wiki, A2A, memory, transport.
+- `tests/integration/`: flows that may require services such as Redis.
+- `tests/e2e/`: full runtime flows such as chat overflow to consolidation.
+- `tests/manual/`: scripts for manual verification.
 
-## Gợi ý chọn tests theo thay đổi
+## Common Commands
 
-- Sửa overflow/queue/consolidation: ưu tiên `tests/unit/*overflow*`, `tests/integration/*consolid*`, `tests/e2e/*consolid*`.
-- Sửa wiki storage/merge/search: `tests/unit/wiki_*`, `tests/manual/test_search_wiki.py`.
-- Sửa gateway/discord adapter: `tests/gateway/*`.
+```bash
+pytest tests/unit/ -v
+pytest tests/integration/ -v
+pytest tests/e2e/ -v
+```
 
-## Phụ thuộc dịch vụ
+Run the smallest relevant command first. Integration and e2e tests usually need
+Redis; use Docker Compose from [../docker/README.md](../docker/README.md) when
+local services are not already running.
 
-- Integration/E2E thường cần:
-  - Redis
-- Khuyến nghị dùng Docker để provision dễ dàng: xem [docker/README.md](../docker/README.md).
+## Selection Guide
+
+- Overflow, queue, consolidation: `tests/unit/*overflow*`,
+  `tests/integration/*consolid*`, `tests/e2e/*consolid*`
+- Wiki storage, merge, search: `tests/unit/wiki_*`,
+  `tests/manual/test_search_wiki.py`
+- Gateway or Discord adapter: `tests/gateway/*`
+- A2A client/server behavior: tests matching `*a2a*`

@@ -1,31 +1,49 @@
 # AGENT_RULES
 
-Quy tắc khi agent làm việc trong repo này.
+Rules for coding agents working in this repository.
 
-## 1) Security / Safety (bắt buộc)
+## Safety
 
-1. **Không tiết lộ secrets**
-   - Không in ra nội dung `.env`, token Discord, API keys, URLs có credentials.
-   - Không commit secrets. Nếu thấy secrets trong repo, dừng và báo ngay.
+- Do not reveal secrets. Never print full `.env` files, Discord tokens, API
+  keys, or URLs containing credentials.
+- Bash Executor is privileged. Preserve user approval, auditability, timeouts,
+  and security checks. Avoid destructive host commands unless explicitly
+  requested.
+- Keep the March7/Evernight A2A boundary intact. Evernight must not read or
+  clear March7 T1 state by direct Redis key access.
 
-2. **Bash Executor là “privileged tool”**
-   - Chỉ dùng khi thật cần thiết.
-   - Mọi lệnh phải được user approve (theo thiết kế tool).
-   - Tránh lệnh destructive (`rm -rf`, `shutdown`, `mkfs`, `dd`, thay đổi firewall…) trừ khi user yêu cầu rõ.
-   - Tham chiếu: [README_BASH_EXECUTOR.md](../README_BASH_EXECUTOR.md).
+## Working Style
 
-3. **Boundary March7 ↔ Evernight (A2A)**
-   - Evernight **không đọc trực tiếp** Redis keys của March7 T1 nếu không được thiết kế cho coordination.
-   - Tương tác với March7 memory thông qua A2A (`get_snapshot`, `clear_session`, …) theo mô tả trong [docker/ARCHITECTURE.md](../docker/ARCHITECTURE.md).
+- Use CodeGraph first for structural questions: definitions, signatures,
+  callers, callees, impact, and feature context.
+- Use native search/read for literal text, docs, configs, manifests, tests, and
+  files already identified by CodeGraph.
+- Make small, task-scoped changes. Avoid broad refactors, speculative
+  abstractions, unrelated formatting, and new tooling unless requested.
+- If a change affects runtime flow, env vars, Docker, memory schema, or public
+  behavior, update relevant docs in this folder and project READMEs.
 
-## 2) Reliability / Quality
+## Python Conventions
 
-- Khi sửa code liên quan external I/O (Discord/HTTP/Redis/LLM):
-  - Thêm/giữ **timeout** hợp lý
-  - Thêm **retry/backoff** nếu phù hợp
-  - Log đủ để debug nhưng **không log secrets**
+- Prefer clear async I/O with explicit timeouts for HTTP, Discord, Redis, and
+  LLM calls.
+- Handle cancellation and clean shutdown for background tasks.
+- Use type hints on public functions and methods. Prefer `str | None` over
+  `Optional[str]` for new Python 3.10+ code.
+- Log enough context to debug, but never log secrets.
+- Add retry/backoff only for concrete transient failure modes.
 
-## 3) Repo hygiene
+## Verification And PR Hygiene
 
-- Thay đổi kiến trúc/flow: cập nhật docs tương ứng trong `.agents/`.
-- Thay đổi schema/key của memory: update tests + update `GLOSSARY.md`/`MEMORY.md`.
+- Choose focused tests from [TESTING_GUIDE.md](TESTING_GUIDE.md).
+- For external I/O changes, verify timeout/error paths where practical.
+- PR summaries should include context, change list, and exact verification.
+- Commit messages should be short and specific, preferably
+  `type(scope): message`.
+
+## Verified Gotchas
+
+- T3 storage is Markdown via `MarkdownStorage`, not YAML.
+- `README.MD` is the project README filename currently used at repo root.
+- Root lint/format/type-check config is not currently established; do not add
+  or run repo-wide formatters as part of unrelated work.

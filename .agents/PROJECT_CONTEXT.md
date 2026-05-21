@@ -1,92 +1,97 @@
 # PROJECT_CONTEXT
 
-Mục tiêu: mô tả **dự án chạy như thế nào** theo kiến trúc hiện tại, và môi trường nào dùng cho việc gì.
+Runtime and architecture context for March7. Keep this file focused on facts
+agents must know before changing behavior; use CodeGraph for source structure.
 
-## Chế độ chạy (ưu tiên)
+## Runtime Modes
 
-### 1) Docker Compose (primary / khuyến nghị)
+### Docker Compose (primary)
 
-Repo có cấu trúc Docker rõ ràng trong [docker/](../docker/).
+Use [../docker/docker-compose.yml](../docker/docker-compose.yml) and
+[../docker/README.md](../docker/README.md) for the full system.
 
-- Master compose: [docker/docker-compose.yml](../docker/docker-compose.yml) (gồm các include trong `docker/shared/` và service agents).
-- Tài liệu vận hành: [docker/README.md](../docker/README.md)
+Main services:
 
-Các service chính (tổng hợp từ `docker/README.md`):
+- `redis`: Redis Stack for T1 coordination/storage and T2 semantic memory.
+- `codebox`: sandboxed Python execution service.
+- `bash-executor`: privileged host command execution with approval/audit.
+- `march7`: Gateway, Discord bot, and March7 A2A server.
+- `evernight`: Evernight bot, consolidation, and self-heal worker.
 
-- `redis` (T1 + coordination)
-- `codebox` (sandbox chạy code Python)
-- `bash-executor` (host command execution, có approval)
-- `march7` (Gateway + March7 Discord bot + March7 A2A)
-- `evernight` (Evernight bot + consolidation + self-healing)
+Expected local endpoints:
 
-Ports thường gặp:
+- March7 A2A: `http://localhost:8000/.well-known/agent.json`
+- Evernight A2A: `http://localhost:8001/.well-known/agent.json`
+- Codebox: port `8069`
+- Bash Executor: port `8374`
 
-- March7 A2A: `8000`
-- Evernight A2A: `8001`
-- Codebox: `8069`
-- Bash Executor: `8374`
+### Local Python (secondary)
 
-Health endpoints (kỳ vọng):
+```bash
+pip install -r requirements.txt
+python -m gateway
+python -m twin.march7
+python -m twin.evernight
+```
 
-- `http://localhost:8000/.well-known/agent.json`
-- `http://localhost:8001/.well-known/agent.json`
+Integration and e2e flows usually still need Redis, preferably provisioned by
+Docker.
 
-### 2) Local Python (secondary)
+## Architecture Boundaries
 
-Khi không cần Docker, có thể chạy local:
+- `gateway/`: platform adapters and routing, currently focused on Discord.
+- `twin/march7/`: conversational agent, chat/tool loop, T1 active memory, T3
+  profile memory, A2A server on default port `8000`.
+- `twin/evernight/`: background consolidation and self-heal agent, A2A server
+  on default port `8001`.
+- `twin/shared/`: shared A2A, LLM, tool, memory, and transport code.
 
-- Gateway: `python -m gateway`
-- March7 standalone: `python -m twin.march7`
-- Evernight standalone: `python -m twin.evernight`
+Evernight must access March7 session state through A2A skills such as
+`get_snapshot` and `clear_session`; do not couple it directly to March7 Redis
+keys unless the architecture explicitly changes.
 
-Dependencies: `requirements.txt`.
+## Memory Tiers
 
-Lưu ý: integration/e2e thường vẫn cần Redis chạy (local hoặc docker).
+- **T1 Active Memory**: short-term session context in Redis. `legacy`
+  Redis/HASH is the stable path; `redis_stack` remains a cutover/experimental
+  phase unless tests prove parity.
+- **T2 Episodic/Wiki Memory**: Redis Stack semantic/vector memory.
+- **T3 Core/Profile Memory**: Markdown files via `MarkdownStorage`, default
+  base path `memories/`.
 
-### 3) Conda env `discord_bot` (test-only)
+## Key Environment Groups
 
-Thư mục `docker/volumes/conda_envs/discord_bot/` thể hiện có môi trường conda phục vụ **test/dev cục bộ**.
-
-- Đây **không** phải runtime chính của dự án.
-- Khi viết hướng dẫn hoặc task, coi đây là tùy chọn phụ để reproduce môi trường test.
-
-## Nhóm biến môi trường (tóm tắt)
-
-Nguồn tham chiếu chính: [gateway/config.py](../gateway/config.py), [twin/march7/config.py](../twin/march7/config.py), [twin/evernight/config.py](../twin/evernight/config.py), và [docker/ARCHITECTURE.md](../docker/ARCHITECTURE.md).
-
-### Shared (hạ tầng/LLM)
+Shared infrastructure and LLM:
 
 - `REDIS_URL`
 - `CODEBOX_API_URL`
 - `BASH_EXECUTOR_URL`
-- `T1_STORAGE_PHASE` (`redis_stack` | `legacy`)
-- `T1_CONTEXT_MAX_TOKENS` / `T1_CONTEXT_MAX_MESSAGES`
-- `LLM_PROVIDER` / các biến liên quan provider (Qwen/OpenAI/Gemini…)
+- `T1_STORAGE_PHASE`
+- `T1_CONTEXT_MAX_TOKENS`
+- `T1_CONTEXT_MAX_MESSAGES`
+- `LLM_PROVIDER` and provider-specific chat/embedding variables
 
-### March7
+March7:
 
-- `MARCH7_A2A_PORT` (default 8000)
-- `MARCH7_REDIS_DB` (default 0)
-- `MARCH7_PERSONA_PATH` (default `twin/march7/personas`)
+- `MARCH7_A2A_PORT` default `8000`
+- `MARCH7_REDIS_DB` default `0`
+- `MARCH7_PERSONA_PATH` default `twin/march7/personas`
 
-### Evernight
+Evernight:
 
-- `EVERNIGHT_A2A_PORT` (default 8001)
-- `EVERNIGHT_REDIS_DB` (default 1)
-- `EVERNIGHT_PERSONA_PATH` (default `twin/evernight/personas`)
-- `MARCH7_URL` (Evernight → March7, default `http://march7:8000`)
-- `INACTIVITY_SECONDS` (default 1800)
-- `POLL_INTERVAL` (default 60)
-- `SELF_HEAL_ENABLED` (default true)
+- `EVERNIGHT_A2A_PORT` default `8001`
+- `EVERNIGHT_REDIS_DB` default `1`
+- `EVERNIGHT_PERSONA_PATH` default `twin/evernight/personas`
+- `MARCH7_URL` default `http://march7:8000`
+- `INACTIVITY_SECONDS` default `1800`
+- `POLL_INTERVAL` default `60`
+- `SELF_HEAL_ENABLED` default `true`
 
-### Discord / Gateway
+Discord/Gateway:
 
-- `GATEWAY_ENABLED_PLATFORMS` (default `discord`)
-- `DISCORD_GATEWAY_ENABLED` (default true)
+- `GATEWAY_ENABLED_PLATFORMS` default `discord`
+- `DISCORD_GATEWAY_ENABLED` default `true`
 - `DISCORD_MARCH7_TOKEN`
 - `DISCORD_EVERNIGHT_TOKEN`
 
-## Tooling & risk notes
-
-- Bash Executor: xem [README_BASH_EXECUTOR.md](../README_BASH_EXECUTOR.md).
-- Docker ownership boundary map: xem [docker/ARCHITECTURE.md](../docker/ARCHITECTURE.md).
+Do not print `.env` files or token values.
