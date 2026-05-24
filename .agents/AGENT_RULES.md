@@ -14,12 +14,11 @@ Rules for coding agents working in this repository.
 
 ## Working Style
 
-- Use CodeGraph first for structural questions: definitions, signatures,
-  callers, callees, impact, and feature context.
-- Use native search/read for literal text, docs, configs, manifests, tests, and
-  files already identified by CodeGraph.
-- Make small, task-scoped changes. Avoid broad refactors, speculative
-  abstractions, unrelated formatting, and new tooling unless requested.
+- **Use CodeGraph first** for structural questions (definitions, signatures, callers, callees, impact, and feature context).
+- **NEVER use `view_file` or `grep`** to read code files for exploration if `codegraph` tools (like `codegraph_explore` or `codegraph_node`) have already retrieved the symbol/source code. Native read/search must only be used to confirm specific details not covered by CodeGraph or to inspect configuration/docs/manifests.
+- **Invoke skills properly** by setting `IsSkillFile: true` in the `view_file` call when reading a skill's `SKILL.md`.
+- **Enforce the planning workflow:** Write planning artifacts (`implementation_plan.md`) to `<appDataDir>/brain/<conversation-id>/implementation_plan.md` first, set `RequestFeedback: true` in metadata, and wait for user approval before making any code changes.
+- Make small, task-scoped changes. Avoid broad refactors, speculative abstractions, unrelated formatting, and new tooling unless requested.
 - If a change affects runtime flow, env vars, Docker, memory schema, or public
   behavior, update relevant docs in this folder and project READMEs.
 

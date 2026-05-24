@@ -1,11 +1,12 @@
 # Bé Bảy (March7) — Twin-Soul AI Assistant for Discord
 
-Bé Bảy là trợ lý AI trên Discord với kiến trúc **Twin-Soul Agents**: `march7` (chat chính) và `evernight` (background consolidation + self-heal), giao tiếp qua A2A.
+Bé Bảy là hệ Twin-Soul AI trên Discord: `march7` là agent hội thoại chính, còn `evernight` là agent độc lập vừa trò chuyện qua DM/tag/prefix vừa làm background consolidation, notification và self-heal. Hai agent giao tiếp qua A2A.
 
 ## Tính năng chính
 
 - **Discord AI assistant**: hội thoại tự nhiên + tool calling.
-- **Twin-Soul runtime**: tách chat runtime (`march7`) và background runtime (`evernight`).
+- **Twin-Soul runtime**: tách hai agent độc lập: `march7` cho hội thoại chính, `evernight` cho chat riêng + tác vụ nền.
+- **Evernight Discord bot**: có thể nhận DM, tag/mention hoặc prefix `!9` để trò chuyện, đồng thời gửi DM thông báo/approval khi Bảy cần báo việc hoặc xin phép chạy hành động.
 - **Memory 3 tầng**: T1 Redis-backed active memory, T2 Redis Stack semantic/vector memory, T3 Markdown profile.
 - **Background consolidation**: tự động tổng hợp hội thoại khi inactivity/overflow.
 - **Self-heal loop**: có sẵn khung, đang tiếp tục phát triển.
@@ -21,15 +22,18 @@ Bộ tài liệu này giúp agent nắm đúng boundary (Bash Executor/A2A), cá
 ## Kiến trúc tổng quan
 
 ```text
-Discord -> Gateway -> March7 (A2A :8000)
-                    -> Evernight (A2A :8001)
-March7 <-> Evernight qua A2A boundary
+Discord
+  -> March7 bot: chat chính, tool calling, T1/T3
+  -> Evernight bot: DM/tag/!9 chat, notification, approval, self-heal
+
+March7 <-> Evernight: A2A boundary
+Memory: T1 active + T2 semantic/wiki + T3 profile
 ```
 
 | Agent | Vai trò | Port |
 |-------|---------|------|
 | **March7** | Trợ lý chính — chat, tool calling, quản lý T1/T3 | 8000 |
-| **Evernight** | Background agent — self-healing, giám sát lỗi, consolidation T2 | 8001 |
+| **Evernight** | Agent độc lập — DM/tag/prefix chat, notification/approval, self-healing, giám sát lỗi, consolidation T2 | 8001 |
 
 Hai agent giao tiếp qua A2A (HTTP JSON-RPC + SSE). Evernight phải truy cập memory của March7 qua boundary A2A (`get_snapshot`, `clear_session`), không đọc trực tiếp T1 keys của March7.
 
@@ -37,22 +41,33 @@ Hai agent giao tiếp qua A2A (HTTP JSON-RPC + SSE). Evernight phải truy cập
 
 ```mermaid
 flowchart LR
-    U[User] --> D[Discord]
-    D --> G[Gateway]
-    G --> M[March7]
-    M <--> E[Evernight]
-    M --> R[(Redis-backed T1)]
-    E --> Q[(Redis Stack T2)]
-    M --> T[(Markdown T3)]
+    D[Discord] --> M[March7 bot]
+    D --> E[Evernight bot]
+    M <--> A[A2A boundary]
+    A <--> E
+    M --> T1[(T1 active memory)]
+    M --> T3[(T3 profile)]
+    E --> T2[(T2 semantic/wiki memory)]
 ```
 
 ---
+
+## Plan cần đọc
+
+- [Channel Discussion Memory Plan](docs/plans/channel-discussion-memory.md): kế hoạch mở rộng T1 để nghe hội thoại nhiều user trong channel, phát event tóm tắt, đưa qua T2 `DiscussionConsolidator`, rồi cleanup T1 sau khi T2 báo thành công.
+
+Ghi chú dễ quên:
+
+- Evernight là agent độc lập: có thể DM/tag/`!9` để trò chuyện và gửi thông báo/approval.
+- Channel memory chỉ observe channel được phép, không nghe toàn server.
+- T2 search/upsert giữ nguyên; tích hợp qua `DiscussionConsolidator -> WikiPagePayload -> EpisodicMemoryManager.embed_page()`.
+- T1 không xóa raw entries cho tới khi nhận `SUMMARY_COMPLETED`.
 
 ## Cấu trúc thư mục chính
 
 - `gateway/`: adapter + router cho platform (Discord).
 - `twin/march7/`: agent hội thoại chính.
-- `twin/evernight/`: background agent (consolidation, self-heal).
+- `twin/evernight/`: Evernight agent độc lập (DM/tag/prefix chat, notification/approval, consolidation, self-heal).
 - `twin/shared/`: A2A, LLM adapters, memories/tools dùng chung.
 - `docker/`: compose + Dockerfiles cho toàn hệ thống.
 - `tests/`: unit/integration/e2e/manual tests.

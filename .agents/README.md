@@ -25,6 +25,15 @@ Prefer CodeGraph over broad file reads for structural questions:
 Use native search/read for literal text, comments, docs, configs, manifests,
 or after CodeGraph has identified the exact file to inspect.
 
+## Specialized Skills
+
+When executing tasks, agents (both parent and subagents) should apply the following specialized skills based on the task type:
+
+- **Planning & Design**: Use the `implementation-planner` skill to analyze specs, features, or bugs and create an execution-ready `implementation_plan.md` before writing code.
+- **Coding & Implementation**: Use the `thoughtful-coder` skill for careful, surgical code changes. Optimize for: Correctness -> Minimal diff -> Consistency -> Verifiable outcome -> Simplicity.
+- **Project Documentation**: Use the `architecture-docs` skill to create and maintain concise architecture and agent guidance documents in the `.agents/` directory.
+- **README Updates**: Use the `create-readme` skill to generate or rewrite high-quality `README.MD` files based on repository evidence.
+
 ## Copilot MCP Setup
 
 GitHub Copilot supports MCP tools, but CodeGraph is not built in. If Copilot
@@ -49,8 +58,8 @@ server, agents should fall back to targeted search/read.
 
 ## Critical Boundaries
 
-- **March7** owns chat, tool calling, T1 active memory, and T3 profile memory.
-- **Evernight** owns consolidation, background jobs, and self-heal flows.
+- **March7** owns primary public chat, tool calling, its own T1/T3 memory, and reads T2.
+- **Evernight** owns consolidation, background jobs, self-heal, and private owner chat (via DM and `!9` prefix) with its own T1/T3 memory.
 - Evernight must use A2A to interact with March7 session memory; it must not
   bypass the boundary by reading March7 T1 keys directly.
 - Bash Executor is privileged. Keep approval/audit behavior intact and do not

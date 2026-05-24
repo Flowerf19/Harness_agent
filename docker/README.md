@@ -6,8 +6,8 @@
 
 Docker Compose là runtime chính cho kiến trúc Twin-Soul của dự án:
 
-- `march7`: chat runtime + gateway + A2A `:8000`
-- `evernight`: background runtime + consolidation/self-heal + A2A `:8001`
+- `march7`: main chat runtime + gateway + A2A `:8000`
+- `evernight`: independent Discord agent for DM/tag/`!9` chat, notifications/approvals, consolidation/self-heal + A2A `:8001`
 - shared infra: Redis, Codebox, Bash Executor
 
 ## Structure
@@ -50,7 +50,7 @@ docker/
 | `bash-executor` | `march7-bash-executor` | `march7-bash-executor` | 8374 | Shared privileged host executor |
 | `base` | — | `march7-base` | — | Shared Python runtime |
 | `march7` | `march7` | `march7-agent` | 8000 | Gateway + March7 Discord bot + March7 A2A |
-| `evernight` | `evernight` | `evernight-agent` | 8001 | Evernight Discord bot + consolidation + self-healing |
+| `evernight` | `evernight` | `evernight-agent` | 8001 | Evernight Discord bot for DM/tag/`!9` chat, notifications/approvals, consolidation + self-healing |
 
 Xem [ARCHITECTURE.md](ARCHITECTURE.md) để biết boundary private/shared chi tiết.
 

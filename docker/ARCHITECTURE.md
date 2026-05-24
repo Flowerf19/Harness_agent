@@ -36,18 +36,19 @@ These services are shared by both agents:
 | Service | Compose file | Owner | Public boundary |
 | --- | --- | --- | --- |
 | `march7` | `march7/docker-compose.yml` + `march7/Dockerfile` | March7 | A2A `:8000`, Discord main bot |
-| `evernight` | `evernight/docker-compose.yml` + `evernight/Dockerfile` | Evernight | A2A `:8001`, Discord DM/`!9` bot |
+| `evernight` | `evernight/docker-compose.yml` + `evernight/Dockerfile` | Evernight | A2A `:8001`, Discord DM/tag/`!9` bot |
 
 March7 owns normal chat, tool calling, T1 writes, and the A2A memory boundary:
 
 - `get_snapshot`
 - `clear_session`
 
-Evernight owns background work:
+Evernight owns its own Discord interaction surface and background work:
 
+- independent DM/tag/`!9` chat
+- notification and approval DMs for work March7 needs to report or request
 - inactivity consolidation
 - T2 wiki consolidation
-- DM approval endpoint
 - self-heal monitor
 
 Evernight must use March7 A2A for March7 memory. It should not read March7 T1 Redis keys directly.

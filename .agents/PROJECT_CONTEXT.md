@@ -39,12 +39,10 @@ Docker.
 
 ## Architecture Boundaries
 
-- `gateway/`: platform adapters and routing, currently focused on Discord.
-- `twin/march7/`: conversational agent, chat/tool loop, T1 active memory, T3
-  profile memory, A2A server on default port `8000`.
-- `twin/evernight/`: background consolidation and self-heal agent, A2A server
-  on default port `8001`.
-- `twin/shared/`: shared A2A, LLM, tool, memory, and transport code.
+- `gateway/`: platform adapters and routing, currently focused on Discord. Routes public messages to March7 and handles communication.
+- `twin/march7/`: conversational agent, chat/tool loop, T1 active memory (via `activate_memory`), T2 semantic memory (read-only search capability), T3 profile memory, A2A server on default port `8000`.
+- `twin/evernight/`: background consolidation and self-heal agent. Includes its own Discord bot adapter (`EvernightDiscordAdapter` listening to DMs and `!9` prefix) with chat capability (`handle_chat`), and A2A server on default port `8001`.
+- `twin/shared/`: shared A2A, LLM, tool, memory (including T2 memory store/search), and transport code.
 
 Evernight must access March7 session state through A2A skills such as
 `get_snapshot` and `clear_session`; do not couple it directly to March7 Redis
@@ -52,10 +50,8 @@ keys unless the architecture explicitly changes.
 
 ## Memory Tiers
 
-- **T1 Active Memory**: short-term session context in Redis. `legacy`
-  Redis/HASH is the stable path; `redis_stack` remains a cutover/experimental
-  phase unless tests prove parity.
-- **T2 Episodic/Wiki Memory**: Redis Stack semantic/vector memory.
+- **T1 Active Memory**: short-term session context in Redis. `redis_stack` is the default stable path (set via `T1_STORAGE_PHASE` in settings); `legacy` Redis/HASH is the fallback.
+- **T2 Episodic/Wiki Memory**: Redis Stack semantic/vector memory, used by March7 for search queries and Evernight for consolidation.
 - **T3 Core/Profile Memory**: Markdown files via `MarkdownStorage`, default
   base path `memories/`.
 
