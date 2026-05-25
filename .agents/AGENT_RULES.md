@@ -22,6 +22,17 @@ Rules for coding agents working in this repository.
 - If a change affects runtime flow, env vars, Docker, memory schema, or public
   behavior, update relevant docs in this folder and project READMEs.
 
+## Skills
+
+Curated skills live globally at `~/.claude/skills/` (clone of [Flowerf19/agents-skills](https://github.com/Flowerf19/agents-skills)) — applies to all agents in every project, not just this repo.
+
+- **Claude Code** auto-discovers them at `~/.claude/skills/`. Invoke with `/<skill-name>` or via the Skill tool.
+- **Other agents** (Antigravity, Gemini, Cursor, generic LLMs): point them at `~/.claude/skills/<name>/SKILL.md`.
+
+Available: `implementation-planner` (plan before code), `thoughtful-coder` (surgical changes), `debug-investigator` (root cause before any fix), `code-reviewer` (independent review before merge), `architecture-docs` (refresh `.agents/`), `create-readme` (root README from evidence).
+
+Update upstream: `cd ~/.claude/skills && git pull`.
+
 ## Python Conventions
 
 - Prefer clear async I/O with explicit timeouts for HTTP, Discord, Redis, and

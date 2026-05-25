@@ -27,12 +27,16 @@ or after CodeGraph has identified the exact file to inspect.
 
 ## Specialized Skills
 
-When executing tasks, agents (both parent and subagents) should apply the following specialized skills based on the task type:
+Skills live globally at `~/.claude/skills/` (clone of [Flowerf19/agents-skills](https://github.com/Flowerf19/agents-skills)) — applies to all projects, all agents. Claude Code auto-discovers; other agents read `SKILL.md` at that path.
 
-- **Planning & Design**: Use the `implementation-planner` skill to analyze specs, features, or bugs and create an execution-ready `implementation_plan.md` before writing code.
-- **Coding & Implementation**: Use the `thoughtful-coder` skill for careful, surgical code changes. Optimize for: Correctness -> Minimal diff -> Consistency -> Verifiable outcome -> Simplicity.
-- **Project Documentation**: Use the `architecture-docs` skill to create and maintain concise architecture and agent guidance documents in the `.agents/` directory.
-- **README Updates**: Use the `create-readme` skill to generate or rewrite high-quality `README.MD` files based on repository evidence.
+- `implementation-planner` — turn spec/feature/bug into execution-ready plan (run BEFORE writing code).
+- `thoughtful-coder` — surgical code changes: Correctness → Minimal diff → Consistency → Verifiable → Simplicity.
+- `debug-investigator` — root-cause investigation BEFORE any fix (Iron Law: no patch without cause).
+- `code-reviewer` — independent review of a change after `thoughtful-coder` completes; before merge.
+- `architecture-docs` — maintain/refresh `.agents/` docs after architectural changes.
+- `create-readme` — write/update root README from real repo evidence.
+
+Update: `cd ~/.claude/skills && git pull`.
 
 ## Copilot MCP Setup
 
@@ -68,7 +72,7 @@ server, agents should fall back to targeted search/read.
 ## Current Task Status
 
 Unified discussion memory is implemented end-to-end. See
-[../docs/plans/unified-discussion-memory.md](../docs/plans/unified-discussion-memory.md)
+[plans/unified-discussion-memory.md](plans/unified-discussion-memory.md)
 for the full plan. Short version:
 
 - T1 is scope-aware (`user`/`channel`) across both agents.

@@ -1,43 +1,34 @@
 # Bé Bảy (March7) — Twin-Soul AI Assistant for Discord
 
-Bé Bảy là hệ Twin-Soul AI trên Discord: `march7` là agent hội thoại chính, còn `evernight` là agent độc lập vừa trò chuyện qua DM/tag/prefix vừa làm background consolidation, notification và self-heal. Hai agent giao tiếp qua A2A.
+Bé Bảy là hệ Twin-Soul AI trên Discord: `march7` là agent hội thoại chính, `evernight` là agent độc lập vừa trò chuyện qua DM/tag/prefix vừa làm background consolidation, notification, self-heal. Hai agent giao tiếp qua A2A.
 
 ## Tính năng chính
 
 - **Discord AI assistant**: hội thoại tự nhiên + tool calling.
-- **Twin-Soul runtime**: tách hai agent độc lập: `march7` cho hội thoại chính, `evernight` cho chat riêng + tác vụ nền.
-- **Evernight Discord bot**: có thể nhận DM, tag/mention hoặc prefix `!9` để trò chuyện, đồng thời gửi DM thông báo/approval khi Bảy cần báo việc hoặc xin phép chạy hành động.
-- **Memory 3 tầng**: T1 Redis-backed active memory, T2 Redis Stack semantic/vector memory, T3 Markdown profile.
-- **Background consolidation**: tự động tổng hợp hội thoại khi inactivity/overflow.
-- **Self-heal loop**: có sẵn khung, đang tiếp tục phát triển.
+- **Twin-Soul runtime**: `march7` cho chat chính, `evernight` cho chat riêng + tác vụ nền.
+- **Evernight DM/tag/!9**: nhận DM, tag/mention, prefix `!9`; gửi DM thông báo/approval.
+- **Memory 3 tầng**: T1 Redis active, T2 Redis Stack semantic/vector, T3 Markdown profile.
+- **Background consolidation**: tự động tổng hợp khi inactivity/overflow.
+- **Self-heal loop**: framework có sẵn, đang phát triển.
 
-## Dành cho maintainer/agent
+## Yêu cầu cho agent workflow
 
-Nếu bạn đang dùng agent để làm việc trong repo (đọc kiến trúc, cách chạy, workflow, testing, quy ước code…), hãy bắt đầu ở:
+Repo này tối ưu cho agent (Claude Code, Antigravity, Cursor, ...). Trước khi để agent đụng vào, cài đặt 2 thứ:
 
-- [`.agents/README.md`](.agents/README.md) (index + CodeGraph policy)
+1. **CodeGraph** — index AST của repo, agent dùng cho mọi câu hỏi structural (where is X, what calls Y, impact of Z, ...). Skills đều giả định CodeGraph có sẵn.
+   ```bash
+   npm install -g @colbymchenry/codegraph
+   codegraph init -i      # chạy 1 lần trong repo, tạo .codegraph/
+   ```
+2. **Skills toàn cục** — 6 skill (`implementation-planner`, `thoughtful-coder`, `debug-investigator`, `code-reviewer`, `architecture-docs`, `create-readme`) ở [Flowerf19/agents-skills](https://github.com/Flowerf19/agents-skills). Clone 1 lần, dùng cho mọi project:
+   ```bash
+   git clone https://github.com/Flowerf19/agents-skills.git ~/.claude/skills
+   ```
+   Claude Code auto-discover qua `/<skill-name>`; agent khác point thẳng vào `~/.claude/skills/<name>/SKILL.md`.
 
-Bộ tài liệu này giúp agent nắm đúng boundary (Bash Executor/A2A), cách chạy Docker/local, và checklist review.
+Agent docs project-specific (boundary A2A, gotcha runtime, testing) ở [.agents/](.agents/) — bắt đầu đọc từ [.agents/README.md](.agents/README.md).
 
 ## Kiến trúc tổng quan
-
-```text
-Discord
-  -> March7 bot: chat chính, tool calling, T1/T3
-  -> Evernight bot: DM/tag/!9 chat, notification, approval, self-heal
-
-March7 <-> Evernight: A2A boundary
-Memory: T1 active + T2 semantic/wiki + T3 profile
-```
-
-| Agent | Vai trò | Port |
-|-------|---------|------|
-| **March7** | Trợ lý chính — chat, tool calling, quản lý T1/T3 | 8000 |
-| **Evernight** | Agent độc lập — DM/tag/prefix chat, notification/approval, self-healing, giám sát lỗi, consolidation T2 | 8001 |
-
-Hai agent giao tiếp qua A2A (HTTP JSON-RPC + SSE). Evernight phải truy cập memory của March7 qua boundary A2A (`get_snapshot`, `clear_session`), không đọc trực tiếp T1 keys của March7.
-
-### Luồng tổng quát
 
 ```mermaid
 flowchart LR
@@ -50,41 +41,33 @@ flowchart LR
     E --> T2[(T2 semantic/wiki memory)]
 ```
 
----
+| Agent | Vai trò | Port |
+|---|---|---|
+| **March7** | Chat chính, tool calling, quản lý T1/T3 | 8000 |
+| **Evernight** | DM/tag/`!9` chat, notification/approval, self-heal, giám sát lỗi, consolidation T2 | 8001 |
 
-## Plan cần đọc
+Evernight truy cập memory của March7 qua A2A (`get_snapshot`, `clear_session`) — **không** đọc trực tiếp T1 keys.
 
-- [Unified Discussion Memory Plan](docs/plans/unified-discussion-memory.md): kế hoạch thống nhất T1 + T2 cho cả 1-1 user chat lẫn multi-user channel discussion. T1 scope-aware (user/channel), T2 user-centric fan-out (bot nhớ theo user, channel chỉ là metadata). Thay flow `TOKEN_LIMIT_REACHED → overflow_queue` cũ bằng `SUMMARY_REQUESTED → DiscussionConsolidator → SUMMARY_COMPLETED → cleanup`.
+### Plan đang chạy
 
-Ghi chú dễ quên:
+- [Unified Discussion Memory](.agents/plans/unified-discussion-memory.md): T1 scope-aware (user/channel), T2 user-centric fan-out, flow `SUMMARY_REQUESTED → DiscussionConsolidator → SUMMARY_COMPLETED → cleanup` (thay cho `TOKEN_LIMIT_REACHED → overflow_queue` cũ).
 
-- Evernight là agent độc lập: có thể DM/tag/`!9` để trò chuyện và gửi thông báo/approval.
-- Channel memory chỉ observe channel được phép, không nghe toàn server. Reply trigger gồm cả reply-to-bot (không chỉ mention).
-- T2 user-centric: `T2Page.user_id` luôn là real user_id (digit). Channel info nằm trong `source_refs`.
+### Gotcha runtime (dễ quên)
+
+- Channel memory chỉ observe channel được phép, không nghe toàn server. Reply trigger gồm cả reply-to-bot.
+- T2 user-centric: `T2Page.user_id` luôn là real user_id (digit); channel info ở `source_refs`.
 - DiscussionConsolidator fan-out cho mỗi `active_participant` (LLM quyết định).
-- T1 không xóa raw entries cho tới khi nhận `SUMMARY_COMPLETED`.
-
-## Cấu trúc thư mục chính
-
-- `gateway/`: adapter + router cho platform (Discord).
-- `twin/march7/`: agent hội thoại chính.
-- `twin/evernight/`: Evernight agent độc lập (DM/tag/prefix chat, notification/approval, consolidation, self-heal).
-- `twin/shared/`: A2A, LLM adapters, memories/tools dùng chung.
-- `docker/`: compose + Dockerfiles cho toàn hệ thống.
-- `tests/`: unit/integration/e2e/manual tests.
+- T1 không xoá raw entries cho tới khi nhận `SUMMARY_COMPLETED`.
 
 ## Prerequisites
 
 - Python `3.11+`
 - Docker + Docker Compose v2
-- Discord bot token(s)
-- API key cho LLM provider
+- Discord bot token(s) + API key LLM provider
 
 ## Quick start
 
----
-
-### 1) Docker (khuyến nghị)
+**Docker (khuyến nghị):**
 
 ```bash
 cd docker
@@ -94,48 +77,35 @@ docker compose up -d
 docker compose logs -f
 ```
 
-### 2) Local Python
+**Local Python:**
 
 ```bash
 pip install -r requirements.txt
 python -m gateway
-# hoặc chạy từng agent:
+# hoặc:
 python -m twin.march7
 python -m twin.evernight
 ```
 
----
-
 > [!TIP]
-> Health endpoints kỳ vọng:
-> - `http://localhost:8000/.well-known/agent.json`
-> - `http://localhost:8001/.well-known/agent.json`
+> Health: `http://localhost:8000/.well-known/agent.json`, `http://localhost:8001/.well-known/agent.json`.
 
 ## Cấu hình
 
----
-
-Các nhóm biến chính (chi tiết ở `.agents/PROJECT_CONTEXT.md`):
+Nhóm env vars chính (chi tiết ở [.agents/PROJECT_CONTEXT.md](.agents/PROJECT_CONTEXT.md)):
 
 - Shared: `REDIS_URL`, `CODEBOX_API_URL`, `BASH_EXECUTOR_URL`, `T1_STORAGE_PHASE`
 - March7: `MARCH7_A2A_PORT`, `MARCH7_REDIS_DB`, `MARCH7_PERSONA_PATH`
 - Evernight: `EVERNIGHT_A2A_PORT`, `EVERNIGHT_REDIS_DB`, `INACTIVITY_SECONDS`, `SELF_HEAL_ENABLED`
 - Discord/Gateway: `DISCORD_MARCH7_TOKEN`, `DISCORD_EVERNIGHT_TOKEN`, `GATEWAY_ENABLED_PLATFORMS`
+- T1 budget: `T1_CONTEXT_MAX_TOKENS`, `T1_CONTEXT_MAX_MESSAGES`
 
-`T1_STORAGE_PHASE` chọn storage T1:
-
-- `legacy`: Redis basic/HASH path, hiện là path ổn định cho T1.
-- `redis_stack`: Redis Stack JSON/Search adapter, dùng thử nghiệm hoặc cutover sau khi parity test ổn.
+`T1_STORAGE_PHASE`: `legacy` (Redis HASH, ổn định) | `redis_stack` (JSON/Search, thử nghiệm).
 
 > [!NOTE]
-> Runtime Redis trong Docker dùng `redis/redis-stack-server`, nên cùng một Redis Stack service có thể phục vụ cả T1 và T2. T1 không bắt buộc dùng JSON/Search; T2 mới là tầng semantic/vector cần Redis Stack features.
+> Docker dùng `redis/redis-stack-server` — cùng service phục vụ cả T1 và T2.
 
-T1 chat context dùng recent-window theo token budget:
-
-- `T1_CONTEXT_MAX_TOKENS`: số token T1 tối đa đưa vào prompt chat.
-- `T1_CONTEXT_MAX_MESSAGES`: hard cap số message gần nhất.
-
-LLM/embeddings: xem `README_LLM_PROVIDERS.md` (hỗ trợ OpenAI-compat + Gemini native qua factory pattern ở `twin/shared/llm/embedding/`).
+LLM + embeddings (OpenAI-compat / Gemini native qua factory): xem [README_LLM_PROVIDERS.md](README_LLM_PROVIDERS.md).
 
 ## Development & testing
 
@@ -145,20 +115,18 @@ pytest tests/integration/ -v
 pytest tests/e2e/ -v
 ```
 
-## Tài liệu liên quan
-
-- `.agents/PROJECT_CONTEXT.md`
-- `.agents/AGENT_RULES.md`
-- `.agents/TESTING_GUIDE.md`
-- `README_LLM_PROVIDERS.md`
-- `README_BASH_EXECUTOR.md`
-- `docker/README.md`
-
-## Troubleshooting nhanh
+## Troubleshooting
 
 > [!WARNING]
-> Bash Executor là tool đặc quyền. Chỉ bật khi cần và luôn giữ luồng approve theo `README_BASH_EXECUTOR.md`.
+> Bash Executor là tool đặc quyền. Bật khi cần và giữ luồng approve theo [README_BASH_EXECUTOR.md](README_BASH_EXECUTOR.md).
 
-- Kiểm tra trạng thái containers: `docker compose -f docker/docker-compose.yml ps`
-- Xem logs: `docker compose -f docker/docker-compose.yml logs -f march7 evernight`
-- Kiểm tra A2A health endpoints ở cổng `8000` và `8001`
+- Trạng thái containers: `docker compose -f docker/docker-compose.yml ps`
+- Logs: `docker compose -f docker/docker-compose.yml logs -f march7 evernight`
+- A2A health: port `8000` và `8001`
+
+## Tài liệu liên quan
+
+- [.agents/](.agents/) — agent guidance (start: [README.md](.agents/README.md))
+- [README_LLM_PROVIDERS.md](README_LLM_PROVIDERS.md) — LLM + embedding config
+- [README_BASH_EXECUTOR.md](README_BASH_EXECUTOR.md) — bash executor security
+- [docker/README.md](docker/README.md) — Docker runbook
