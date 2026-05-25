@@ -2,9 +2,9 @@ import ast
 import json
 import logging
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, List
 
-from redis.asyncio import Redis, ConnectionPool
+from redis.asyncio import Redis
 
 from ..constants import SESSION_TIMEOUT_MINUTES
 from ..models import MemoryEntry
@@ -22,21 +22,6 @@ class RedisStackStorage(BaseStorage):
     def __init__(self, redis_client: Redis):
         self.redis = redis_client
         self._ttl_seconds = SESSION_TIMEOUT_MINUTES * 60
-
-    async def close(self) -> None:
-        """Gracefully close the underlying connection pool."""
-        await self.redis.close()
-        if self.redis.connection_pool:
-            await self.redis.connection_pool.disconnect()
-
-    async def health_check(self) -> bool:
-        """Check if Redis connection is healthy."""
-        try:
-            await self.redis.ping()
-            return True
-        except Exception as e:
-            logger.warning(f"RedisStackStorage health check failed: {e}")
-            return False
 
     async def initialize(self) -> None:
         try:
@@ -59,6 +44,14 @@ class RedisStackStorage(BaseStorage):
                 "AS",
                 "user_id",
                 "TAG",
+                "$.scope",
+                "AS",
+                "scope",
+                "TAG",
+                "$.scope_id",
+                "AS",
+                "scope_id",
+                "TAG",
                 "$.created_at_ts",
                 "AS",
                 "created_at_ts",
@@ -80,8 +73,13 @@ class RedisStackStorage(BaseStorage):
         except Exception as e:
             raise RuntimeError(f"RedisStackStorage: FT.CREATE failed for {self.INDEX_NAME}: {e}")
 
-    def _message_key(self, user_id: str, entry_id: str) -> str:
-        return f"{self.KEY_PREFIX}:{user_id}:{entry_id}"
+    def _normalize_scope(self, scope: str, scope_id: str | None = None) -> tuple[str, str]:
+        if scope_id is None:
+            return "user", scope
+        return scope, scope_id
+
+    def _message_key(self, scope: str, scope_id: str, entry_id: str) -> str:
+        return f"{self.KEY_PREFIX}:{scope}:{scope_id}:{entry_id}"
 
     def _parse_search_response(self, response: Any) -> List[str]:
         if not response:
@@ -105,8 +103,8 @@ class RedisStackStorage(BaseStorage):
                 keys.append(key)
         return keys
 
-    async def _keys_for_user(self, user_id: str) -> List[str]:
-        query = f"@user_id:{{{user_id}}}"
+    async def _keys_for_scope(self, scope: str, scope_id: str) -> List[str]:
+        query = f"@scope:{{{scope}}} @scope_id:{{{scope_id}}}"
         result = await self.redis.execute_command(
             "FT.SEARCH",
             self.INDEX_NAME,
@@ -121,23 +119,35 @@ class RedisStackStorage(BaseStorage):
         )
         return self._parse_search_response(result)
 
+    async def _keys_for_user(self, user_id: str) -> List[str]:
+        return await self._keys_for_scope("user", user_id)
+
     async def save_entry(self, entry: MemoryEntry) -> None:
         payload = {
+            "scope": entry.scope,
+            "scope_id": entry.scope_id,
             "user_id": entry.user_id,
             "role": entry.role,
+            "author_id": entry.author_id,
+            "author_name": entry.author_name,
+            "guild_id": entry.guild_id,
+            "channel_id": entry.channel_id,
+            "message_id": entry.message_id,
+            "reply_to": entry.reply_to,
             "content": entry.content,
             "tokens": entry.tokens,
             "entry_id": entry.entry_id,
             "created_at": entry.timestamp.isoformat(),
             "created_at_ts": entry.timestamp.timestamp(),
         }
-        key = self._message_key(entry.user_id, entry.entry_id)
+        key = self._message_key(entry.scope, entry.scope_id or entry.user_id, entry.entry_id)
         await self.redis.execute_command("JSON.SET", key, "$", json.dumps(payload, ensure_ascii=False))
         await self.redis.expire(key, self._ttl_seconds)
 
-    async def get_entries(self, user_id: str) -> List[MemoryEntry]:
+    async def get_entries(self, scope: str, scope_id: str | None = None) -> List[MemoryEntry]:
+        scope, scope_id = self._normalize_scope(scope, scope_id)
         entries: List[MemoryEntry] = []
-        keys = await self._keys_for_user(user_id)
+        keys = await self._keys_for_scope(scope, scope_id)
 
         for key in keys:
             raw = await self.redis.execute_command("JSON.GET", key)
@@ -148,8 +158,16 @@ class RedisStackStorage(BaseStorage):
             data = json.loads(raw)
             entries.append(
                 MemoryEntry(
-                    user_id=data["user_id"],
+                    scope=data.get("scope", scope),
+                    scope_id=data.get("scope_id", scope_id),
+                    user_id=data.get("user_id", scope_id if scope == "user" else data.get("author_id", "")),
                     role=data["role"],
+                    author_id=data.get("author_id"),
+                    author_name=data.get("author_name"),
+                    guild_id=data.get("guild_id"),
+                    channel_id=data.get("channel_id"),
+                    message_id=data.get("message_id"),
+                    reply_to=data.get("reply_to"),
                     content=data["content"],
                     tokens=int(data["tokens"]),
                     timestamp=datetime.fromisoformat(data["created_at"]),
@@ -160,34 +178,24 @@ class RedisStackStorage(BaseStorage):
         entries.sort(key=lambda x: x.timestamp)
         return entries
 
-    async def get_total_tokens(self, user_id: str) -> int:
-        entries = await self.get_entries(user_id)
+    async def get_total_tokens(self, scope: str, scope_id: str | None = None) -> int:
+        entries = await self.get_entries(scope, scope_id)
         return sum(entry.tokens for entry in entries)
 
-    async def delete_entries(self, user_id: str, entry_ids: List[str]) -> None:
+    async def delete_entries(
+        self, scope: str, scope_id: str | None = None, entry_ids: List[str] | None = None
+    ) -> None:
+        if entry_ids is None:
+            entry_ids = scope_id if isinstance(scope_id, list) else []
+            scope_id = None
         if not entry_ids:
             return
-        keys = [self._message_key(user_id, entry_id) for entry_id in entry_ids]
+        scope, scope_id = self._normalize_scope(scope, scope_id)
+        keys = [self._message_key(scope, scope_id, entry_id) for entry_id in entry_ids]
         await self.redis.delete(*keys)
 
-    async def clear_all(self, user_id: str) -> None:
-        keys = await self._keys_for_user(user_id)
+    async def clear_all(self, scope: str, scope_id: str | None = None) -> None:
+        scope, scope_id = self._normalize_scope(scope, scope_id)
+        keys = await self._keys_for_scope(scope, scope_id)
         if keys:
             await self.redis.delete(*keys)
-
-
-def create_redis_storage(
-    redis_url: str = "redis://localhost:6379",
-    redis_password: Optional[str] = None,
-    redis_db: int = 0,
-) -> RedisStackStorage:
-    """Factory function to create a RedisStackStorage instance with a connection pool."""
-    pool = ConnectionPool.from_url(
-        redis_url,
-        password=redis_password,
-        db=redis_db,
-        decode_responses=True,
-        max_connections=10,
-    )
-    redis_client = Redis(connection_pool=pool)
-    return RedisStackStorage(redis_client)

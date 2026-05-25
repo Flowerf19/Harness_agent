@@ -46,3 +46,28 @@ Rules for coding agents working in this repository.
 - `README.MD` is the project README filename currently used at repo root.
 - Root lint/format/type-check config is not currently established; do not add
   or run repo-wide formatters as part of unrelated work.
+- The repository `.gitignore` allows source under `twin/**/memories/` (added
+  explicit `!twin/**/memories/**` exception). New source files there are
+  tracked normally. `__pycache__` under those paths is re-ignored.
+- Unified discussion memory intentionally keeps T2 user-centric. Do not store
+  channel sentinel ids in `T2Page.user_id`; put channel metadata in
+  `source_refs`. `T2Page.participants` is TAG-indexed in the FT schema for
+  future joint `(user, channel)` filters.
+- The legacy `TOKEN_LIMIT_REACHED` event was removed. Summary flow is
+  `SUMMARY_REQUESTED` → Evernight A2A `consolidate_discussion` →
+  `SUMMARY_COMPLETED`/`SUMMARY_FAILED` → T1 cleanup. Do not reintroduce the
+  old overflow_queue path on the trigger side.
+- Each agent runs its own `InactivityTrigger` in-process against its own
+  `SummaryStateRepository` (March7 scans `user` + `channel`; Evernight scans
+  `user` only). The trigger drives `SummaryPolicy.evaluate` directly — do not
+  call `ConsolidationRunner` from the trigger path.
+- **Docker entry for March7 is `python -m gateway`** (`gateway/__main__.py`),
+  not `python -m twin.march7`. When wiring new background tasks (triggers,
+  workers, schedulers) for March7, add them to `gateway/__main__.py` so they
+  run inside the container. `twin/march7/__main__.py` is a thinner local-dev
+  entry — keep it in sync but treat the gateway entry as authoritative.
+- Local Redis/T2 data may be disposable during development because T3 Markdown
+  is the durable profile/core memory. Confirm before deleting production data.
+- After modifying the T2 FT schema, the existing index must be dropped and
+  recreated (`FT.DROPINDEX idx:t2:page` then restart). `_create_index` skips
+  creation if the index already exists.

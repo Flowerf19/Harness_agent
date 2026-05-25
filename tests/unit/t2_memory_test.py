@@ -75,22 +75,3 @@ async def test_time_search_hard_filters_range(sample_user_id):
     args = store.list_chunks.await_args.kwargs
     assert args["start"].date() == start.date()
     assert args["end"].date() == end.date()
-
-
-@pytest.mark.asyncio
-async def test_queue_enqueue_failure_does_not_cleanup():
-    t1 = AsyncMock()
-    t1.force_cleanup = AsyncMock()
-    queue = AsyncMock()
-    queue.push = AsyncMock(side_effect=RuntimeError("redis down"))
-    manager = MemoryManager(
-        active_memory=t1,
-        core_memory=AsyncMock(),
-        event_dispatcher=DummyDispatcher(),
-        overflow_queue=queue,
-    )
-
-    with pytest.raises(RuntimeError):
-        await manager._handle_memory_overflow("token_limit_reached", "u1", {"snapshot": [{"content": "x"}]})
-
-    t1.force_cleanup.assert_not_awaited()

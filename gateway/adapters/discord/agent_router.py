@@ -27,7 +27,15 @@ class AgentRouter:
         self.march7 = march7
         self.evernight_client = evernight_client
 
-    async def route(self, agent_name: str, user_id: str, content: str) -> str:
+    async def route(
+        self,
+        agent_name: str,
+        user_id: str,
+        content: str,
+        *,
+        channel_id: str | None = None,
+        observe_input: bool = True,
+    ) -> str:
         """Route message to the specified agent."""
         if agent_name == "evernight":
             if self.evernight_client is None:
@@ -36,7 +44,12 @@ class AgentRouter:
             return await self.evernight_client.send_chat(user_id=user_id, content=content)
         else:
             # Default to march7
-            return await self.march7.handle_chat(user_id=user_id, content=content)
+            return await self.march7.handle_chat(
+                user_id=user_id,
+                content=content,
+                channel_id=channel_id,
+                observe_input=observe_input,
+            )
 
     async def close(self):
         """Shutdown resources."""

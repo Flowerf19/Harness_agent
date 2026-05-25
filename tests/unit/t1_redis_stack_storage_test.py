@@ -32,11 +32,13 @@ class FakeRedis:
 
         if cmd == "FT.SEARCH":
             query = args[2]
-            user_id = query.removeprefix("@user_id:{").removesuffix("}")
+            parts = query.split()
+            scope = parts[0].removeprefix("@scope:{").removesuffix("}")
+            scope_id = parts[1].removeprefix("@scope_id:{").removesuffix("}")
             keys = []
             for key, payload in self.data.items():
                 data = json.loads(payload)
-                if data["user_id"] == user_id:
+                if data["scope"] == scope and data["scope_id"] == scope_id:
                     keys.append((data["created_at_ts"], key))
             keys.sort()
             response = [len(keys)]
@@ -78,3 +80,21 @@ async def test_redis_stack_storage_save_and_get_entries_sorted():
     assert entries[0].entry_id == a.entry_id
     assert entries[1].entry_id == b.entry_id
     assert await storage.get_total_tokens("u1") == 5
+
+    channel = MemoryEntry(
+        scope="channel",
+        scope_id="c1",
+        user_id="u2",
+        role="user",
+        author_id="u2",
+        author_name="Flowerf",
+        channel_id="c1",
+        content="channel note",
+        tokens=4,
+    )
+    await storage.save_entry(channel)
+
+    channel_entries = await storage.get_entries("channel", "c1")
+    assert len(channel_entries) == 1
+    assert channel_entries[0].entry_id == channel.entry_id
+    assert await storage.get_total_tokens("channel", "c1") == 4

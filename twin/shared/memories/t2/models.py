@@ -77,6 +77,8 @@ class T2Page(BaseModel):
     category: str = "casual"
     current_summary: str = ""
     key_points: list[str] = Field(default_factory=list)
+    participants: list[str] = Field(default_factory=list)
+    source_refs: list[dict[str, Any]] = Field(default_factory=list)
     active_fact_ids: list[str] = Field(default_factory=list)
     entities: list[str] = Field(default_factory=list)
     resolution_status: str = "open"

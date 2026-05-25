@@ -80,14 +80,26 @@ class March7Agent:
             )
 
     @traceable(name="March7_Chat", run_type="chain", tags=["march7", "chat"])
-    async def handle_chat(self, user_id: str, content: str) -> str:
+    async def handle_chat(
+        self,
+        user_id: str,
+        content: str,
+        channel_id: str | None = None,
+        observe_input: bool = True,
+    ) -> str:
         try:
-            await self.memory.add_message(user_id=user_id, role="user", content=content)
+            if observe_input:
+                await self.memory.add_message(user_id=user_id, role="user", content=content)
             await self._set_active_marker(user_id)
 
-            sys_prompt, context_msgs = await self.memory.get_context(
-                user_id=user_id, current_query=content
+            sys_prompt, context_msgs, channel_context = await self.memory.get_context(
+                user_id=user_id, current_query=content, channel_id=channel_id
             )
+            if channel_context:
+                sys_prompt = (
+                    f"{sys_prompt}\n\n[Recent channel context]\n{channel_context}\n\n"
+                    f"[Current request]\n{content}"
+                )
 
             max_iterations = 10
             llm_response = None

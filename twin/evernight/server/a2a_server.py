@@ -61,6 +61,43 @@ class EvernightA2AHandler:
                 parts=[Part(type="text", text=f"Consolidation error: {e}")],
             )
 
+    async def handle_consolidate_discussion_task(self, params: dict) -> AsyncIterator[A2AMessage]:
+        """A2A skill for the unified SUMMARY_REQUESTED flow.
+
+        Expects ``params["payload"]`` to be a SUMMARY_REQUESTED payload as
+        built by March7's :class:`SummaryPolicy`.  Returns the consolidation
+        result via a ``data`` part so the caller can emit SUMMARY_COMPLETED /
+        SUMMARY_FAILED locally and cleanup its own T1.
+        """
+        payload = params.get("payload") or {}
+        scope = payload.get("scope")
+        scope_id = payload.get("scope_id")
+        logger.info(
+            "Evernight handling consolidate_discussion scope=%s scope_id=%s",
+            scope,
+            scope_id,
+        )
+
+        consolidator = getattr(self.agent, "consolidator", None)
+        if consolidator is None:
+            yield A2AMessage(
+                role="agent",
+                parts=[Part(type="data", data={
+                    "status": "failed",
+                    "scope": scope,
+                    "scope_id": scope_id,
+                    "reason": "consolidator not configured on Evernight",
+                    "retry_after_seconds": 600,
+                })],
+            )
+            return
+
+        result = await consolidator.consolidate(payload)
+        yield A2AMessage(
+            role="agent",
+            parts=[Part(type="data", data=result)],
+        )
+
     async def handle_dm(self, request: web.Request) -> web.Response:
         """Handle general DM request from March7 container.
 
@@ -262,6 +299,7 @@ def start_server(agent: EvernightAgent, host="0.0.0.0", port=8001, discord_bot=N
         skill_handlers={
             "chat": handler.handle_chat_task,
             "consolidate": handler.handle_consolidate_task,
+            "consolidate_discussion": handler.handle_consolidate_discussion_task,
         },
         host=host,
         port=port,

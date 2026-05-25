@@ -65,6 +65,24 @@ server, agents should fall back to targeted search/read.
 - Bash Executor is privileged. Keep approval/audit behavior intact and do not
   log secrets.
 
+## Current Task Status
+
+Unified discussion memory is implemented end-to-end. See
+[../docs/plans/unified-discussion-memory.md](../docs/plans/unified-discussion-memory.md)
+for the full plan. Short version:
+
+- T1 is scope-aware (`user`/`channel`) across both agents.
+- Gateway separates observe / respond, with reply-to-bot triggering respond.
+- Channel transcript context is injected into prompts.
+- `SummaryPolicy` emits `SUMMARY_REQUESTED`; March7 calls Evernight A2A
+  `consolidate_discussion`; `DiscussionConsolidator` fans out user-centric
+  T2 pages; T1 cleans up on `SUMMARY_COMPLETED`.
+- Each agent runs its own `InactivityTrigger` over its `SummaryStateRepository`.
+- Legacy `TOKEN_LIMIT_REACHED` / snapshot overflow path is removed.
+
+Open follow-ups: FT index migration script for production redeploy, and any
+T2 search side enhancements (channel-scoped filters via `participants` TAG).
+
 ## Quick Links
 
 - Docker/local runbook: [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)

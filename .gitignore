@@ -41,6 +41,11 @@ src/data/relationships/
 src/data/server_relationships.txt
 data/
 memories/
+# Allow source code under twin/**/memories/ — these are Python packages, not data dirs
+!twin/**/memories/
+!twin/**/memories/**
+# Re-ignore caches that may sit inside source packages
+twin/**/memories/**/__pycache__/
 
 # Model Cache
 models/

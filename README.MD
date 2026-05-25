@@ -54,13 +54,14 @@ flowchart LR
 
 ## Plan cần đọc
 
-- [Channel Discussion Memory Plan](docs/plans/channel-discussion-memory.md): kế hoạch mở rộng T1 để nghe hội thoại nhiều user trong channel, phát event tóm tắt, đưa qua T2 `DiscussionConsolidator`, rồi cleanup T1 sau khi T2 báo thành công.
+- [Unified Discussion Memory Plan](docs/plans/unified-discussion-memory.md): kế hoạch thống nhất T1 + T2 cho cả 1-1 user chat lẫn multi-user channel discussion. T1 scope-aware (user/channel), T2 user-centric fan-out (bot nhớ theo user, channel chỉ là metadata). Thay flow `TOKEN_LIMIT_REACHED → overflow_queue` cũ bằng `SUMMARY_REQUESTED → DiscussionConsolidator → SUMMARY_COMPLETED → cleanup`.
 
 Ghi chú dễ quên:
 
 - Evernight là agent độc lập: có thể DM/tag/`!9` để trò chuyện và gửi thông báo/approval.
-- Channel memory chỉ observe channel được phép, không nghe toàn server.
-- T2 search/upsert giữ nguyên; tích hợp qua `DiscussionConsolidator -> WikiPagePayload -> EpisodicMemoryManager.embed_page()`.
+- Channel memory chỉ observe channel được phép, không nghe toàn server. Reply trigger gồm cả reply-to-bot (không chỉ mention).
+- T2 user-centric: `T2Page.user_id` luôn là real user_id (digit). Channel info nằm trong `source_refs`.
+- DiscussionConsolidator fan-out cho mỗi `active_participant` (LLM quyết định).
 - T1 không xóa raw entries cho tới khi nhận `SUMMARY_COMPLETED`.
 
 ## Cấu trúc thư mục chính

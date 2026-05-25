@@ -18,6 +18,7 @@ from gateway.shared.handler_base import GatewayHandler
 from gateway.shared.model import UnifiedEvent, UnifiedMessage
 from twin.shared.tools.exceptions import BashExecutorUnavailableError
 from twin.shared.tools.approval_context import set_current_message, clear_current_message
+from gateway.adapters.discord.cogs.admin_channels import ChannelMode
 
 if TYPE_CHECKING:
     import discord
@@ -39,28 +40,32 @@ class DiscordGatewayHandler(GatewayHandler):
     async def handle_message(self, msg: UnifiedMessage) -> str:
         raw_message: discord.Message | None = None
         is_mentioned = False
+        is_reply_to_bot = False
         if msg.extensions:
             raw_message = msg.extensions.get("_raw_discord_message")
             is_mentioned = msg.extensions.get("is_mentioned", False)
+            is_reply_to_bot = msg.extensions.get("is_reply_to_bot", False)
 
         if raw_message is None:
             logger.warning("No raw Discord message in extensions")
             return ""
 
-        # Channel/DM/Mention filtering
         is_dm = msg.channel.channel_type == "dm"
 
-        is_allowed_channel = False
+        mode = None
         if raw_message.guild:
             admin_cog = self._get_bot().get_cog("AdminChannels")
             if admin_cog:
-                is_allowed_channel = admin_cog.is_bot_channel(
+                mode = admin_cog.get_mode(
                     raw_message.guild.id, raw_message.channel.id
                 )
-            else:
-                is_allowed_channel = True
 
-        if not (is_dm or is_mentioned or is_allowed_channel):
+        is_observe_channel = mode is not None
+        is_respond_channel = mode == ChannelMode.RESPOND_ALLOWED
+        should_observe = is_dm or is_mentioned or is_reply_to_bot or is_observe_channel
+        should_respond = is_dm or is_mentioned or is_reply_to_bot or is_respond_channel
+
+        if not should_observe:
             return ""
 
         # Content check
@@ -69,6 +74,15 @@ class DiscordGatewayHandler(GatewayHandler):
             return ""
 
         user_id = msg.user.platform_id
+        await self._observe_message(
+            msg=msg,
+            raw_message=raw_message,
+            is_dm=is_dm,
+            content=content,
+        )
+
+        if not should_respond:
+            return ""
 
         # Route to March7 agent (all messages here are non-!9)
         try:
@@ -80,6 +94,12 @@ class DiscordGatewayHandler(GatewayHandler):
                         agent_name="march7",
                         user_id=user_id,
                         content=content,
+                        channel_id=(
+                            str(raw_message.channel.id)
+                            if raw_message.guild
+                            else None
+                        ),
+                        observe_input=False,
                     )
                 else:
                     response = await self._legacy_process(user_id, content)
@@ -98,6 +118,37 @@ class DiscordGatewayHandler(GatewayHandler):
             clear_current_message()
 
         return ""
+
+    async def _observe_message(
+        self,
+        msg: UnifiedMessage,
+        raw_message: discord.Message,
+        is_dm: bool,
+        content: str,
+    ) -> None:
+        if not self._agent_router:
+            return
+        memory = getattr(getattr(self._agent_router, "march7", None), "memory", None)
+        if memory is None:
+            return
+
+        if is_dm or not raw_message.guild:
+            await memory.observe_user_message(
+                user_id=msg.user.platform_id,
+                role="user",
+                content=content,
+            )
+            return
+
+        await memory.observe_channel_message(
+            guild_id=str(raw_message.guild.id),
+            channel_id=str(raw_message.channel.id),
+            author_id=msg.user.platform_id,
+            author_name=msg.user.display_name,
+            message_id=msg.message_id,
+            content=content,
+            reply_to=msg.reply_to,
+        )
 
     async def _legacy_process(self, user_id: str, content: str) -> str:
         return ERROR_MESSAGE

@@ -58,9 +58,15 @@ class RedisStorage(BaseStorage):
 
     # === Helper Methods ===
 
-    def _get_redis_key(self, user_id: str) -> str:
-        """Generate Redis key for user's memory entries."""
-        return f"active_memory:{user_id}"
+    def _normalize_scope(self, scope: str, scope_id: str | None = None) -> tuple[str, str]:
+        if scope_id is None:
+            return "user", scope
+        return scope, scope_id
+
+    def _get_redis_key(self, scope: str, scope_id: str | None = None) -> str:
+        """Generate Redis key for scoped memory entries."""
+        scope, scope_id = self._normalize_scope(scope, scope_id)
+        return f"active_memory:{scope}:{scope_id}"
 
     def _get_utc_now_iso(self) -> str:
         """Get current UTC datetime as ISO string."""
@@ -69,34 +75,51 @@ class RedisStorage(BaseStorage):
     def _entry_to_message_dict(self, entry: MemoryEntry) -> Dict[str, Any]:
         """Convert MemoryEntry to dict for storage."""
         return {
+            "scope": entry.scope,
+            "scope_id": entry.scope_id,
+            "user_id": entry.user_id,
             "role": entry.role,
+            "author_id": entry.author_id,
+            "author_name": entry.author_name,
+            "guild_id": entry.guild_id,
+            "channel_id": entry.channel_id,
+            "message_id": entry.message_id,
+            "reply_to": entry.reply_to,
             "content": entry.content,
             "tokens": entry.tokens,
             "timestamp": entry.timestamp.isoformat(),
             "entry_id": entry.entry_id,
         }
 
-    def _message_dict_to_entry(self, msg: Dict[str, Any], user_id: str) -> MemoryEntry:
+    def _message_dict_to_entry(self, msg: Dict[str, Any], scope: str, scope_id: str) -> MemoryEntry:
         """Reconstruct MemoryEntry from stored dict."""
         return MemoryEntry(
-            user_id=user_id,
+            scope=msg.get("scope", scope),
+            scope_id=msg.get("scope_id", scope_id),
+            user_id=msg.get("user_id", scope_id if scope == "user" else msg.get("author_id", "")),
             role=msg["role"],
+            author_id=msg.get("author_id"),
+            author_name=msg.get("author_name"),
+            guild_id=msg.get("guild_id"),
+            channel_id=msg.get("channel_id"),
+            message_id=msg.get("message_id"),
+            reply_to=msg.get("reply_to"),
             content=msg["content"],
             tokens=msg["tokens"],
             timestamp=datetime.fromisoformat(msg["timestamp"]),
             entry_id=msg["entry_id"],
         )
 
-    async def _reset_ttl(self, user_id: str) -> None:
-        """Reset TTL for user's key on new activity."""
-        key = self._get_redis_key(user_id)
+    async def _reset_ttl(self, scope: str, scope_id: str | None = None) -> None:
+        """Reset TTL for scope key on new activity."""
+        key = self._get_redis_key(scope, scope_id)
         await self._redis.expire(key, self._ttl_seconds)
 
     # === BaseStorage Interface Implementation ===
 
     async def save_entry(self, entry: MemoryEntry) -> None:
         """Save a new message entry to Redis HASH."""
-        key = self._get_redis_key(entry.user_id)
+        key = self._get_redis_key(entry.scope, entry.scope_id)
 
         current = await self._redis.hgetall(key)
         now_iso = self._get_utc_now_iso()
@@ -123,29 +146,30 @@ class RedisStorage(BaseStorage):
             },
         )
 
-        await self._reset_ttl(entry.user_id)
+        await self._reset_ttl(entry.scope, entry.scope_id)
 
         logger.debug(
-            f"📥 RedisStorage: Saved entry (User: {entry.user_id} | Tokens: {entry.tokens})"
+            f"📥 RedisStorage: Saved entry ({entry.scope}:{entry.scope_id} | Tokens: {entry.tokens})"
         )
 
-    async def get_entries(self, user_id: str) -> List[MemoryEntry]:
-        """Retrieve all entries for a user."""
-        key = self._get_redis_key(user_id)
+    async def get_entries(self, scope: str, scope_id: str | None = None) -> List[MemoryEntry]:
+        """Retrieve all entries for a scope."""
+        scope, scope_id = self._normalize_scope(scope, scope_id)
+        key = self._get_redis_key(scope, scope_id)
         messages_json = await self._redis.hget(key, "messages")
 
         if not messages_json:
             return []
 
         messages = json.loads(messages_json)
-        entries = [self._message_dict_to_entry(msg, user_id) for msg in messages]
+        entries = [self._message_dict_to_entry(msg, scope, scope_id) for msg in messages]
 
-        logger.debug(f"📤 RedisStorage: Retrieved {len(entries)} entries (User: {user_id})")
+        logger.debug(f"📤 RedisStorage: Retrieved {len(entries)} entries ({scope}:{scope_id})")
         return entries
 
-    async def get_total_tokens(self, user_id: str) -> int:
-        """Get total tokens for a user - O(1) via HASH field."""
-        key = self._get_redis_key(user_id)
+    async def get_total_tokens(self, scope: str, scope_id: str | None = None) -> int:
+        """Get total tokens for a scope - O(1) via HASH field."""
+        key = self._get_redis_key(scope, scope_id)
         total = await self._redis.hget(key, "total_tokens")
 
         if total is None:
@@ -153,9 +177,15 @@ class RedisStorage(BaseStorage):
 
         return int(total)
 
-    async def delete_entries(self, user_id: str, entry_ids: List[str]) -> None:
+    async def delete_entries(
+        self, scope: str, scope_id: str | None = None, entry_ids: List[str] | None = None
+    ) -> None:
         """Delete specific entries by entry_id."""
-        key = self._get_redis_key(user_id)
+        if entry_ids is None:
+            entry_ids = scope_id if isinstance(scope_id, list) else []
+            scope_id = None
+        scope, scope_id = self._normalize_scope(scope, scope_id)
+        key = self._get_redis_key(scope, scope_id)
         current = await self._redis.hgetall(key)
 
         if not current:
@@ -187,15 +217,16 @@ class RedisStorage(BaseStorage):
                 "last_activity": self._get_utc_now_iso(),
             },
         )
-        await self._reset_ttl(user_id)
+        await self._reset_ttl(scope, scope_id)
 
-        logger.debug(f"🗑️ RedisStorage: Deleted entries (User: {user_id})")
+        logger.debug(f"🗑️ RedisStorage: Deleted entries ({scope}:{scope_id})")
 
-    async def clear_all(self, user_id: str) -> None:
-        """Clear all entries for a user."""
-        key = self._get_redis_key(user_id)
+    async def clear_all(self, scope: str, scope_id: str | None = None) -> None:
+        """Clear all entries for a scope."""
+        scope, scope_id = self._normalize_scope(scope, scope_id)
+        key = self._get_redis_key(scope, scope_id)
         await self._redis.delete(key)
-        logger.debug(f"🧹 RedisStorage: Cleared all (User: {user_id})")
+        logger.debug(f"🧹 RedisStorage: Cleared all ({scope}:{scope_id})")
 
 
 def create_redis_storage(

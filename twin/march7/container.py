@@ -10,7 +10,7 @@ from twin.shared.tools.tool_registry import ToolRegistry
 from twin.shared.tools.tool_discovery import discover_and_register_tools
 from twin.shared.tools.approval_gate import ApprovalGate
 from twin.shared.tools.dm_client import DMClient
-from twin.shared.memories.t2 import MemoryJobQueue, T2Memory, T2Store
+from twin.shared.memories.t2 import T2Memory, T2Store
 from twin.shared.llm.openai_embedding_service import OpenAIEmbeddingService
 from twin.shared.external.tavily_client import TavilyClient
 from twin.shared.external.codebox_client import CodeBoxClient
@@ -19,7 +19,8 @@ from twin.march7.memories.memory_manager import MemoryManager
 from twin.march7.memories.activate_memory.activate_memory_service import ActiveMemoryService
 from twin.march7.memories.activate_memory.events.event_dispatcher import EventDispatcher
 from twin.march7.memories.activate_memory.management.context_builder import ContextBuilder
-from twin.march7.memories.activate_memory.management.smart_cleanup import SmartCleanup
+from twin.march7.memories.activate_memory.management.state_repository import SummaryStateRepository
+from twin.march7.memories.activate_memory.management.summary_policy import SummaryPolicy
 from twin.march7.memories.activate_memory.management.token_counter import TokenCounter
 from twin.march7.memories.activate_memory.storage.ram_storage import LocalMemoryDB
 from twin.march7.memories.activate_memory.storage.redis_storage import create_redis_storage
@@ -82,15 +83,16 @@ class March7Container:
         t1_storage = await self._get_t1_storage()
 
         t1_token_counter = TokenCounter()
-        t1_smart_cleanup = SmartCleanup(storage=t1_storage)
         t1_context_builder = ContextBuilder()
+        summary_state_repo = SummaryStateRepository(self.redis_client)
+        summary_policy = SummaryPolicy(t1_storage, summary_state_repo, event_bus)
 
         t1_service = ActiveMemoryService(
             storage=t1_storage,
             token_counter=t1_token_counter,
-            smart_cleanup=t1_smart_cleanup,
             context_builder=t1_context_builder,
             event_dispatcher=event_bus,
+            summary_policy=summary_policy,
         )
 
         # T3 Core Memory
@@ -104,15 +106,30 @@ class March7Container:
             store=t2_store,
             embedding_service=self.embedding_service,
         )
-        overflow_queue = MemoryJobQueue(self.redis_client) if self.redis_client else None
+        # Evernight client for the SUMMARY_REQUESTED -> consolidate_discussion A2A hop
+        evernight_a2a_url = getattr(Config, "EVERNIGHT_A2A_URL", None)
+        evernight_client = None
+        if evernight_a2a_url:
+            try:
+                from gateway.adapters.discord.evernight_client import EvernightClient
+                evernight_client = EvernightClient(base_url=evernight_a2a_url)
+                logger.info("Evernight A2A client configured: %s", evernight_a2a_url)
+            except Exception as e:
+                logger.warning("Evernight A2A client init failed: %s", e)
 
-        # Memory Manager (no overflow, no evernight)
+        # Memory Manager
         self.memory_manager = MemoryManager(
             active_memory=t1_service,
             core_memory=t3_manager,
             event_dispatcher=event_bus,
-            overflow_queue=overflow_queue,
+            state_repo=summary_state_repo,
+            evernight_client=evernight_client,
         )
+
+        # Expose for downstream wiring (InactivityTrigger, tests, A2A skills)
+        self.state_repo = summary_state_repo
+        self.summary_policy = summary_policy
+        self.event_bus = event_bus
 
         # Tool Registry
         tavily_client = self._init_tavily_client()

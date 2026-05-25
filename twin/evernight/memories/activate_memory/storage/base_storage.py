@@ -14,21 +14,23 @@ class BaseStorage(ABC):
         pass
 
     @abstractmethod
-    async def get_entries(self, user_id: str) -> List[MemoryEntry]:
-        """Lấy toàn bộ tin nhắn hiện có của user theo thứ tự thời gian."""
+    async def get_entries(self, scope: str, scope_id: str | None = None) -> List[MemoryEntry]:
+        """Lấy toàn bộ tin nhắn hiện có theo scope theo thứ tự thời gian."""
         pass
 
     @abstractmethod
-    async def get_total_tokens(self, user_id: str) -> int:
-        """Lấy tổng số token hiện đang chiếm dụng của một user."""
+    async def get_total_tokens(self, scope: str, scope_id: str | None = None) -> int:
+        """Lấy tổng số token hiện đang chiếm dụng của một scope."""
         pass
 
     @abstractmethod
-    async def delete_entries(self, user_id: str, entry_ids: List[str]) -> None:
+    async def delete_entries(
+        self, scope: str, scope_id: str | None = None, entry_ids: List[str] | None = None
+    ) -> None:
         """Xóa danh sách các tin nhắn cụ thể (Dùng cho Smart Cleanup)."""
         pass
 
     @abstractmethod
-    async def clear_all(self, user_id: str) -> None:
-        """Xóa sạch bộ nhớ của user (Dùng khi Timeout hết phiên)."""
+    async def clear_all(self, scope: str, scope_id: str | None = None) -> None:
+        """Xóa sạch bộ nhớ của scope (Dùng khi Timeout hết phiên)."""
         pass

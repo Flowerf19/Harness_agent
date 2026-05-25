@@ -32,6 +32,7 @@ class EvernightAgent:
         tool_registry: Optional[ToolRegistry] = None,
         use_native_tools: bool = True,
         march7_url: str = "http://march7:8000",
+        consolidator: Any = None,
         **kwargs,
     ):
         self.memory = memory_manager
@@ -41,6 +42,7 @@ class EvernightAgent:
         self.tool_registry = tool_registry
         self.use_native_tools = use_native_tools
         self.march7_url = march7_url
+        self.consolidator = consolidator
         self.use_native_tools = use_native_tools
         self.march7_url = march7_url
 
@@ -67,6 +69,7 @@ class EvernightAgent:
             skills=[
                 {"id": "chat", "name": "Chat", "description": "Conversational chat with memory and tools"},
                 {"id": "consolidate", "name": "Consolidate", "description": "Consolidate T1 snapshot into T2"},
+                {"id": "consolidate_discussion", "name": "Consolidate Discussion", "description": "Process SUMMARY_REQUESTED payload into user-centric T2 pages"},
                 {"id": "get_snapshot", "name": "Get Snapshot", "description": "Get T1 memory snapshot"},
             ],
         )

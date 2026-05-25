@@ -154,7 +154,7 @@ def mock_redis():
     """
     Mock Redis client using AsyncMock.
 
-    Provides common Redis operations used by MemoryJobQueue:
+    Provides common Redis operations used by Redis-backed components:
     - lpush, rpop, llen, lrange (queue operations)
     - hset, hget, hdel (checkpoint operations)
     - delete (clear operations)
@@ -246,14 +246,6 @@ def mock_redis():
 def redis_client(mock_redis):
     """Alias for mock_redis for clearer test semantics."""
     return mock_redis
-
-
-@pytest.fixture
-def overflow_queue(mock_redis):
-    """MemoryJobQueue instance with mock Redis."""
-    from twin.shared.memories.t2.queue import MemoryJobQueue
-
-    return MemoryJobQueue(mock_redis)
 
 
 # ============================================================
@@ -394,13 +386,6 @@ def mock_token_counter():
 # ============================================================
 # Cleanup Fixtures
 # ============================================================
-
-@pytest.fixture
-def mock_smart_cleanup():
-    """Mock SmartCleanup for T1 memory management."""
-    cleanup = AsyncMock()
-    cleanup.execute = AsyncMock()
-    return cleanup
 
 
 @pytest.fixture

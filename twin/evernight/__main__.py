@@ -1,7 +1,6 @@
 """Entry point for Evernight Agent."""
 import asyncio
 import logging
-import os
 import signal
 import sys
 
@@ -19,10 +18,6 @@ logger = logging.getLogger("evernight.main")
 async def main():
     from twin.evernight.config import EvernightConfig
     from twin.evernight.container import EvernightContainer
-    from twin.evernight.consolidation_runner import (
-        ConsolidationRunner,
-        March7MemoryClient,
-    )
     from twin.evernight.triggers.inactivity_trigger import InactivityTrigger
     from twin.evernight.self_heal.monitor import SelfHealMonitor
     from twin.shared.config.settings import Config
@@ -50,12 +45,6 @@ async def main():
     await server.start()
     logger.info(f"Evernight Agent listening on port {config.port}")
 
-    march7_memory = March7MemoryClient(march7_url=config.march7_url)
-    consolidation_runner = ConsolidationRunner(
-        evernight_agent=container.agent,
-        march7_memory=march7_memory,
-    )
-
     # Start self-healing monitor
     self_heal = None
     if config.self_heal_enabled:
@@ -69,44 +58,19 @@ async def main():
         await self_heal.start()
         logger.info(f"Self-heal monitor started (interval={config.self_heal_interval}s)")
 
-    # Start queue worker and inactivity trigger against March7's coordination Redis.
+    # InactivityTrigger over Evernight's own SummaryStateRepository
+    # (March7 channel scopes are polled by March7's own InactivityTrigger).
     trigger = None
-    memory_worker = None
-    coordination_storage = None
-    try:
-        from twin.evernight.memories.activate_memory.storage.redis_storage import create_redis_storage
-
-        coordination_storage = create_redis_storage(
-            redis_url=Config.REDIS_URL,
-            redis_password=Config.REDIS_PASSWORD,
-            redis_db=int(os.getenv("MARCH7_REDIS_DB", "0")),
-        )
-        if not await coordination_storage.health_check():
-            await coordination_storage.close()
-            coordination_storage = None
-    except Exception:
-        logger.exception("Coordination Redis unavailable - inactivity trigger disabled")
-
-    if coordination_storage:
-        from twin.shared.memories.t2 import MemoryJobQueue, MemoryWorker
-
-        memory_worker = MemoryWorker(
-            queue=MemoryJobQueue(coordination_storage.redis),
-            evernight_agent=container.agent,
-            march7_memory=march7_memory,
-            poll_interval=2.0,
-        )
-        await memory_worker.start()
-
+    if container.state_repo is not None and container.summary_policy is not None:
         trigger = InactivityTrigger(
-            redis_client=coordination_storage.redis,
-            consolidation_runner=consolidation_runner,
-            inactivity_seconds=config.inactivity_seconds,
+            state_repo=container.state_repo,
+            summary_policy=container.summary_policy,
+            scopes=("user",),
             poll_interval=config.poll_interval,
         )
         await trigger.start()
     else:
-        logger.warning("Redis not available - inactivity trigger disabled")
+        logger.warning("State repo / SummaryPolicy not available - inactivity trigger disabled")
 
     loop = asyncio.get_running_loop()
     shutdown_event = asyncio.Event()
@@ -126,11 +90,6 @@ async def main():
         await self_heal.stop()
     if trigger:
         await trigger.stop()
-    if memory_worker:
-        await memory_worker.stop()
-    await consolidation_runner.close()
-    if coordination_storage:
-        await coordination_storage.close()
     await server.stop()
     await container.shutdown()
     logger.info("Evernight Agent shut down")

@@ -18,13 +18,16 @@ from twin.evernight.memories.memory_manager import MemoryManager
 from twin.evernight.memories.activate_memory.activate_memory_service import ActiveMemoryService
 from twin.evernight.memories.activate_memory.events.event_dispatcher import EventDispatcher
 from twin.evernight.memories.activate_memory.management.context_builder import ContextBuilder
-from twin.evernight.memories.activate_memory.management.smart_cleanup import SmartCleanup
+from twin.evernight.memories.activate_memory.management.state_repository import SummaryStateRepository
+from twin.evernight.memories.activate_memory.management.summary_policy import SummaryPolicy
 from twin.evernight.memories.activate_memory.management.token_counter import TokenCounter
 from twin.evernight.memories.activate_memory.storage.ram_storage import LocalMemoryDB
 from twin.evernight.memories.activate_memory.storage.redis_storage import create_redis_storage
+from twin.evernight.memories.activate_memory.storage.redis_stack_storage import RedisStackStorage
 from twin.evernight.memories.activate_memory.storage.base_storage import BaseStorage
 from twin.evernight.memories.core_memory.core_manager import CoreManager
 from twin.evernight.memories.core_memory import MarkdownStorage
+from twin.shared.memories.discussion_consolidator import DiscussionConsolidator
 from twin.evernight.agent import EvernightAgent
 from twin.evernight.config import EvernightConfig
 
@@ -79,15 +82,16 @@ class EvernightContainer:
         event_bus = EventDispatcher()
         t1_storage = await self._get_t1_storage()
         t1_token_counter = TokenCounter()
-        t1_smart_cleanup = SmartCleanup(storage=t1_storage)
         t1_context_builder = ContextBuilder()
+        summary_state_repo = SummaryStateRepository(self.redis_client)
+        summary_policy = SummaryPolicy(t1_storage, summary_state_repo, event_bus)
 
         t1_service = ActiveMemoryService(
             storage=t1_storage,
             token_counter=t1_token_counter,
-            smart_cleanup=t1_smart_cleanup,
             context_builder=t1_context_builder,
             event_dispatcher=event_bus,
+            summary_policy=summary_policy,
         )
 
         # T3 Core Memory
@@ -95,19 +99,34 @@ class EvernightContainer:
         # SmartUpdater removed - agent handles merge
         t3_manager = CoreManager(storage=t3_storage)
 
-        # Memory Manager
-        self.memory_manager = MemoryManager(
-            active_memory=t1_service,
-            core_memory=t3_manager,
-            event_dispatcher=event_bus,
-        )
-
         # T2 semantic memory (Redis Stack, shared)
         t2_store = await self._get_t2_store()
         episodic_memory = T2Memory(
             store=t2_store,
             embedding_service=self.embedding_service,
         )
+
+        # DiscussionConsolidator wires the SUMMARY_REQUESTED event into T2 fan-out
+        consolidator = DiscussionConsolidator(
+            llm=self.llm_service,
+            t2_memory=episodic_memory,
+            event_dispatcher=event_bus,
+        )
+
+        # Memory Manager
+        self.memory_manager = MemoryManager(
+            active_memory=t1_service,
+            core_memory=t3_manager,
+            event_dispatcher=event_bus,
+            state_repo=summary_state_repo,
+            consolidator=consolidator,
+        )
+
+        self.consolidator = consolidator
+        # Expose for downstream wiring (InactivityTrigger, A2A skills)
+        self.state_repo = summary_state_repo
+        self.summary_policy = summary_policy
+        self.event_bus = event_bus
 
         # Tool Registry
         tavily_client = self._init_tavily_client()
@@ -147,6 +166,7 @@ class EvernightContainer:
             llm_service=self.llm_service,
             tool_registry=tool_registry,
             march7_url=self.config.march7_url,
+            consolidator=consolidator,
         )
 
         self.tool_registry = tool_registry
@@ -172,6 +192,17 @@ class EvernightContainer:
             if await storage.health_check():
                 self.redis_storage = storage
                 self.redis_client = storage.redis
+                phase = getattr(Config, "T1_STORAGE_PHASE", "legacy")
+                if phase == "redis_stack":
+                    stack_storage = RedisStackStorage(self.redis_client)
+                    try:
+                        await stack_storage.initialize()
+                    except Exception as e:
+                        logger.warning("T1 Redis Stack init failed, fallback legacy: %s", e)
+                        return storage
+
+                    logger.info("Evernight T1 Redis Stack phase=redis_stack")
+                    return stack_storage
                 return storage
             else:
                 await storage.close()

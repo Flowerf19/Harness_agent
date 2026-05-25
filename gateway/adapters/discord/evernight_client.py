@@ -31,6 +31,33 @@ class EvernightClient:
             logger.exception("Failed to send chat to Evernight at %s", self.base_url)
             return "Xin lỗi, không thể kết nối đến Evernight."
 
+    async def request_consolidation(self, payload: dict) -> dict:
+        """Ask Evernight to consolidate a SUMMARY_REQUESTED payload.
+
+        Returns the consolidation result dict from DiscussionConsolidator —
+        ``{"status": "ok|skipped|failed", ...}``.  Never raises: connection
+        errors are wrapped as ``status=failed``.
+        """
+        session_id = payload.get("scope_id") or "unknown"
+        try:
+            return await self._client.send_data_task(
+                skill="consolidate_discussion",
+                session_id=session_id,
+                params={"payload": payload},
+            )
+        except Exception as exc:
+            logger.exception(
+                "Failed to request consolidation from Evernight at %s",
+                self.base_url,
+            )
+            return {
+                "status": "failed",
+                "scope": payload.get("scope"),
+                "scope_id": payload.get("scope_id"),
+                "reason": f"a2a_error: {exc}",
+                "retry_after_seconds": 600,
+            }
+
     async def health_check(self) -> bool:
         """Check Evernight health via /.well-known/agent.json."""
         try:

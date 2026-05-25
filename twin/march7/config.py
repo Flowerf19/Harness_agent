@@ -9,6 +9,7 @@ class March7Config:
     redis_db: int = 0
     persona_path: str = "twin/march7/personas"
     agent_name: str = "march7"
+    poll_interval: int = 60
 
     @classmethod
     def from_env(cls) -> "March7Config":
@@ -17,4 +18,5 @@ class March7Config:
             redis_db=int(os.getenv("MARCH7_REDIS_DB", "0")),
             persona_path=os.getenv("MARCH7_PERSONA_PATH", "twin/march7/personas"),
             agent_name=os.getenv("AGENT_NAME", "march7"),
+            poll_interval=int(os.getenv("POLL_INTERVAL", "60")),
         )
