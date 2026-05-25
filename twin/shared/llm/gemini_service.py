@@ -18,7 +18,7 @@ class GeminiService(BaseLLMService):
         self.api_url = os.getenv(
             "GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/models"
         )
-        self.model = Config.LLM_MODEL
+        self.model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         self.session = None
         self.logger = logging.getLogger("discord_bot.GeminiService")
 
