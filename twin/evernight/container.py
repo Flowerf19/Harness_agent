@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from twin.shared.config.settings import Config
 from twin.shared.llm.gemini_service import GeminiService
 from twin.shared.llm.openai_service import OpenAIService
-from twin.shared.llm.openai_embedding_service import OpenAIEmbeddingService
+from twin.shared.llm.embedding import create_embedding_service
 from twin.shared.tools.tool_registry import ToolRegistry
 from twin.shared.tools.tool_discovery import discover_and_register_tools
 from twin.shared.tools.approval_gate import ApprovalGate
@@ -65,18 +65,7 @@ class EvernightContainer:
             self.llm_service = GeminiService(persona_path=self.config.persona_path)
 
         # Embedding Service
-        embedding_provider = getattr(Config, "EMBEDDING_PROVIDER", "openai_compat").lower()
-        if embedding_provider in {"openai", "openai_compat", "openai-compatible", "openai_compatible", "qwen"}:
-            self.embedding_service = OpenAIEmbeddingService(
-                model_name=Config.EMBEDDING_MODEL_NAME,
-                api_key=Config.EMBEDDING_API_KEY,
-                api_url=Config.EMBEDDING_API_URL,
-            )
-        else:
-            raise ValueError(
-                f"Unsupported embedding provider: {embedding_provider}. "
-                "Local embeddings removed. Use 'openai_compat' (or alias 'qwen')."
-            )
+        self.embedding_service = create_embedding_service()
 
         # T1 Active Memory
         event_bus = EventDispatcher()

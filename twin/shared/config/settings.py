@@ -102,8 +102,10 @@ class Config:
     SEARCH_MIN_RELEVANCE = SEARCH_MIN_RELEVANCE_DEFAULT
 
     # === Embedding model ===
-    # Only OpenAI-compatible embeddings are supported.
-    # "qwen" / "openai" / "openai_compat" are aliases handled by the provider switch.
+    # Supported providers (see twin/shared/llm/embedding/embedding_factory.py):
+    #   - openai_compat (aliases: openai, qwen) -> OpenAIEmbeddingService
+    #     Works with OpenAI, Qwen/DashScope, Voyage, LM Studio, OpenRouter, ...
+    #   - gemini (alias: google) -> GeminiEmbeddingService
     EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "openai_compat")
     EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "text-embedding-v3")
     EMBEDDING_API_URL = os.getenv("EMBEDDING_API_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")

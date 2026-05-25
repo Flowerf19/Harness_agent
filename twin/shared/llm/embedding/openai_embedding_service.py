@@ -1,16 +1,19 @@
-"""OpenAIEmbeddingService - Call embeddings via an OpenAI-compatible API."""
+"""OpenAIEmbeddingService — embeddings via an OpenAI-compatible API (POST /embeddings).
 
-import logging
+Works for OpenAI proper and any OpenAI-compatible vendor (Qwen/DashScope,
+LM Studio, Voyage, Cohere v2-compat, OpenRouter, ...). Pick provider via
+the URL/model/key passed to `__init__` or via the factory.
+"""
+
+from __future__ import annotations
+
 from typing import List
 
-import aiohttp
-
 from twin.shared.config.settings import Config
+from .base_embedding_service import BaseEmbeddingService
 
-logger = logging.getLogger(__name__)
 
-
-class OpenAIEmbeddingService:
+class OpenAIEmbeddingService(BaseEmbeddingService):
     """Remote embeddings via an OpenAI-compatible API (POST /embeddings)."""
 
     def __init__(
@@ -19,36 +22,27 @@ class OpenAIEmbeddingService:
         api_key: str | None = None,
         api_url: str | None = None,
     ):
-        self.model_name = model_name
+        super().__init__(model_name=model_name)
         self.api_key = api_key or Config.EMBEDDING_API_KEY
         self.api_url = (api_url or Config.EMBEDDING_API_URL).rstrip("/")
-        self._session: aiohttp.ClientSession | None = None
-        self._cache: dict[str, List[float]] = {}
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         if not self.api_key:
-            logger.warning("OpenAIEmbeddingService: No API key configured")
-
-    async def _get_session(self) -> aiohttp.ClientSession:
-        if self._session is None:
-            self._session = aiohttp.ClientSession()
-        return self._session
+            self.logger.warning("OpenAIEmbeddingService: No API key configured")
 
     async def get_embedding(self, text: str) -> List[float]:
         if not text or not text.strip():
             return []
 
-        if text in self._cache:
-            return self._cache[text]
+        cached = self._cache_get(text)
+        if cached is not None:
+            return cached
 
         try:
             session = await self._get_session()
             async with session.post(
                 f"{self.api_url}/embeddings",
-                json={
-                    "model": self.model_name,
-                    "input": text,
-                },
+                json={"model": self.model_name, "input": text},
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
@@ -56,24 +50,16 @@ class OpenAIEmbeddingService:
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    logger.error(
+                    self.logger.error(
                         "Embedding API error (%s): %s", response.status, error_text
                     )
                     return []
 
                 data = await response.json()
                 vector = data["data"][0]["embedding"]
-
-                self._cache[text] = vector
-                if len(self._cache) > 100:
-                    self._cache.pop(next(iter(self._cache)))
-
+                self._cache_put(text, vector)
                 return vector
 
         except Exception as e:
-            logger.error("OpenAIEmbeddingService error: %s", e)
+            self.logger.error("OpenAIEmbeddingService error: %s", e)
             return []
-
-    async def close(self):
-        if self._session:
-            await self._session.close()
