@@ -135,7 +135,7 @@ T1 chat context dùng recent-window theo token budget:
 - `T1_CONTEXT_MAX_TOKENS`: số token T1 tối đa đưa vào prompt chat.
 - `T1_CONTEXT_MAX_MESSAGES`: hard cap số message gần nhất.
 
-LLM/embeddings: xem `README_LLM_PROVIDERS.md`.
+LLM/embeddings: xem `README_LLM_PROVIDERS.md` (hỗ trợ OpenAI-compat + Gemini native qua factory pattern ở `twin/shared/llm/embedding/`).
 
 ## Development & testing
 
