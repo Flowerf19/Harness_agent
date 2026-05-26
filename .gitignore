@@ -69,5 +69,5 @@ docker/volumes/**
 
 # Conda environment cache (mounted from Docker)
 docker/volumes/conda_envs/
-
+.playwright-cli
 

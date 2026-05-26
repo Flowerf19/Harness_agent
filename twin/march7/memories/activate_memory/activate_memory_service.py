@@ -91,6 +91,35 @@ class ActiveMemoryService:
         logger.debug("📥 ActiveMemory: Saved channel message (Channel: %s | Tokens: %s)", channel_id, tokens)
         return entry
 
+    async def observe_channel_reply(
+        self,
+        channel_id: str,
+        guild_id: str | None,
+        bot_id: str,
+        bot_name: str,
+        content: str,
+    ) -> MemoryEntry:
+        """Persist the bot's own reply into channel scope as role=assistant."""
+        tokens = self.token_counter.count_entry_tokens(content)
+        entry = MemoryEntry(
+            scope="channel",
+            scope_id=channel_id,
+            user_id=bot_id,
+            role="assistant",
+            author_id=bot_id,
+            author_name=bot_name,
+            guild_id=guild_id,
+            channel_id=channel_id,
+            content=content,
+            tokens=tokens,
+        )
+        await self.storage.save_entry(entry)
+        await self.summary_policy.state_repo.record_entry("channel", channel_id, tokens)
+        await self.summary_policy.evaluate("channel", channel_id)
+
+        logger.debug("📥 ActiveMemory: Saved channel reply (Channel: %s | Tokens: %s)", channel_id, tokens)
+        return entry
+
     @traceable(
         name="T1_Get_Context_For_LLM",
         run_type="chain",
@@ -99,6 +128,11 @@ class ActiveMemoryService:
     async def get_context_for_llm(self, user_id: str) -> List[Dict]:
         """Get context for LLM prompt."""
         entries = await self.storage.get_entries("user", user_id)
+        return self.context_builder.build_context(entries)
+
+    async def get_channel_context_for_llm(self, channel_id: str) -> List[Dict]:
+        """Get context for LLM prompt scoped to a channel transcript."""
+        entries = await self.storage.get_entries("channel", channel_id)
         return self.context_builder.build_context(entries)
 
     async def reset_session(self, user_id: str):

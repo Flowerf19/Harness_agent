@@ -86,20 +86,18 @@ class March7Agent:
         content: str,
         channel_id: str | None = None,
         observe_input: bool = True,
+        guild_id: str | None = None,
+        bot_id: str | None = None,
+        bot_name: str | None = None,
     ) -> str:
         try:
             if observe_input:
                 await self.memory.add_message(user_id=user_id, role="user", content=content)
             await self._set_active_marker(user_id)
 
-            sys_prompt, context_msgs, channel_context = await self.memory.get_context(
+            sys_prompt, context_msgs = await self.memory.get_context(
                 user_id=user_id, current_query=content, channel_id=channel_id
             )
-            if channel_context:
-                sys_prompt = (
-                    f"{sys_prompt}\n\n[Recent channel context]\n{channel_context}\n\n"
-                    f"[Current request]\n{content}"
-                )
 
             max_iterations = 10
             llm_response = None
@@ -160,8 +158,13 @@ class March7Agent:
 
             is_reasoning_only = isinstance(llm_response, LLMResponse) and llm_response.reasoning_only
             if bot_response and not bot_response.startswith("Error:") and not is_reasoning_only:
-                await self.memory.add_message(
-                    user_id=user_id, role="assistant", content=bot_response
+                await self.memory.add_assistant_message(
+                    user_id=user_id,
+                    content=bot_response,
+                    channel_id=channel_id,
+                    guild_id=guild_id,
+                    bot_id=bot_id,
+                    bot_name=bot_name,
                 )
 
             return bot_response

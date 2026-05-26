@@ -59,5 +59,15 @@ class ContextBuilder:
 
         selected.reverse()
 
-        # Format for LLM (omit metadata to save tokens)
-        return [{"role": e.role, "content": e.content} for e in selected]
+        # Format for LLM (omit metadata to save tokens). In channel scope the
+        # LLM sees a multi-speaker transcript, so prefix human turns with the
+        # author name. Assistant turns and user-scope DM turns pass through
+        # unchanged.
+        return [self._format_entry(e) for e in selected]
+
+    @staticmethod
+    def _format_entry(entry: MemoryEntry) -> dict:
+        if entry.scope == "channel" and entry.role == "user":
+            speaker = entry.author_name or entry.author_id or entry.user_id
+            return {"role": "user", "content": f"{speaker}: {entry.content}"}
+        return {"role": entry.role, "content": entry.content}

@@ -42,10 +42,17 @@ class DiscussionConsolidator:
     events or to surface the result over an A2A skill response.
     """
 
-    def __init__(self, llm: Any, t2_memory: Any, event_dispatcher: Any | None = None):
+    def __init__(
+        self,
+        llm: Any,
+        t2_memory: Any,
+        event_dispatcher: Any | None = None,
+        bot_user_ids: set[str] | None = None,
+    ):
         self.llm = llm
         self.t2 = t2_memory
         self.events = event_dispatcher
+        self.bot_user_ids = {str(uid) for uid in (bot_user_ids or set())}
 
     async def consolidate(self, payload: dict) -> dict:
         """Run the LLM + fan-out + embed pipeline.
@@ -72,9 +79,22 @@ class DiscussionConsolidator:
                 }
 
             participants = summary.get("participants") or self._participants_from_payload(payload)
+            participants = self._strip_bot_ids(participants, payload)
             active_participants = summary.get("active_participants") or participants
+            active_participants = self._strip_bot_ids(active_participants, payload)
             if mode == "single_user":
                 active_participants = [payload["scope_id"]]
+            elif not active_participants:
+                # Channel turn where only bot lines remained after filtering.
+                return {
+                    "status": "skipped",
+                    "scope": payload.get("scope"),
+                    "scope_id": payload.get("scope_id"),
+                    "summarized_entry_ids": summarized_entry_ids,
+                    "page_ids": [],
+                    "canonical_topic": summary.get("canonical_topic"),
+                    "active_participants": [],
+                }
 
             page_ids: list[str] = []
             for participant_id in active_participants:
@@ -132,14 +152,56 @@ class DiscussionConsolidator:
         return json.loads(extract_json_object(text))
 
     def _participants_from_payload(self, payload: dict) -> list[str]:
+        """Collect distinct human author ids from the transcript.
+
+        Assistant entries (the bot's own replies) are excluded so the
+        fan-out never creates a user-centric T2 page for the bot itself.
+        """
         participants: list[str] = []
+        human_ids: set[str] = set()
         for entry in payload.get("entries", []):
+            if entry.get("role") == "assistant":
+                continue
             user_id = entry.get("author_id") or entry.get("user_id")
-            if user_id and user_id not in participants:
+            if user_id and user_id not in human_ids:
+                human_ids.add(user_id)
                 participants.append(str(user_id))
         if not participants and payload.get("scope") == "user":
             participants.append(str(payload["scope_id"]))
         return participants
+
+    def _human_ids(self, payload: dict) -> set[str]:
+        """Set of human author ids (used to filter LLM-returned lists)."""
+        ids: set[str] = set()
+        for entry in payload.get("entries", []):
+            if entry.get("role") == "assistant":
+                continue
+            uid = entry.get("author_id") or entry.get("user_id")
+            if uid:
+                ids.add(str(uid))
+        if payload.get("scope") == "user":
+            ids.add(str(payload["scope_id"]))
+        return ids
+
+    def _strip_bot_ids(self, participants: list[str], payload: dict) -> list[str]:
+        """Drop bot ids from a participants list.
+
+        An id is considered "bot-like" when it appears in the explicit
+        ``bot_user_ids`` set passed at construction OR when the payload never
+        contains a non-assistant entry for that id. Both checks together mean
+        no T2 page is ever fanned out for a bot — even if the LLM hallucinates
+        the bot into its participants list.
+        """
+        human_ids = self._human_ids(payload)
+        result: list[str] = []
+        for pid in participants:
+            spid = str(pid)
+            if spid in self.bot_user_ids:
+                continue
+            if spid not in human_ids:
+                continue
+            result.append(spid)
+        return result
 
     def _build_page(
         self,

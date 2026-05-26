@@ -263,3 +263,91 @@ async def test_consolidate_merges_existing_page():
     assert merged.key_points == ["pep8", "type hints"]      # deduped union
     assert len(merged.source_refs) == 2                     # appended
     assert merged.access_count == 1                         # bumped
+
+
+# ---------------------------------------------------------------------------
+# bot filter — assistant entries must never become T2 participants
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_consolidate_filters_bot_from_active_participants():
+    """LLM may return the bot id in participants; fan-out must skip it."""
+    llm = _StubLLM(
+        '{"canonical_topic": "channel chat", "current_summary": "Talk.",'
+        ' "key_points": ["x"], "participants": ["alice", "march7"],'
+        ' "active_participants": ["alice", "march7"],'
+        ' "importance": 3, "confidence": 0.9, "status": "ok"}'
+    )
+    t2 = _StubT2()
+    consolidator = DiscussionConsolidator(llm=llm, t2_memory=t2)
+
+    payload = {
+        "scope": "channel",
+        "scope_id": "c1",
+        "channel_id": "c1",
+        "entries": [
+            {"entry_id": "e1", "author_id": "alice", "author_name": "Alice", "role": "user", "content": "hi"},
+            {"entry_id": "e2", "author_id": "march7", "author_name": "March7", "role": "assistant", "content": "ack"},
+        ],
+    }
+
+    result = await consolidator.consolidate(payload)
+    assert result["status"] == "ok"
+    assert result["active_participants"] == ["alice"]
+    assert [p.user_id for p in t2.embedded] == ["alice"]
+
+
+@pytest.mark.asyncio
+async def test_consolidate_skips_when_only_bot_speaks():
+    """Channel payload with only assistant entries → skipped, no embeds."""
+    llm = _StubLLM(
+        '{"canonical_topic": "monologue", "current_summary": "bot only.",'
+        ' "key_points": [], "participants": ["march7"],'
+        ' "active_participants": ["march7"],'
+        ' "importance": 2, "confidence": 0.5, "status": "ok"}'
+    )
+    t2 = _StubT2()
+    consolidator = DiscussionConsolidator(llm=llm, t2_memory=t2)
+
+    payload = {
+        "scope": "channel",
+        "scope_id": "c1",
+        "channel_id": "c1",
+        "entries": [
+            {"entry_id": "e1", "author_id": "march7", "role": "assistant", "content": "alone"},
+        ],
+    }
+
+    result = await consolidator.consolidate(payload)
+    assert result["status"] == "skipped"
+    assert result["page_ids"] == []
+    assert t2.embedded == []
+
+
+@pytest.mark.asyncio
+async def test_consolidate_with_explicit_bot_user_ids_drops_them():
+    """Belt-and-suspenders: explicit bot_user_ids drops even non-assistant entries."""
+    llm = _StubLLM(
+        '{"canonical_topic": "x", "current_summary": "s", "key_points": [],'
+        ' "participants": ["alice", "999"],'
+        ' "active_participants": ["alice", "999"],'
+        ' "status": "ok"}'
+    )
+    t2 = _StubT2()
+    consolidator = DiscussionConsolidator(
+        llm=llm, t2_memory=t2, bot_user_ids={"999"}
+    )
+
+    payload = {
+        "scope": "channel",
+        "scope_id": "c1",
+        "channel_id": "c1",
+        "entries": [
+            {"entry_id": "e1", "author_id": "alice", "role": "user", "content": "x"},
+            {"entry_id": "e2", "author_id": "999", "role": "user", "content": "leftover"},
+        ],
+    }
+
+    result = await consolidator.consolidate(payload)
+    assert result["active_participants"] == ["alice"]
+    assert [p.user_id for p in t2.embedded] == ["alice"]

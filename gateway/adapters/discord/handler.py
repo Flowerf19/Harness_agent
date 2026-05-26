@@ -88,6 +88,7 @@ class DiscordGatewayHandler(GatewayHandler):
         try:
             set_current_message(raw_message)
             logger.info("Routing to march7 agent: user=%s content=%.80s", user_id, content)
+            bot_user = self._get_bot().user if self._get_bot() else None
             async with raw_message.channel.typing():
                 if self._agent_router:
                     response = await self._agent_router.route(
@@ -100,6 +101,13 @@ class DiscordGatewayHandler(GatewayHandler):
                             else None
                         ),
                         observe_input=False,
+                        guild_id=(
+                            str(raw_message.guild.id)
+                            if raw_message.guild
+                            else None
+                        ),
+                        bot_id=str(bot_user.id) if bot_user else None,
+                        bot_name=bot_user.display_name if bot_user else None,
                     )
                 else:
                     response = await self._legacy_process(user_id, content)

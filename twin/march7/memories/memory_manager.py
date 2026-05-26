@@ -17,7 +17,6 @@ from twin.march7.memories.activate_memory.management.state_repository import (
 from twin.march7.memories.activate_memory.constants import (
     KEEP_RECENT_MESSAGES_AFTER_SUMMARY,
 )
-from twin.march7.memories.channel_context import build_channel_context
 from twin.march7.memories.core_memory.core_manager import CoreManager
 
 logger = logging.getLogger(__name__)
@@ -97,6 +96,28 @@ class MemoryManager:
     async def observe_user_message(self, user_id: str, role: str, content: str) -> None:
         await self.t1.observe_user_message(user_id, role, content)
 
+    async def add_assistant_message(
+        self,
+        user_id: str,
+        content: str,
+        *,
+        channel_id: str | None = None,
+        guild_id: str | None = None,
+        bot_id: str | None = None,
+        bot_name: str | None = None,
+    ) -> None:
+        """Persist a bot reply into the scope the turn belongs to."""
+        if channel_id:
+            await self.t1.observe_channel_reply(
+                channel_id=channel_id,
+                guild_id=guild_id,
+                bot_id=bot_id or "march7",
+                bot_name=bot_name or "March7",
+                content=content,
+            )
+        else:
+            await self.t1.observe_user_message(user_id, "assistant", content)
+
     async def observe_channel_message(
         self,
         guild_id: str,
@@ -124,11 +145,13 @@ class MemoryManager:
     )
     async def get_context(
         self, user_id: str, current_query: str, channel_id: str | None = None
-    ) -> Tuple[str, List[Dict], str | None]:
+    ) -> Tuple[str, List[Dict]]:
         async def _run_t3_system_prompt():
             return await self.t3.get_system_prompt_context(user_id)
 
         async def _run_t1_context():
+            if channel_id:
+                return await self.t1.get_channel_context_for_llm(channel_id)
             return await self.t1.get_context_for_llm(user_id)
 
         system_prompt, context_messages = await asyncio.gather(
@@ -136,12 +159,7 @@ class MemoryManager:
             _run_t1_context()
         )
 
-        channel_context = None
-        if channel_id:
-            channel_entries = await self.t1.storage.get_entries("channel", channel_id)
-            channel_context = build_channel_context(channel_entries)
-
-        return system_prompt, context_messages, channel_context
+        return system_prompt, context_messages
 
     async def clear_session(self, user_id: str):
         await self.t1.reset_session(user_id)

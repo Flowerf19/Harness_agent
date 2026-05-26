@@ -64,3 +64,76 @@ def test_context_builder_keeps_latest_message_even_when_it_exceeds_budget():
     context = ContextBuilder().build_context(entries, max_entries=32, max_tokens=100)
 
     assert context == [{"role": "user", "content": "latest-long-message"}]
+
+
+def test_context_builder_channel_scope_prefixes_user_messages_with_author():
+    entries = [
+        MemoryEntry(
+            scope="channel",
+            scope_id="c1",
+            user_id="u1",
+            role="user",
+            author_id="u1",
+            author_name="Hoà",
+            channel_id="c1",
+            content="alo",
+            tokens=1,
+        )
+    ]
+
+    context = ContextBuilder().build_context(entries)
+
+    assert context == [{"role": "user", "content": "Hoà: alo"}]
+
+
+def test_context_builder_channel_scope_keeps_assistant_messages_clean():
+    entries = [
+        MemoryEntry(
+            scope="channel",
+            scope_id="c1",
+            user_id="march7",
+            role="assistant",
+            author_id="march7",
+            author_name="March7",
+            channel_id="c1",
+            content="2080 nha",
+            tokens=2,
+        )
+    ]
+
+    context = ContextBuilder().build_context(entries)
+
+    assert context == [{"role": "assistant", "content": "2080 nha"}]
+
+
+def test_context_builder_user_scope_unchanged():
+    entries = [
+        MemoryEntry(
+            user_id="u1",
+            role="user",
+            content="hi",
+            tokens=1,
+        )
+    ]
+
+    context = ContextBuilder().build_context(entries)
+
+    assert context == [{"role": "user", "content": "hi"}]
+
+
+def test_context_builder_channel_scope_falls_back_to_user_id_without_author_name():
+    entries = [
+        MemoryEntry(
+            scope="channel",
+            scope_id="c1",
+            user_id="u42",
+            role="user",
+            channel_id="c1",
+            content="alo",
+            tokens=1,
+        )
+    ]
+
+    context = ContextBuilder().build_context(entries)
+
+    assert context == [{"role": "user", "content": "u42: alo"}]

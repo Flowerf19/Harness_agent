@@ -98,3 +98,29 @@ async def test_redis_stack_storage_save_and_get_entries_sorted():
     assert len(channel_entries) == 1
     assert channel_entries[0].entry_id == channel.entry_id
     assert await storage.get_total_tokens("channel", "c1") == 4
+
+
+@pytest.mark.asyncio
+async def test_redis_stack_storage_channel_scope_round_trips_assistant_role():
+    redis = FakeRedis()
+    storage = RedisStackStorage(redis)
+    await storage.initialize()
+
+    bot_reply = MemoryEntry(
+        scope="channel",
+        scope_id="c1",
+        user_id="march7",
+        role="assistant",
+        author_id="march7",
+        author_name="March7",
+        channel_id="c1",
+        content="2080 nha",
+        tokens=2,
+    )
+    await storage.save_entry(bot_reply)
+
+    entries = await storage.get_entries("channel", "c1")
+    assert len(entries) == 1
+    assert entries[0].role == "assistant"
+    assert entries[0].author_name == "March7"
+    assert entries[0].content == "2080 nha"
