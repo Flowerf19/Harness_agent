@@ -72,6 +72,7 @@ Update upstream: `cd ~/.claude/skills && git pull`.
   `SummaryStateRepository` (March7 scans `user` + `channel`; Evernight scans
   `user` only). The trigger drives `SummaryPolicy.evaluate` directly — do not
   call `ConsolidationRunner` from the trigger path.
+- **`twin/shared/tools/` consolidated 2026-05-26** (see [plans/tools-registry-consolidation.md](plans/tools-registry-consolidation.md)). Core types live in `twin.shared.tools.registry`; individual tool classes live under `twin.shared.tools.modules.<domain>.<tool>` (`execution`, `memory`, `profile`, `web`). The paths `twin.shared.tools.base_tool` / `tool_registry` / `tool_discovery` / `implementations.system.*` no longer exist — do not recreate them.
 - **LLM/embedding endpoints chạy trên host phải dùng `host.docker.internal`, không phải `localhost`.** Container march7/evernight có `extra_hosts: host.docker.internal:host-gateway` trong compose; `localhost` trong `.env` sẽ trỏ vào chính container và fail với `Cannot connect to host localhost:<port>`. Áp dụng cho `OPENAI_API_URL`, `EMBEDDING_API_URL`, `LM_STUDIO_API_URL`, `TOOL_LLM_ENDPOINT`. Service nội-mạng Docker (redis, codebox, bash-executor, evernight) thì dùng service name.
 - **Docker entry for March7 is `python -m gateway`** (`gateway/__main__.py`),
   not `python -m twin.march7`. When wiring new background tasks (triggers,
