@@ -72,6 +72,7 @@ Update upstream: `cd ~/.claude/skills && git pull`.
   `SummaryStateRepository` (March7 scans `user` + `channel`; Evernight scans
   `user` only). The trigger drives `SummaryPolicy.evaluate` directly — do not
   call `ConsolidationRunner` from the trigger path.
+- **LLM/embedding endpoints chạy trên host phải dùng `host.docker.internal`, không phải `localhost`.** Container march7/evernight có `extra_hosts: host.docker.internal:host-gateway` trong compose; `localhost` trong `.env` sẽ trỏ vào chính container và fail với `Cannot connect to host localhost:<port>`. Áp dụng cho `OPENAI_API_URL`, `EMBEDDING_API_URL`, `LM_STUDIO_API_URL`, `TOOL_LLM_ENDPOINT`. Service nội-mạng Docker (redis, codebox, bash-executor, evernight) thì dùng service name.
 - **Docker entry for March7 is `python -m gateway`** (`gateway/__main__.py`),
   not `python -m twin.march7`. When wiring new background tasks (triggers,
   workers, schedulers) for March7, add them to `gateway/__main__.py` so they

@@ -9,7 +9,7 @@ from langsmith import traceable
 
 from twin.shared.llm.base_llm_service import BaseLLMService
 from twin.shared.llm.llm_response import LLMResponse
-from twin.shared.tools.tool_registry import ToolRegistry
+from twin.shared.tools.registry import ToolRegistry
 from twin.shared.memories.t2 import T2Memory
 from twin.shared.a2a.types import AgentCard, A2AMessage, Part, TaskStatus
 from twin.evernight.memories.memory_manager import MemoryManager

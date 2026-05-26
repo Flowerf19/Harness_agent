@@ -1,7 +1,6 @@
 import pytest
 
-from twin.shared.tools.base_tool import ToolExecutionError
-from twin.shared.tools.registry.bootstrap import build_tool_registry
+from twin.shared.tools.registry import ToolExecutionError, build_tool_registry
 
 
 class DummyLLM:

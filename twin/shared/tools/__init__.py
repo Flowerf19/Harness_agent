@@ -7,8 +7,8 @@ Architecture: Hybrid System/MCP
 """
 
 # Core components
-from .base_tool import BaseTool, ToolExecutionError
-from .tool_registry import ToolRegistry
+from .registry.base import BaseTool, ToolExecutionError
+from .registry.registry import ToolRegistry
 from .mcp_protocol import (
     MCPRequest,
     MCPResponse,
@@ -21,7 +21,7 @@ from .mcp_transport import (
     Transport,
     HTTPTransport,
 )
-from .tool_discovery import ToolDiscovery, discover_and_register_tools
+from .registry.discovery import ToolDiscovery, discover_and_register_tools
 from .registry.bootstrap import ToolBootstrapResult, build_tool_registry
 
 # Tool implementations

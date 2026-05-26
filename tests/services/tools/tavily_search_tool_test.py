@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from twin.shared.tools.implementations.system.tavily_search_tool import TavilySearchTool
+from twin.shared.tools.modules.web.tavily_search_tool import TavilySearchTool
 from twin.shared.external.tavily_client import TavilyClient, TavilyApiError
 
 

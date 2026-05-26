@@ -11,10 +11,10 @@ from twin.shared.config.settings import Config
 from twin.shared.external.codebox_client import CodeBoxClient
 from twin.shared.external.tavily_client import TavilyClient
 from twin.shared.tools.approval_gate import ApprovalGate
-from twin.shared.tools.base_tool import BaseTool
+from twin.shared.tools.registry.base import BaseTool
 from twin.shared.tools.declarations.system_tools import SYSTEM_TOOL_SPECS, ToolSpec
 from twin.shared.tools.dm_client import DMClient
-from twin.shared.tools.tool_registry import ToolRegistry
+from twin.shared.tools.registry.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 

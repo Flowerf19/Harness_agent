@@ -5,7 +5,7 @@ Các exception đặc biệt được dùng để điều khiển flow ngoài
 phạm vi tool execution bình thường (VD: propagate lên handler).
 """
 
-from twin.shared.tools.base_tool import ToolExecutionError
+from twin.shared.tools.registry.base import ToolExecutionError
 
 
 class BashExecutorUnavailableError(ToolExecutionError):

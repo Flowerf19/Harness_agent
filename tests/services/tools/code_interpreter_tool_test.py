@@ -14,9 +14,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from twin.shared.tools.implementations.system.code_interpreter_tool import CodeInterpreterTool
+from twin.shared.tools.modules.execution.code_interpreter_tool import CodeInterpreterTool
 from twin.shared.external.codebox_client import CodeBoxClient, CodeBoxError
-from twin.shared.tools.base_tool import ToolExecutionError
+from twin.shared.tools.registry import ToolExecutionError
 
 
 class TestCodeInterpreterToolMetadata:

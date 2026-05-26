@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional
 
 import aiohttp
 
-from twin.shared.tools.base_tool import BaseTool, ToolExecutionError
+from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
 from twin.shared.tools.approval_gate import ApprovalGate
 from twin.shared.tools.exceptions import BashExecutorUnavailableError
 

@@ -15,7 +15,7 @@ from twin.shared.memories.t2.models import (
     generate_topic_id,
     get_ttl_by_importance,
 )
-from twin.shared.tools.base_tool import BaseTool, ToolExecutionError
+from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
 
 logger = logging.getLogger(__name__)
 

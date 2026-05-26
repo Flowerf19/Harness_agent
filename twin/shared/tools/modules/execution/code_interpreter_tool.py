@@ -21,7 +21,7 @@ Design Philosophy:
 import logging
 from typing import Dict, Any, Optional
 
-from twin.shared.tools.base_tool import BaseTool, ToolExecutionError
+from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
 from twin.shared.external.codebox_client import CodeBoxClient, CodeBoxError
 
 logger = logging.getLogger(__name__)

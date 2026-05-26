@@ -6,9 +6,8 @@ import pytest
 from twin.evernight.agent import EvernightAgent
 from twin.shared.llm.llm_response import LLMResponse
 from twin.shared.memories.t2.models import T2Chunk, T2Page, generate_topic_id
-from twin.shared.tools.base_tool import ToolExecutionError
-from twin.shared.tools.implementations.system.consolidate_t2_memory_tool import ConsolidateT2MemoryTool
-from twin.shared.tools.tool_registry import ToolRegistry
+from twin.shared.tools.registry import ToolExecutionError, ToolRegistry
+from twin.shared.tools.modules.memory.consolidate_t2_memory_tool import ConsolidateT2MemoryTool
 
 
 class FakeLLM:

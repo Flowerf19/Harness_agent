@@ -24,7 +24,7 @@ import json
 import uuid
 
 if TYPE_CHECKING:
-    from twin.shared.tools.base_tool import BaseTool
+    from twin.shared.tools.registry.base import BaseTool
 
 
 # ==========================================

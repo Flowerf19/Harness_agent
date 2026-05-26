@@ -1,5 +1,0 @@
-"""Compatibility import for the moved web tool."""
-
-from twin.shared.tools.modules.web.tavily_search_tool import TavilySearchTool
-
-__all__ = ["TavilySearchTool"]
