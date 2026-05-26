@@ -6,14 +6,9 @@ from dotenv import load_dotenv
 from twin.shared.config.settings import Config
 from twin.shared.llm.gemini_service import GeminiService
 from twin.shared.llm.openai_service import OpenAIService
-from twin.shared.tools.tool_registry import ToolRegistry
-from twin.shared.tools.tool_discovery import discover_and_register_tools
-from twin.shared.tools.approval_gate import ApprovalGate
-from twin.shared.tools.dm_client import DMClient
+from twin.shared.tools.registry.bootstrap import build_tool_registry
 from twin.shared.memories.t2 import T2Memory, T2Store
 from twin.shared.llm.embedding import create_embedding_service
-from twin.shared.external.tavily_client import TavilyClient
-from twin.shared.external.codebox_client import CodeBoxClient
 
 from twin.march7.memories.memory_manager import MemoryManager
 from twin.march7.memories.activate_memory.activate_memory_service import ActiveMemoryService
@@ -121,44 +116,15 @@ class March7Container:
         self.event_bus = event_bus
 
         # Tool Registry
-        tavily_client = self._init_tavily_client()
-        codebox_client = self._init_codebox_client()
-
-        # Approval Gate with DM support via Evernight
-        dm_client = None
-        evernight_url = getattr(Config, "EVERNIGHT_A2A_URL", None)
-        if evernight_url:
-            dm_client = DMClient(evernight_url=evernight_url)
-            logger.info("DM client configured: %s", evernight_url)
-
-        approval_gate = ApprovalGate(dm_client=dm_client)
-
-        tool_registry = ToolRegistry(agent_name="march7")
-        tool_dependencies = {
-            "core_manager": t3_manager,
-            "memory_manager": t2_memory,
-            "llm_service": self.llm_service,
-            "base_memory_path": self.config.persona_path,
-            "tavily_client": tavily_client,
-            "codebox_client": codebox_client,
-            "approval_gate": approval_gate,
-            "executor_url": Config.BASH_EXECUTOR_URL,
-            "timeout": Config.BASH_EXECUTOR_TIMEOUT,
-        }
-
-        system_tools = discover_and_register_tools(
-            tools_dir="twin/shared/tools/implementations/system",
-            registry=tool_registry,
-            dependencies=tool_dependencies,
+        tools = build_tool_registry(
+            agent_name="march7",
+            core_manager=t3_manager,
+            memory_manager=t2_memory,
+            llm_service=self.llm_service,
+            base_memory_path=self.config.persona_path,
+            use_evernight_dm_approval=True,
         )
-        logger.info(f"✅ System tools loaded: {len(system_tools)} - {[t.name for t in system_tools]}")
-
-        mcp_tools = discover_and_register_tools(
-            tools_dir="twin/shared/tools/implementations/mcp",
-            registry=tool_registry,
-            dependencies=tool_dependencies,
-        )
-        logger.info(f"✅ MCP tools loaded: {len(mcp_tools)} - {[t.name for t in mcp_tools]}")
+        tool_registry = tools.registry
 
         self.llm_service.set_tool_registry(tool_registry)
 
@@ -219,19 +185,3 @@ class March7Container:
             return storage
         except Exception as e:
             raise RuntimeError(f"T2 storage init failed: {e}")
-
-    def _init_tavily_client(self):
-        if not Config.TAVILY_API_KEY:
-            return None
-        try:
-            return TavilyClient()
-        except Exception as e:
-            logger.warning(f"Tavily init failed: {e}")
-            return None
-
-    def _init_codebox_client(self):
-        try:
-            return CodeBoxClient()
-        except Exception as e:
-            logger.warning(f"CodeBox init failed: {e}")
-            return None

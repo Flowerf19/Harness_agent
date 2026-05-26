@@ -7,12 +7,8 @@ from twin.shared.config.settings import Config
 from twin.shared.llm.gemini_service import GeminiService
 from twin.shared.llm.openai_service import OpenAIService
 from twin.shared.llm.embedding import create_embedding_service
-from twin.shared.tools.tool_registry import ToolRegistry
-from twin.shared.tools.tool_discovery import discover_and_register_tools
-from twin.shared.tools.approval_gate import ApprovalGate
+from twin.shared.tools.registry.bootstrap import build_tool_registry
 from twin.shared.memories.t2 import T2Memory, T2Store
-from twin.shared.external.tavily_client import TavilyClient
-from twin.shared.external.codebox_client import CodeBoxClient
 
 from twin.evernight.memories.memory_manager import MemoryManager
 from twin.evernight.memories.activate_memory.activate_memory_service import ActiveMemoryService
@@ -118,33 +114,14 @@ class EvernightContainer:
         self.event_bus = event_bus
 
         # Tool Registry
-        tavily_client = self._init_tavily_client()
-        codebox_client = self._init_codebox_client()
-        approval_gate = ApprovalGate()
-
-        tool_registry = ToolRegistry(agent_name="evernight")
-        tool_dependencies = {
-            "core_manager": t3_manager,
-            "memory_manager": episodic_memory,
-            "llm_service": self.llm_service,
-            "base_memory_path": self.config.persona_path,
-            "tavily_client": tavily_client,
-            "codebox_client": codebox_client,
-            "approval_gate": approval_gate,
-            "executor_url": Config.BASH_EXECUTOR_URL,
-            "timeout": Config.BASH_EXECUTOR_TIMEOUT,
-        }
-
-        discover_and_register_tools(
-            tools_dir="twin/shared/tools/implementations/system",
-            registry=tool_registry,
-            dependencies=tool_dependencies,
+        tools = build_tool_registry(
+            agent_name="evernight",
+            core_manager=t3_manager,
+            memory_manager=episodic_memory,
+            llm_service=self.llm_service,
+            base_memory_path=self.config.persona_path,
         )
-        discover_and_register_tools(
-            tools_dir="twin/shared/tools/implementations/mcp",
-            registry=tool_registry,
-            dependencies=tool_dependencies,
-        )
+        tool_registry = tools.registry
 
         self.llm_service.set_tool_registry(tool_registry)
 
@@ -207,19 +184,3 @@ class EvernightContainer:
             return storage
         except Exception as e:
             raise RuntimeError(f"T2 storage init failed: {e}")
-
-    def _init_tavily_client(self):
-        if not Config.TAVILY_API_KEY:
-            return None
-        try:
-            return TavilyClient()
-        except Exception as e:
-            logger.warning(f"Tavily init failed: {e}")
-            return None
-
-    def _init_codebox_client(self):
-        try:
-            return CodeBoxClient()
-        except Exception as e:
-            logger.warning(f"CodeBox init failed: {e}")
-            return None

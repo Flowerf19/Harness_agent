@@ -70,12 +70,13 @@ class TestCircuitBreakerOpens:
                 # Always raise a retryable error (500)
                 mock_do_search.side_effect = TavilyApiError("Server error", status_code=500)
 
-                # Make 5 failed searches
-                for i in range(5):
-                    try:
-                        await client.search(query=f"test query {i}")
-                    except TavilyApiError:
-                        pass
+                with patch("asyncio.sleep", new_callable=AsyncMock):
+                    # Make 5 failed searches
+                    for i in range(5):
+                        try:
+                            await client.search(query=f"test query {i}")
+                        except TavilyApiError:
+                            pass
 
                 # After 5 failures, circuit should be open
                 state = redis_state.get("tavily:circuit_state")
@@ -220,8 +221,9 @@ class TestCircuitBreakerHalfOpen:
             with patch.object(client, "_do_search", new_callable=AsyncMock) as mock_do_search:
                 mock_do_search.side_effect = TavilyApiError("Server error", status_code=500)
 
-                with pytest.raises(TavilyApiError):
-                    await client.search(query="test query")
+                with patch("asyncio.sleep", new_callable=AsyncMock):
+                    with pytest.raises(TavilyApiError):
+                        await client.search(query="test query")
 
                 state = redis_state.get("tavily:circuit_state")
                 assert state == "open"

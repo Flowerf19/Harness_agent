@@ -61,8 +61,9 @@ class TestRetryExponentialBackoff:
                 mock_do_search.side_effect = TavilyApiError("Server error", status_code=500)
 
                 with patch("asyncio.sleep", side_effect=mock_sleep):
-                    with pytest.raises(TavilyApiError) as exc_info:
-                        await client.search(query="test query")
+                    with patch.object(client, "_cb_on_failure", new_callable=AsyncMock):
+                        with pytest.raises(TavilyApiError) as exc_info:
+                            await client.search(query="test query")
 
                     assert exc_info.value.status_code == 500
 
@@ -200,8 +201,9 @@ class TestNetworkErrorRetry:
                 mock_do_search.side_effect = aiohttp.ClientError("Connection refused")
 
                 with patch("asyncio.sleep", side_effect=mock_sleep):
-                    with pytest.raises(TavilyApiError, match="Unexpected error"):
-                        await client.search(query="test query")
+                    with patch.object(client, "_cb_on_failure", new_callable=AsyncMock):
+                        with pytest.raises(TavilyApiError, match="Unexpected error"):
+                            await client.search(query="test query")
 
                     assert mock_do_search.call_count == 3
                     assert sleep_times == [1, 2]

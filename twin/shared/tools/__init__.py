@@ -22,10 +22,11 @@ from .mcp_transport import (
     HTTPTransport,
 )
 from .tool_discovery import ToolDiscovery, discover_and_register_tools
+from .registry.bootstrap import ToolBootstrapResult, build_tool_registry
 
 # Tool implementations
-from .implementations.system import (
-    SearchMemoryTool,
+from .modules.memory import SearchMemoryTool
+from .modules.profile import (
     UpdateUserProfileTool,
     UpdatePersonalityTool,
 )
@@ -49,6 +50,8 @@ __all__ = [
     # Discovery
     "ToolDiscovery",
     "discover_and_register_tools",
+    "ToolBootstrapResult",
+    "build_tool_registry",
     # Implementations
     "SearchMemoryTool",
     "UpdateUserProfileTool",

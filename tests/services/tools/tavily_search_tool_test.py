@@ -76,12 +76,11 @@ class TestTavilySearchToolExecute:
     @pytest.mark.asyncio
     async def test_execute_not_configured_returns_error(self):
         """tavily_client without API key → error in Vietnamese."""
-        with patch("src.config.settings.Config.TAVILY_API_KEY", None):
-            mock_client = TavilyClient()
-            tool = TavilySearchTool(tavily_client=mock_client)
-            result = await tool.execute(query="test")
+        mock_client = TavilyClient(api_key=None)
+        tool = TavilySearchTool(tavily_client=mock_client)
+        result = await tool.execute(query="test")
 
-            assert "Lỗi" in result
+        assert "Lỗi" in result
 
     @pytest.mark.asyncio
     async def test_execute_format_for_user_default(self):

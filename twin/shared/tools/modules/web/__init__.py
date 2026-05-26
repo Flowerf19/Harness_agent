@@ -1,4 +1,4 @@
-"""Compatibility import for the moved web tool."""
+"""Web/search tool implementations."""
 
 from twin.shared.tools.modules.web.tavily_search_tool import TavilySearchTool
 

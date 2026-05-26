@@ -7,6 +7,7 @@ All tests are skipped if the service is unreachable.
 Run with: pytest tests/services/external/codebox_integration_test.py -v
 """
 import sys
+import os
 import uuid
 from pathlib import Path
 
@@ -38,10 +39,11 @@ def _is_codebox_reachable() -> bool:
     return asyncio.run(_check())
 
 
-# Module-level skip: all tests skipped if CodeBox is unreachable
+# Module-level skip: integration tests are opt-in to avoid network/service
+# probes during normal unit test collection.
 pytestmark = pytest.mark.skipif(
-    not _is_codebox_reachable(),
-    reason="CodeBox service is not reachable at CODEBOX_API_URL",
+    os.getenv("RUN_CODEBOX_INTEGRATION") != "1" or not _is_codebox_reachable(),
+    reason="Set RUN_CODEBOX_INTEGRATION=1 with reachable CODEBOX_API_URL to run",
 )
 
 
