@@ -51,6 +51,7 @@ services:
       - ../../twin:/app/twin:z
       - ../../gateway:/app/gateway:z
       - ../../memories:/app/memories:z
+      - ../../data:/app/data:z
       - ../../.env:/app/.env:z
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/.well-known/agent.json || exit 1"]

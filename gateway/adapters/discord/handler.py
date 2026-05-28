@@ -60,13 +60,16 @@ class DiscordGatewayHandler(GatewayHandler):
                     raw_message.guild.id, raw_message.channel.id
                 )
 
-        is_observe_channel = mode is not None
-        is_respond_channel = mode == ChannelMode.RESPOND_ALLOWED
-        should_observe = is_dm or is_mentioned or is_reply_to_bot or is_observe_channel
-        should_respond = is_dm or is_mentioned or is_reply_to_bot or is_respond_channel
-
-        if not should_observe:
+        if not is_dm and mode is None:
+            if is_mentioned or is_reply_to_bot:
+                await raw_message.channel.send(
+                    "Kênh này tớ chưa được cấu hình hoạt động á. "
+                    "Cậu dùng `/addbotchannel` hoặc qua kênh đã set giúp tớ nhé!"
+                )
             return ""
+
+        is_respond_channel = mode == ChannelMode.RESPOND_ALLOWED
+        should_respond = is_dm or is_mentioned or is_reply_to_bot or is_respond_channel
 
         # Content check
         content = msg.content.strip()
