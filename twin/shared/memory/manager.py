@@ -115,9 +115,10 @@ class SharedMemoryManager:
         entries = await self.t1.get_context(scope, scope_id)
         messages = self._entries_to_messages(entries)
 
+        user_id_header = f"=== CURRENT USER ===\nDiscord user ID: {user_id}"
         profile_context = await self.profile.get_system_prompt_context(str(user_id))
         t2_context = await self._preflight_context(str(user_id), current_query)
-        system_parts = [part for part in (profile_context, t2_context) if part]
+        system_parts = [user_id_header] + [part for part in (profile_context, t2_context) if part]
         return "\n\n".join(system_parts), messages
 
     async def get_snapshot(self, user_id: str) -> list[dict]:

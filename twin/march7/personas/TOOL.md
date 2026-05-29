@@ -2,6 +2,8 @@
 
 7 tools. Use only when needed. Default: answer from training knowledge.
 
+**CRITICAL: Current user's Discord ID is provided in the system prompt under "=== CURRENT USER ===". Always use this exact numeric ID when calling memory/profile tools. Never guess, never use username.**
+
 ---
 
 ## Quick routing
