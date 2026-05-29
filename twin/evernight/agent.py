@@ -10,24 +10,18 @@ from langsmith import traceable
 from twin.shared.llm.base_llm_service import BaseLLMService
 from twin.shared.llm.llm_response import LLMResponse
 from twin.shared.tools.registry import ToolRegistry
-from twin.shared.memories.t2 import T2Memory
 from twin.shared.a2a.types import AgentCard, A2AMessage, Part, TaskStatus
-from twin.evernight.memories.memory_manager import MemoryManager
+from twin.shared.memory import SharedMemoryManager
 
 logger = logging.getLogger(__name__)
 
 TOOL_EXECUTION_TIMEOUT = 60
 
-CONSOLIDATION_SYSTEM_PROMPT = """You are Evernight's T2 consolidation controller.
-Call the consolidate_t2_memory tool exactly once with the provided user_id, snapshot, and reason.
-Do not summarize or answer conversationally."""
-
-
 class EvernightAgent:
     def __init__(
         self,
-        memory_manager: Any = None,
-        episodic_memory: T2Memory = None,
+        memory_manager: SharedMemoryManager | None = None,
+        episodic_memory: Any = None,
         llm_service: BaseLLMService = None,
         tool_registry: Optional[ToolRegistry] = None,
         use_native_tools: bool = True,
@@ -68,8 +62,8 @@ class EvernightAgent:
             capabilities=["chat", "consolidation", "streaming"],
             skills=[
                 {"id": "chat", "name": "Chat", "description": "Conversational chat with memory and tools"},
-                {"id": "consolidate", "name": "Consolidate", "description": "Consolidate T1 snapshot into T2"},
-                {"id": "consolidate_discussion", "name": "Consolidate Discussion", "description": "Process SUMMARY_REQUESTED payload into user-centric T2 pages"},
+                {"id": "consolidate", "name": "Consolidate", "description": "Consolidate T1 snapshot into T2 timeline"},
+                {"id": "consolidate_discussion", "name": "Consolidate Discussion", "description": "Process shared-memory payload into user-centric T2 timeline entries"},
                 {"id": "get_snapshot", "name": "Get Snapshot", "description": "Get T1 memory snapshot"},
             ],
         )
@@ -84,41 +78,10 @@ class EvernightAgent:
     async def consolidate(self, user_id: str, snapshot: List[dict], reason: str = "manual") -> bool:
         logger.info(f"Evernight: Consolidating snapshot for user {user_id}")
         try:
-            if not self.llm or not self.tool_registry:
-                logger.error("Evernight: Missing LLM or ToolRegistry for consolidation")
+            if not self.consolidator or not hasattr(self.consolidator, "consolidate_snapshot"):
+                logger.error("Evernight: Missing shared consolidator")
                 return False
-
-            response = await self.llm.generate_response(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": json.dumps(
-                            {"user_id": user_id, "snapshot": snapshot, "reason": reason},
-                            ensure_ascii=False,
-                        ),
-                    }
-                ],
-                system_prompt=CONSOLIDATION_SYSTEM_PROMPT,
-                use_native_tools=True,
-            )
-
-            if not isinstance(response, LLMResponse) or not response.has_tool_calls():
-                logger.error("Evernight: Consolidation LLM did not call consolidate_t2_memory")
-                return False
-
-            for tool_call in response.tool_calls:
-                if tool_call.get("name") != "consolidate_t2_memory":
-                    continue
-                args = tool_call.get("arguments") or {}
-                result = await asyncio.wait_for(
-                    self.tool_registry.execute_tool("consolidate_t2_memory", args),
-                    timeout=TOOL_EXECUTION_TIMEOUT,
-                )
-                logger.info("Evernight: consolidate_t2_memory result: %s", result)
-                return result.startswith("OK:")
-
-            logger.error("Evernight: consolidate_t2_memory was not called")
-            return False
+            return await self.consolidator.consolidate_snapshot(user_id, snapshot, reason)
         except Exception as e:
             logger.error(f"Evernight: Consolidation failed: {e}", exc_info=True)
             return False

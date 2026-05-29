@@ -71,21 +71,21 @@ server, agents should fall back to targeted search/read.
 
 ## Current Task Status
 
-Unified discussion memory is implemented end-to-end. See
-[plans/unified-discussion-memory.md](plans/unified-discussion-memory.md)
-for the full plan. Short version:
+Memory rewrite is implemented end-to-end. See
+[plans/memory-rewrite.md](plans/memory-rewrite.md) for the final plan. Short
+version:
 
-- T1 is scope-aware (`user`/`channel`) across both agents.
-- Gateway separates observe / respond, with reply-to-bot triggering respond.
-- Channel transcript context is injected into prompts.
-- `SummaryPolicy` emits `SUMMARY_REQUESTED`; March7 calls Evernight A2A
-  `consolidate_discussion`; `DiscussionConsolidator` fans out user-centric
-  T2 pages; T1 cleans up on `SUMMARY_COMPLETED`.
-- Each agent runs its own `InactivityTrigger` over its `SummaryStateRepository`.
-- Legacy `TOKEN_LIMIT_REACHED` / snapshot overflow path is removed.
+- T1/T2/T3 source lives once under `twin/shared/memory/`.
+- T1 is Redis JSON active memory scoped by `user` or `channel`.
+- T2 is Redis Stack timeline memory with VECTOR HNSW 768 indexes.
+- T3 is Markdown profile memory with 8 sections under `memories/`.
+- `SharedMemoryManager` injects T3 profile context and T2 pre-flight retrieval
+  into each turn, and fans out channel consolidation per participant.
+- Legacy `twin/*/memories`, `twin/shared/memories`,
+  `DiscussionConsolidator`, and `consolidate_t2_memory` paths are removed.
 
-Open follow-ups: FT index migration script for production redeploy, and any
-T2 search side enhancements (channel-scoped filters via `participants` TAG).
+Open follow-up: live Discord DM/channel smoke requires real bot tokens; local
+Docker health and A2A endpoints can be verified without Discord.
 
 ## Quick Links
 

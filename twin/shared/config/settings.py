@@ -66,6 +66,7 @@ class Config:
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
     REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
     REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+    TIMELINE_REDIS_DB = int(os.getenv("TIMELINE_REDIS_DB", "0"))
     # T1 storage phases:
     #   redis_stack  — Redis Stack JSON/Search (default)
     #   legacy       — Redis HASH fallback
@@ -110,4 +111,4 @@ class Config:
     EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "text-embedding-v3")
     EMBEDDING_API_URL = os.getenv("EMBEDDING_API_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
     EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY")
-    EMBEDDING_VECTOR_SIZE = int(os.getenv("EMBEDDING_VECTOR_SIZE", "1024"))
+    EMBEDDING_VECTOR_SIZE = int(os.getenv("EMBEDDING_VECTOR_SIZE", "768"))

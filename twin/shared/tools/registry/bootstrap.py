@@ -73,6 +73,8 @@ def build_tool_registry(
     memory_manager: Any,
     llm_service: Any,
     base_memory_path: str,
+    timeline_search: Any = None,
+    profile_store: Any = None,
     approval_gate: ApprovalGate | None = None,
     use_evernight_dm_approval: bool = False,
 ) -> ToolBootstrapResult:
@@ -89,6 +91,8 @@ def build_tool_registry(
     dependencies = {
         "core_manager": core_manager,
         "memory_manager": memory_manager,
+        "timeline_search": timeline_search,
+        "profile_store": profile_store,
         "llm_service": llm_service,
         "base_memory_path": base_memory_path,
         "tavily_client": tavily_client,

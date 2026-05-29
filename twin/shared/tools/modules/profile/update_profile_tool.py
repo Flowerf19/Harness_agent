@@ -1,90 +1,109 @@
-"""
-UpdateUserProfileTool - Update Core Memory (T3).
-
-Tool for saving the complete user profile markdown to T3 storage.
-Agent handles fact detection and merge logic. Tool is storage-only.
-"""
+"""UpdateUserProfileTool - append bullets to T3 markdown profile."""
+from __future__ import annotations
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Any, Optional
 
+from twin.shared.memory.profile import SECTION_HEADERS, SECTIONS
 from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
 
 logger = logging.getLogger(__name__)
 
+
 class UpdateUserProfileTool(BaseTool):
-    """
-    Tool for saving Core Memory (T3) user profile.
-    
-    Agent orchestrates: detect new facts → merge into profile → call this tool to persist.
-    Tool only validates and writes markdown to storage.
-    
-    Attributes:
-        core_manager: CoreManager instance for T3 access
-    """
-    
-    def __init__(self, core_manager: Optional[Any] = None):
-        self.core_manager = core_manager
-        logger.debug(f"UpdateUserProfileTool initialized with core_manager={core_manager is not None}")
-    
+    """Tool for appending one bullet to a user's T3 profile section."""
+
+    def __init__(
+        self,
+        profile_store: Optional[Any] = None,
+        core_manager: Optional[Any] = None,
+    ):
+        self.profile_store = profile_store
+        if self.profile_store is None and hasattr(core_manager, "append_raw"):
+            self.profile_store = core_manager
+        logger.debug(
+            "UpdateUserProfileTool initialized with profile_store=%s",
+            self.profile_store is not None,
+        )
+
     @property
     def name(self) -> str:
         return "update_user_profile"
-    
+
     @property
     def description(self) -> str:
-        return "Lưu toàn bộ hồ sơ user (markdown) vào Core Memory (T3). Chi tiết cách dùng xem TOOL.md."
-    
+        return (
+            "Thêm một bullet vào hồ sơ T3 markdown của user. "
+            "Chỉ dùng cho thông tin bền vững, chọn đúng section 8 mục."
+        )
+
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
                 "user_id": {
                     "type": "string",
-                    "description": "Discord user ID (số) của user đang chat. VD: '726302130318868500'"
+                    "description": "Discord user ID (số) của user đang chat.",
                 },
-                "new_profile_markdown": {
+                "section": {
                     "type": "string",
-                    "description": "Toàn bộ nội dung markdown mới của hồ sơ user. Agent tự merge fact mới vào profile cũ trước khi gọi tool này. VD: '## Thông tin cơ bản\n- Danh xưng: Hoàng\n...'"
-                }
+                    "enum": SECTIONS,
+                    "description": (
+                        "Section T3 cần append: "
+                        + ", ".join(f"{key}={SECTION_HEADERS[key]}" for key in SECTIONS)
+                    ),
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Nội dung bullet, không cần prefix '- '.",
+                },
+                "source_memory_id": {
+                    "type": "string",
+                    "description": "Optional T2 memory_id nguồn.",
+                },
             },
-            "required": ["user_id", "new_profile_markdown"]
+            "required": ["user_id", "section", "content"],
         }
-    
-    async def execute(self, user_id: str, new_profile_markdown: str) -> str:
-        """
-        Save complete user profile markdown to T3 storage.
-        
-        Args:
-            user_id: Discord user ID (must be numeric)
-            new_profile_markdown: Full markdown content to overwrite the profile
-            
-        Returns:
-            str: Success or error message
-        """
-        if not user_id or not new_profile_markdown:
+
+    async def execute(
+        self,
+        user_id: str,
+        section: str,
+        content: str,
+        source_memory_id: Optional[str] = None,
+    ) -> str:
+        user_id = str(user_id or "").strip()
+        section = str(section or "").strip()
+        content = str(content or "").strip()
+
+        if not user_id or not content:
             return "Lỗi: Thiếu user_id hoặc nội dung hồ sơ."
-        
+
         if not user_id.isdigit():
-            logger.warning(f"⚠️ Invalid user_id: {user_id}")
+            logger.warning("T3: invalid user_id for update_user_profile: %s", user_id)
             return f"Lỗi: user_id '{user_id}' không hợp lệ. Phải là số ID Discord."
-        
-        if not self.core_manager:
-            return "Lỗi: Hệ thống Core Memory (T3) chưa sẵn sàng."
-        
+
+        if section not in SECTIONS:
+            return f"Lỗi: section '{section}' không hợp lệ. Section hợp lệ: {', '.join(SECTIONS)}."
+
+        if not self.profile_store:
+            return "Lỗi: MarkdownProfileStore (T3) chưa sẵn sàng."
+
         try:
-            success = self.core_manager.save_profile(user_id, new_profile_markdown)
-            
-            if success:
-                logger.info(f"✅ UpdateUserProfileTool: Đã lưu T3 cho user {user_id}")
-                return f"Đã lưu hồ sơ thành công cho user {user_id}."
-            else:
-                return f"Lỗi: Không thể lưu hồ sơ cho user {user_id}."
-                
+            appended = await self.profile_store.append_raw(
+                user_id,
+                section,
+                content,
+                source_memory_id=source_memory_id,
+            )
+            if not appended:
+                return f"Không thay đổi: nội dung trống hoặc đã tồn tại trong section {section}."
+            logger.info("T3: appended profile bullet user=%s section=%s", user_id, section)
+            return f"Đã cập nhật hồ sơ user {user_id}, section {section}."
         except Exception as e:
-            logger.error(f"Lỗi khi lưu T3: {e}")
+            logger.error("T3: update_user_profile failed: %s", e)
             raise ToolExecutionError(self.name, f"Lỗi hệ thống khi lưu hồ sơ: {e}", original_error=e)
-    
+
     def __repr__(self) -> str:
-        return f"<UpdateUserProfileTool: core_manager={self.core_manager is not None}>"
+        return f"<UpdateUserProfileTool: profile_store={self.profile_store is not None}>"

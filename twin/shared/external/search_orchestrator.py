@@ -213,7 +213,7 @@ class SearchOrchestrator:
         T2 results are listed first, followed Web search sources.
 
         Args:
-            t2_results: List of T2Page objects
+            t2_results: List of T2 memory/search result objects
             web_result: Optional SearchResult from Tavily
 
         Returns:

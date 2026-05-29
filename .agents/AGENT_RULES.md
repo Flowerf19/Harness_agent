@@ -53,25 +53,24 @@ Update upstream: `cd ~/.claude/skills && git pull`.
 
 ## Verified Gotchas
 
-- T3 storage is Markdown via `MarkdownStorage`, not YAML.
+- T3 storage is Markdown via `MarkdownProfileStore`, not YAML.
 - `README.MD` is the project README filename currently used at repo root.
 - Root lint/format/type-check config is not currently established; do not add
   or run repo-wide formatters as part of unrelated work.
-- The repository `.gitignore` allows source under `twin/**/memories/` (added
-  explicit `!twin/**/memories/**` exception). New source files there are
-  tracked normally. `__pycache__` under those paths is re-ignored.
-- Unified discussion memory intentionally keeps T2 user-centric. Do not store
-  channel sentinel ids in `T2Page.user_id`; put channel metadata in
-  `source_refs`. `T2Page.participants` is TAG-indexed in the FT schema for
-  future joint `(user, channel)` filters.
-- The legacy `TOKEN_LIMIT_REACHED` event was removed. Summary flow is
-  `SUMMARY_REQUESTED` → Evernight A2A `consolidate_discussion` →
-  `SUMMARY_COMPLETED`/`SUMMARY_FAILED` → T1 cleanup. Do not reintroduce the
-  old overflow_queue path on the trigger side.
-- Each agent runs its own `InactivityTrigger` in-process against its own
-  `SummaryStateRepository` (March7 scans `user` + `channel`; Evernight scans
-  `user` only). The trigger drives `SummaryPolicy.evaluate` directly — do not
-  call `ConsolidationRunner` from the trigger path.
+- Memory source lives under `twin/shared/memory/`. Do not recreate
+  `twin/march7/memories/`, `twin/evernight/memories/`, or
+  `twin/shared/memories/`.
+- T2 timeline intentionally keeps memories user-centric. Channel scope is
+  consolidated by fan-out per participant; do not store channel sentinel ids
+  as `T2Memory.user_id`.
+- The legacy `TOKEN_LIMIT_REACHED`, `DiscussionConsolidator`, and
+  `consolidate_t2_memory` paths were removed. Current flow is
+  `ActiveMemory` threshold/idle → `SharedMemoryManager.consolidate_scope` →
+  `Consolidator` → `CleanupScheduler`.
+- Each agent builds the same shared stack (`ActiveMemory`,
+  `MarkdownProfileStore`, `TimelineStore/Search`, `Consolidator`, `Cleanup`)
+  in its container. T2 RediSearch indexes must use Redis DB 0
+  (`TIMELINE_REDIS_DB=0`).
 - **`twin/shared/tools/` consolidated 2026-05-26** (see [plans/tools-registry-consolidation.md](plans/tools-registry-consolidation.md)). Core types live in `twin.shared.tools.registry`; individual tool classes live under `twin.shared.tools.modules.<domain>.<tool>` (`execution`, `memory`, `profile`, `web`). The paths `twin.shared.tools.base_tool` / `tool_registry` / `tool_discovery` / `implementations.system.*` no longer exist — do not recreate them.
 - **LLM/embedding endpoints chạy trên host phải dùng `host.docker.internal`, không phải `localhost`.** Container march7/evernight có `extra_hosts: host.docker.internal:host-gateway` trong compose; `localhost` trong `.env` sẽ trỏ vào chính container và fail với `Cannot connect to host localhost:<port>`. Áp dụng cho `OPENAI_API_URL`, `EMBEDDING_API_URL`, `LM_STUDIO_API_URL`, `TOOL_LLM_ENDPOINT`. Service nội-mạng Docker (redis, codebox, bash-executor, evernight) thì dùng service name.
 - **Docker entry for March7 is `python -m gateway`** (`gateway/__main__.py`),
@@ -81,6 +80,6 @@ Update upstream: `cd ~/.claude/skills && git pull`.
   entry — keep it in sync but treat the gateway entry as authoritative.
 - Local Redis/T2 data may be disposable during development because T3 Markdown
   is the durable profile/core memory. Confirm before deleting production data.
-- After modifying the T2 FT schema, the existing index must be dropped and
-  recreated (`FT.DROPINDEX idx:t2:page` then restart). `_create_index` skips
-  creation if the index already exists.
+- After modifying the T2 FT schema, the existing indexes must be dropped and
+  recreated (`FT.DROPINDEX idx:t2:mem`, `FT.DROPINDEX idx:t2:topic`, then
+  restart). `_create_*_index` skips creation if the index already exists.

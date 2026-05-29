@@ -12,7 +12,7 @@ from twin.shared.llm.llm_response import LLMResponse
 from twin.shared.tools.registry import ToolRegistry
 from twin.shared.tools.exceptions import BashExecutorUnavailableError
 from twin.shared.a2a.types import AgentCard, A2AMessage, Part, TaskStatus
-from twin.march7.memories.memory_manager import MemoryManager
+from twin.shared.memory import SharedMemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ TOOL_EXECUTION_TIMEOUT = 60
 class March7Agent:
     def __init__(
         self,
-        memory_manager: MemoryManager,
+        memory_manager: SharedMemoryManager,
         llm_service: BaseLLMService,
         tool_registry: Optional[ToolRegistry] = None,
         use_native_tools: bool = True,
@@ -177,8 +177,7 @@ class March7Agent:
 
     async def handle_get_snapshot(self, user_id: str) -> List[dict]:
         try:
-            ctx = await self.memory.t1.get_context_for_llm(user_id)
-            return ctx
+            return await self.memory.get_snapshot(user_id)
         except Exception as e:
             logger.error(f"Failed to get snapshot for {user_id}: {e}")
             return []

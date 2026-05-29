@@ -1,6 +1,6 @@
 # Toolkit Reference
 
-6 tools. Use only when needed. Default: answer from training knowledge.
+7 tools. Use only when needed. Default: answer from training knowledge.
 
 ---
 
@@ -12,7 +12,8 @@
 | Live info, news, current events | `web_search` |
 | Math, data analysis, file processing | `run_python_code` |
 | Host system check: sensors, docker, logs, disk, RAM | `execute_host_bash` |
-| Save user profile to Core Memory (T3) | `update_user_profile` |
+| Read user profile from Core Memory (T3) | `get_profile` |
+| Append stable user profile fact to Core Memory (T3) | `update_user_profile` |
 | Change bot personality or communication style | `update_personality` |
 
 ---
@@ -24,12 +25,14 @@ Search user history in Redis-backed T2 memory.
 | Param | Type | Detail |
 |---|---|---|
 | `user_id` | string (required) | Discord user ID |
-| `mode` | string | `auto` (default): infer mode<br>`semantic`: vector search<br>`time`: hard date/range filter<br>`topic`: current topic state<br>`topic_timeline`: ordered chunks<br>`related_context`: linked chunks<br>`recent`: latest pages |
+| `mode` | string | `auto` (default): infer mode<br>`semantic`: vector search<br>`time`: recent window via `days`/`hours`<br>`topic`: memories by `topic_id`<br>`recent`: latest memories |
 | `query` | string | Search query. Required for `semantic` mode. Be specific: `"sở thích anime"` not `"chuyện đó"` |
-| `days` | integer | Days to look back. Used for `time` mode. Default 7 |
-| `start_date`/`end_date` | string | Inclusive `YYYY-MM-DD` range for `time` or `topic_timeline` |
+| `topic_id` | string | T2 topic_id. Required for `topic` mode |
+| `topic` | string | Backward-compatible alias for `topic_id` |
+| `hours` | integer | Hours to look back for `recent`/`time`. Default 24 |
+| `days` | integer | Days to look back for `time`; converted to `days * 24` hours |
 | `limit` | integer | Max results. Default 5 |
-| `topic` | string | Keyword for `topic` mode. E.g. `"game"`, `"công việc"` |
+| `exclude_superseded` | boolean | Default `true` where mode supports filtering |
 
 ---
 
@@ -96,49 +99,48 @@ Run bash commands on host machine. Requires user approval per call.
 
 ---
 
-## update_user_profile
+## get_profile
 
-Save the complete user profile to Core Memory (T3).
+Read T3 markdown profile.
 
 | Param | Type | Detail |
 |---|---|---|
 | `user_id` | string (required) | Discord user ID |
-| `new_profile_markdown` | string (required) | **Full markdown content** of the updated profile. Overwrites entire file |
+| `section` | string | Optional. One of `basic`, `contact`, `relationship`, `work`, `interest`, `habit`, `psychological`, `rules` |
+
+Use when you need exact profile content before deciding whether to append a stable fact.
+
+---
+
+## update_user_profile
+
+Append one stable fact to Core Memory (T3).
+
+| Param | Type | Detail |
+|---|---|---|
+| `user_id` | string (required) | Discord user ID |
+| `section` | string (required) | One of `basic`, `contact`, `relationship`, `work`, `interest`, `habit`, `psychological`, `rules` |
+| `content` | string (required) | Bullet content. Do not include `- ` prefix |
+| `source_memory_id` | string | Optional T2 memory_id provenance |
 
 ### How to use this tool
 
-1. **Get current profile**: Read the existing profile from system prompt context
-2. **Detect new facts**: Identify permanent facts from the conversation (name, job, location, hobbies)
-3. **Merge**: Integrate new facts into the existing profile markdown. Resolve conflicts (e.g., old job → new job). Remove obsolete info.
-4. **Call tool**: Pass the **complete** updated markdown to `update_user_profile`
+1. **Detect stable fact**: name, contact, relationship, work, interest, habit, psychological pattern, or rule.
+2. **Choose section**: map to the closest T3 section.
+3. **Call tool**: pass one clean bullet. The store skips exact duplicates.
 
 ### Example flow
 
 User: "Tôi chuyển sang làm AI Engineer rồi"
-1. Current profile has "Nghề nghiệp: Software Developer"
-2. Replace with "Nghề nghiệp: AI Engineer"
-3. Keep all other sections unchanged
-4. Call: `update_user_profile(user_id="123", new_profile_markdown="## Thông tin cơ bản\n- Danh xưng: Hoàng\n...\n## Nghề nghiệp & Xã hội\n- Nghề nghiệp: AI Engineer\n...")`
+1. Fact is stable work info
+2. Section is `work`
+3. Call: `update_user_profile(user_id="123", section="work", content="Nghề nghiệp: AI Engineer")`
 
 ### Rules
 - Only save permanent/stable facts (name, job, location, hobbies, preferences)
 - Do NOT save: temporary moods, guesses, one-time preferences
-- Preserve existing information — do NOT delete unrelated facts
-- If profile is empty, create a new one using the standard structure:
-  ```
-  ## Thông tin cơ bản
-  - Danh xưng: ...
-  - Nhân khẩu học: ...
-  
-  ## Nghề nghiệp & Xã hội
-  - Nghề nghiệp: ...
-  
-  ## Sở thích & Thói quen
-  - Sở thích: ...
-  
-  ## Ràng buộc & Cấm kỵ
-  - ...
-  ```
+- Do NOT rewrite the full profile; this tool appends one bullet
+- If information conflicts with existing profile, append the updated fact; cleanup handles merge/supersede later
 - Write in Vietnamese
 
 ---
@@ -170,6 +172,6 @@ Rewrite bot personality files. Auto-routes to IDENTITY.md or SOUL.md based on co
 | `run_python_code` with `requests.get()` for web data | `web_search` |
 | `execute_host_bash` for math (`echo $((1+1))`) | `run_python_code` |
 | `update_user_profile` for "user đang buồn" | Don't save — temporary state |
-| `update_user_profile` with just a fact | Merge fact into full markdown first |
+| `update_user_profile` with full markdown | Append one bullet with `section` + `content` |
 | Wrapping bash in \`\`\` marks | Send plain text command |
 | `execute_host_bash` with `rm -rf`, `shutdown` | Never — blocked |

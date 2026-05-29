@@ -62,13 +62,7 @@ class EvernightA2AHandler:
             )
 
     async def handle_consolidate_discussion_task(self, params: dict) -> AsyncIterator[A2AMessage]:
-        """A2A skill for the unified SUMMARY_REQUESTED flow.
-
-        Expects ``params["payload"]`` to be a SUMMARY_REQUESTED payload as
-        built by March7's :class:`SummaryPolicy`.  Returns the consolidation
-        result via a ``data`` part so the caller can emit SUMMARY_COMPLETED /
-        SUMMARY_FAILED locally and cleanup its own T1.
-        """
+        """A2A compatibility skill for shared-memory consolidation payloads."""
         payload = params.get("payload") or {}
         scope = payload.get("scope")
         scope_id = payload.get("scope_id")
@@ -92,7 +86,10 @@ class EvernightA2AHandler:
             )
             return
 
-        result = await consolidator.consolidate(payload)
+        if hasattr(consolidator, "consolidate_payload"):
+            result = await consolidator.consolidate_payload(payload)
+        else:
+            result = await consolidator.consolidate(payload)
         yield A2AMessage(
             role="agent",
             parts=[Part(type="data", data=result)],

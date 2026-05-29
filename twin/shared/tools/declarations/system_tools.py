@@ -23,10 +23,8 @@ SYSTEM_TOOL_SPECS: tuple[ToolSpec, ...] = (
         class_name="SearchMemoryTool",
     ),
     ToolSpec(
-        module="twin.shared.tools.modules.memory.consolidate_t2_memory_tool",
-        class_name="ConsolidateT2MemoryTool",
-        visible_to=frozenset({"evernight"}),
-        allowed_to=frozenset({"evernight"}),
+        module="twin.shared.tools.modules.profile.get_profile_tool",
+        class_name="GetProfileTool",
     ),
     ToolSpec(
         module="twin.shared.tools.modules.profile.update_profile_tool",

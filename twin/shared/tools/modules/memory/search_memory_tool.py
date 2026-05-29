@@ -1,18 +1,23 @@
-"""SearchMemoryTool - query Redis-backed T2 memory."""
+"""SearchMemoryTool - query T2 timeline memory."""
+from __future__ import annotations
 
 import logging
-from typing import Dict, Any, Optional
+from datetime import datetime
+from typing import Any, Optional
 
 from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
 
 logger = logging.getLogger(__name__)
 
+_VALID_TOOL_MODES = {"auto", "semantic", "time", "topic", "recent"}
+_MAX_LIMIT = 20
+
 
 class SearchMemoryTool(BaseTool):
-    """Tool cho Bé Bảy tìm ký ức trong T2 Wiki Pages."""
+    """Tool for querying Redis Stack backed T2 timeline memory."""
 
-    def __init__(self, memory_manager: Optional[Any] = None):
-        self.memory_manager = memory_manager
+    def __init__(self, timeline_search: Optional[Any] = None):
+        self.timeline_search = timeline_search
 
     @property
     def name(self) -> str:
@@ -20,61 +25,59 @@ class SearchMemoryTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Tìm ký ức trong T2 memory. Chi tiết cách dùng xem TOOL.md."
+        return (
+            "Tìm ký ức T2 timeline. Dùng semantic cho nội dung, topic cho topic_id, "
+            "time/recent cho ký ức gần đây."
+        )
 
     @property
-    def parameters_schema(self) -> Dict[str, Any]:
+    def parameters_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
             "properties": {
                 "user_id": {
                     "type": "string",
-                    "description": "Discord user ID (số) của user đang chat. VD: '726302130318868500'"
+                    "description": "Discord user ID (số) của user đang chat.",
                 },
                 "mode": {
                     "type": "string",
-                    "enum": ["auto", "semantic", "time", "topic", "topic_timeline", "related_context", "recent"],
+                    "enum": ["auto", "semantic", "time", "topic", "recent"],
                     "default": "auto",
-                    "description": "Search mode. Use time for explicit dates/ranges; use topic_timeline for ordered topic history."
+                    "description": "auto tự chọn; semantic cần query; topic cần topic_id; time/recent dùng hours/days.",
                 },
                 "query": {
                     "type": "string",
-                    "description": "Query for semantic search (used when mode='semantic'). VD: 'sở thích', 'anime'"
+                    "description": "Query cho semantic search. VD: 'sở thích anime'.",
                 },
-                "days": {
-                    "type": "integer",
-                    "default": 7,
-                    "description": "Days to look back (used when mode='time'). VD: 7 for last week"
-                },
-                "start_date": {
+                "topic_id": {
                     "type": "string",
-                    "description": "Inclusive YYYY-MM-DD start date for time/topic_timeline search."
-                },
-                "end_date": {
-                    "type": "string",
-                    "description": "Inclusive YYYY-MM-DD end date for time/topic_timeline search."
+                    "description": "T2 topic_id để search theo topic.",
                 },
                 "topic": {
                     "type": "string",
-                    "description": "Topic keyword to search (used when mode='topic'). VD: 'anime', 'game'"
+                    "description": "Alias tương thích cũ cho topic_id.",
+                },
+                "hours": {
+                    "type": "integer",
+                    "default": 24,
+                    "description": "Số giờ nhìn lại cho recent/time.",
+                },
+                "days": {
+                    "type": "integer",
+                    "description": "Alias cho time: days * 24 giờ.",
                 },
                 "limit": {
                     "type": "integer",
                     "default": 5,
-                    "description": "Maximum memories to return."
+                    "description": f"Số memory tối đa, cap {_MAX_LIMIT}.",
                 },
-                "context_depth": {
-                    "type": "integer",
-                    "default": 1,
-                    "description": "Relationship traversal depth for related_context."
+                "exclude_superseded": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Loại memory đã bị supersede khi mode hỗ trợ.",
                 },
-                "max_related_chunks": {
-                    "type": "integer",
-                    "default": 5,
-                    "description": "Maximum chunks to follow for related_context."
-                }
             },
-            "required": ["user_id"]
+            "required": ["user_id"],
         }
 
     async def execute(
@@ -82,40 +85,125 @@ class SearchMemoryTool(BaseTool):
         user_id: str,
         mode: str = "auto",
         query: Optional[str] = None,
-        days: Optional[int] = 7,
+        topic_id: Optional[str] = None,
         topic: Optional[str] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        hours: Optional[int] = 24,
+        days: Optional[int] = None,
         limit: int = 5,
-        context_depth: int = 1,
-        max_related_chunks: int = 5,
+        exclude_superseded: bool = True,
     ) -> str:
+        user_id = str(user_id or "").strip()
+        mode = (mode or "auto").strip()
+        query = (query or "").strip() or None
+        topic_key = (topic_id or topic or "").strip() or None
+
         if not user_id:
             return "Lỗi: Thiếu user_id."
 
         if not user_id.isdigit():
-            logger.warning(f"Invalid user_id: {user_id}")
+            logger.warning("T2: invalid user_id for search_memory: %s", user_id)
             return f"Lỗi: user_id '{user_id}' không hợp lệ. user_id phải là số ID của Discord user."
 
-        if not self.memory_manager:
-            return "Lỗi: Hệ thống Wiki Memory chưa sẵn sàng."
+        if mode not in _VALID_TOOL_MODES:
+            return f"Lỗi: mode '{mode}' không hợp lệ. Mode hợp lệ: {', '.join(sorted(_VALID_TOOL_MODES))}."
+
+        if not self.timeline_search:
+            return "Lỗi: TimelineSearch chưa sẵn sàng."
+
+        timeline_mode = self._timeline_mode(mode)
+        if timeline_mode == "semantic" and not query:
+            return "Lỗi: mode semantic cần query."
+        if timeline_mode == "by_topic" and not topic_key:
+            return "Lỗi: mode topic cần topic_id."
 
         try:
-            return await self.memory_manager.search(
+            memories = await self.timeline_search.search(
                 user_id=user_id,
-                mode=mode,
                 query=query,
-                days=days,
-                topic=topic,
-                start_date=start_date,
-                end_date=end_date,
-                limit=limit,
-                context_depth=context_depth,
-                max_related_chunks=max_related_chunks,
+                mode=timeline_mode,
+                limit=self._bounded_limit(limit),
+                topic_id=topic_key,
+                hours=self._resolve_hours(mode, hours, days),
+                exclude_superseded=exclude_superseded,
             )
+            return self._format_memories(memories)
         except Exception as e:
-            logger.error(f"SearchMemoryTool failed: {e}")
+            logger.error("T2: SearchMemoryTool failed: %s", e)
             raise ToolExecutionError(self.name, f"Lỗi khi tìm kiếm: {e}", original_error=e)
 
+    @staticmethod
+    def _timeline_mode(mode: str) -> str:
+        if mode == "topic":
+            return "by_topic"
+        if mode == "time":
+            return "recent"
+        return mode
+
+    @staticmethod
+    def _bounded_limit(limit: int) -> int:
+        try:
+            value = int(limit)
+        except (TypeError, ValueError):
+            value = 5
+        return max(1, min(value, _MAX_LIMIT))
+
+    @staticmethod
+    def _resolve_hours(mode: str, hours: Optional[int], days: Optional[int]) -> int:
+        if mode == "time" and days is not None:
+            try:
+                return max(1, int(days)) * 24
+            except (TypeError, ValueError):
+                return 24
+        try:
+            return max(1, int(hours if hours is not None else 24))
+        except (TypeError, ValueError):
+            return 24
+
+    @staticmethod
+    def _format_memories(memories: Any) -> str:
+        if isinstance(memories, str):
+            return memories
+        if not memories:
+            return "Không tìm thấy ký ức phù hợp."
+
+        lines = [f"Tìm thấy {len(memories)} ký ức:"]
+        for index, memory in enumerate(memories, start=1):
+            content = str(SearchMemoryTool._field(memory, "content", str(memory))).strip()
+            lines.append(f"{index}. {content}")
+            metadata = SearchMemoryTool._metadata(memory)
+            if metadata:
+                lines.append(f"   ({'; '.join(metadata)})")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _field(memory: Any, field_name: str, default: Any = None) -> Any:
+        if isinstance(memory, dict):
+            return memory.get(field_name, default)
+        return getattr(memory, field_name, default)
+
+    @staticmethod
+    def _metadata(memory: Any) -> list[str]:
+        metadata: list[str] = []
+        for field_name in ("memory_id", "speaker", "change_type"):
+            value = SearchMemoryTool._field(memory, field_name)
+            if value:
+                metadata.append(f"{field_name}={value}")
+
+        for field_name in ("topic_ids", "catalogs"):
+            value = SearchMemoryTool._field(memory, field_name)
+            if value:
+                metadata.append(f"{field_name}={','.join(value)}")
+
+        created_at = SearchMemoryTool._field(memory, "created_at")
+        if isinstance(created_at, datetime):
+            metadata.append(f"created_at={created_at.isoformat()}")
+        elif created_at:
+            metadata.append(f"created_at={created_at}")
+
+        superseded_by = SearchMemoryTool._field(memory, "superseded_by")
+        if superseded_by:
+            metadata.append(f"superseded_by={superseded_by}")
+        return metadata
+
     def __repr__(self) -> str:
-        return f"<SearchMemoryTool: manager={self.memory_manager is not None}>"
+        return f"<SearchMemoryTool: timeline_search={self.timeline_search is not None}>"

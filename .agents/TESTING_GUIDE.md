@@ -23,34 +23,32 @@ local services are not already running.
 
 ## Recently Verified
 
-Baseline after the unified discussion memory wire-up (2026-05-25):
+Baseline after the memory rewrite wire-up (2026-05-28):
 
 ```bash
-python -m compileall twin gateway
-pytest tests/unit
+python -m py_compile twin/march7/container.py twin/evernight/container.py twin/shared/config/settings.py
+pytest
 docker compose -f docker/docker-compose.yml ps
 ```
 
-Observed result: `pytest tests/unit` reports `66 passed`. Docker Compose
-should show `march7`, `evernight`, `redis`, `codebox`, and `bash-executor`
-healthy after a fresh `up -d --build`.
+Observed result: `pytest` reports `221 passed, 13 skipped`. Docker Compose
+should show `march7`, `evernight`, `march7-redis`, `march7-codebox`, and
+`march7-bash-executor` healthy after a fresh `up -d --build`.
 
-The legacy `tests/integration/overflow_trigger_test.py` was removed when
-`TOKEN_LIMIT_REACHED` was retired. Equivalent coverage now lives in
-`tests/unit/summary_policy_test.py` and `tests/unit/discussion_consolidator_test.py`.
+The legacy overflow/discussion-consolidator tests were removed with the old
+memory stack. Equivalent coverage now lives under `tests/unit/memory/`.
 
 ## Selection Guide
 
-- Summary policy triggers (token / message_count / idle, locking):
-  `tests/unit/summary_policy_test.py`
-- DiscussionConsolidator (single-user, channel fan-out, JSON hardening, merge):
-  `tests/unit/discussion_consolidator_test.py`
+- Active memory + summary triggers:
+  `tests/unit/memory/active_test.py`, `tests/unit/memory/manager_test.py`
 - InactivityTrigger (scope iteration, evaluate dispatch, error tolerance):
   `tests/unit/inactivity_trigger_test.py`
-- Unified discussion memory baseline: `tests/unit/t1_redis_stack_storage_test.py`,
-  `tests/unit/t1_context_builder_test.py`, `tests/unit/t2_memory_test.py`,
-  `tests/unit/consolidation_runner_test.py`.
-- T2 semantic memory & consolidation: `tests/unit/t2_memory_test.py`,
-  `tests/unit/t2_consolidation_tool_test.py`
+- T2 timeline/search/topic/cleanup/consolidation:
+  `tests/unit/memory/timeline_store_test.py`, `tests/unit/memory/search_test.py`,
+  `tests/unit/memory/topic_resolver_test.py`,
+  `tests/unit/memory/consolidator_test.py`, `tests/unit/memory/cleanup_test.py`
+- T3 profile/tooling:
+  `tests/unit/memory/profile_test.py`, `tests/unit/memory/tools_test.py`
 - Gateway or Discord adapter: `tests/gateway/*`
 - A2A client/server behavior: tests matching `*a2a*`

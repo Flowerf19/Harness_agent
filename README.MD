@@ -36,28 +36,31 @@ flowchart LR
     D --> E[Evernight bot]
     M <--> A[A2A boundary]
     A <--> E
-    M --> T1[(T1 active memory)]
-    M --> T3[(T3 profile)]
-    E --> T2[(T2 semantic/wiki memory)]
+    M --> S[(Shared memory stack)]
+    E --> S
+    S --> T1[(T1 active memory)]
+    S --> T2[(T2 timeline/vector)]
+    S --> T3[(T3 profile)]
 ```
 
 | Agent | Vai trò | Port |
 |---|---|---|
-| **March7** | Chat chính, tool calling, quản lý T1/T3 | 8000 |
-| **Evernight** | DM/tag/`!9` chat, notification/approval, self-heal, giám sát lỗi, consolidation T2 | 8001 |
+| **March7** | Chat chính, tool calling, T1/T2/T3 shared memory | 8000 |
+| **Evernight** | DM/tag/`!9` chat, notification/approval, self-heal, T1/T2/T3 shared memory | 8001 |
 
 Evernight truy cập memory của March7 qua A2A (`get_snapshot`, `clear_session`) — **không** đọc trực tiếp T1 keys.
 
-### Plan đang chạy
+### Plan trạng thái
 
-- [Unified Discussion Memory](.agents/plans/unified-discussion-memory.md): T1 scope-aware (user/channel), T2 user-centric fan-out, flow `SUMMARY_REQUESTED → DiscussionConsolidator → SUMMARY_COMPLETED → cleanup` (thay cho `TOKEN_LIMIT_REACHED → overflow_queue` cũ).
+- [Memory Rewrite](.agents/plans/memory-rewrite.md) — T1/T2/T3 chạy qua `twin/shared/memory/`, T2 dùng Redis Stack VECTOR HNSW 768, T3 là Markdown 8 section. **Tiến độ: Phase 11/11 ✓**.
+- [Unified Discussion Memory](.agents/plans/unified-discussion-memory.md): đã được hấp thụ vào memory rewrite; flow hiện tại là `ActiveMemory → SharedMemoryManager → Consolidator → CleanupScheduler`.
 
 ### Gotcha runtime (dễ quên)
 
 - Channel memory chỉ observe channel được phép, không nghe toàn server. Reply trigger gồm cả reply-to-bot.
-- T2 user-centric: `T2Page.user_id` luôn là real user_id (digit); channel info ở `source_refs`.
-- DiscussionConsolidator fan-out cho mỗi `active_participant` (LLM quyết định).
-- T1 không xoá raw entries cho tới khi nhận `SUMMARY_COMPLETED`.
+- T2 timeline là user-centric: channel scope fan-out theo `author_id`; Redis document dùng `T2Memory.user_id` thật.
+- Redis Stack RediSearch index phải ở DB 0; dùng `TIMELINE_REDIS_DB=0` cho T2, còn T1 có thể dùng DB riêng theo agent.
+- T3 profile inject vào system prompt mỗi turn qua `MarkdownProfileStore.get_system_prompt_context()`.
 
 ## Prerequisites
 
@@ -94,13 +97,12 @@ python -m twin.evernight
 
 Nhóm env vars chính (chi tiết ở [.agents/PROJECT_CONTEXT.md](.agents/PROJECT_CONTEXT.md)):
 
-- Shared: `REDIS_URL`, `CODEBOX_API_URL`, `BASH_EXECUTOR_URL`, `T1_STORAGE_PHASE`
+- Shared: `REDIS_URL`, `TIMELINE_REDIS_DB`, `CODEBOX_API_URL`, `BASH_EXECUTOR_URL`
 - March7: `MARCH7_A2A_PORT`, `MARCH7_REDIS_DB`, `MARCH7_PERSONA_PATH`
 - Evernight: `EVERNIGHT_A2A_PORT`, `EVERNIGHT_REDIS_DB`, `INACTIVITY_SECONDS`, `SELF_HEAL_ENABLED`
 - Discord/Gateway: `DISCORD_MARCH7_TOKEN`, `DISCORD_EVERNIGHT_TOKEN`, `GATEWAY_ENABLED_PLATFORMS`
 - T1 budget: `T1_CONTEXT_MAX_TOKENS`, `T1_CONTEXT_MAX_MESSAGES`
-
-`T1_STORAGE_PHASE`: `legacy` (Redis HASH, ổn định) | `redis_stack` (JSON/Search, thử nghiệm).
+- Embeddings/T2: `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL_NAME`, `EMBEDDING_VECTOR_SIZE=768`
 
 > [!NOTE]
 > Docker dùng `redis/redis-stack-server` — cùng service phục vụ cả T1 và T2.

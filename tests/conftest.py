@@ -107,34 +107,18 @@ def sample_t1_snapshot(
 @pytest.fixture
 def sample_t2_page(sample_user_id: str):
     """Sample T2 page for tests."""
-    from twin.shared.memories.t2.models import T2Page, generate_topic_id
+    from twin.shared.memory.timeline import T2Memory
 
     now = datetime.now(timezone.utc)
-    topic_id = generate_topic_id(sample_user_id, "Evangelion_Anime")
-    return T2Page(
-        page_id=topic_id,
+    return T2Memory(
+        memory_id="sample-evangelion",
         user_id=sample_user_id,
-        topic_id=topic_id,
-        canonical_topic="Evangelion_Anime",
-        category="entertainment",
-        current_summary="User is watching Neon Genesis Evangelion and finds it intense and mind-blowing.",
-        key_points=[
-            "Started watching Evangelion in January 2025",
-            "Currently on episode 14",
-            "Finds the story psychological and intense",
-            "Finished the series and found the ending mind-blowing",
-        ],
+        content="User is watching Neon Genesis Evangelion and finds it intense and mind-blowing.",
+        topic_ids=["topic-evangelion"],
+        catalogs=["interest"],
         importance=4,
-        ttl_days=60,
         created_at=datetime(2025, 1, 10, 8, 0, 0, tzinfo=timezone.utc),
-        updated_at=now,
         last_accessed=now,
-        access_count=3,
-        history_log=[
-            "added: started watching Evangelion",
-            "updated: episode 14 reached",
-            "updated: finished series",
-        ],
         confidence=0.95,
     )
 
@@ -363,11 +347,11 @@ def mock_embedding_service():
     """
     Mock embedding service.
 
-    Returns a deterministic 1024-dim vector for testing.
+    Returns a deterministic 768-dim vector for testing.
     """
     service = AsyncMock()
-    # Return a deterministic 1024-dim vector.
-    service.get_embedding = AsyncMock(return_value=[0.1] * 1024)
+    # Return a deterministic 768-dim vector.
+    service.get_embedding = AsyncMock(return_value=[0.1] * 768)
     return service
 
 
@@ -399,5 +383,7 @@ def mock_context_builder():
 @pytest.fixture
 def mock_event_dispatcher():
     """Mock EventDispatcher for T1 events."""
-    from twin.march7.memories.activate_memory.events.event_dispatcher import EventDispatcher
-    return EventDispatcher()
+    dispatcher = MagicMock()
+    dispatcher.subscribe = MagicMock()
+    dispatcher.emit = MagicMock()
+    return dispatcher

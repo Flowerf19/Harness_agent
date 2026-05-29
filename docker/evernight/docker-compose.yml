@@ -33,6 +33,8 @@ services:
       - REDIS_ENABLED=true
       - REDIS_URL=redis://redis:6379
       - REDIS_DB=1
+      - TIMELINE_REDIS_DB=0
+      - EMBEDDING_VECTOR_SIZE=768
       - BASH_EXECUTOR_URL=http://bash-executor:8374
       - BASH_EXECUTOR_TIMEOUT=30
 

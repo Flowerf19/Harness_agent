@@ -1,31 +1,36 @@
-"""EvernightContainer - simplified DI container."""
+"""EvernightContainer - DI container for shared memory runtime."""
+from __future__ import annotations
+
 import logging
 
+import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
-from twin.shared.config.settings import Config
-from twin.shared.llm.gemini_service import GeminiService
-from twin.shared.llm.openai_service import OpenAIService
-from twin.shared.llm.embedding import create_embedding_service
-from twin.shared.tools.registry.bootstrap import build_tool_registry
-from twin.shared.memories.t2 import T2Memory, T2Store
-
-from twin.evernight.memories.memory_manager import MemoryManager
-from twin.evernight.memories.activate_memory.activate_memory_service import ActiveMemoryService
-from twin.evernight.memories.activate_memory.events.event_dispatcher import EventDispatcher
-from twin.evernight.memories.activate_memory.management.context_builder import ContextBuilder
-from twin.evernight.memories.activate_memory.management.state_repository import SummaryStateRepository
-from twin.evernight.memories.activate_memory.management.summary_policy import SummaryPolicy
-from twin.evernight.memories.activate_memory.management.token_counter import TokenCounter
-from twin.evernight.memories.activate_memory.storage.ram_storage import LocalMemoryDB
-from twin.evernight.memories.activate_memory.storage.redis_storage import create_redis_storage
-from twin.evernight.memories.activate_memory.storage.redis_stack_storage import RedisStackStorage
-from twin.evernight.memories.activate_memory.storage.base_storage import BaseStorage
-from twin.evernight.memories.core_memory.core_manager import CoreManager
-from twin.evernight.memories.core_memory import MarkdownStorage
-from twin.shared.memories.discussion_consolidator import DiscussionConsolidator
 from twin.evernight.agent import EvernightAgent
 from twin.evernight.config import EvernightConfig
+from twin.shared.config.settings import Config
+from twin.shared.llm.embedding import create_embedding_service
+from twin.shared.llm.gemini_service import GeminiService
+from twin.shared.llm.openai_service import OpenAIService
+from twin.shared.memory import SharedMemoryManager
+from twin.shared.memory.active import (
+    ActiveMemory,
+    ActiveStore,
+    ActiveSummaryPolicy,
+    ActiveSummaryStateRepository,
+    FastPathDetector,
+)
+from twin.shared.memory.profile import MarkdownProfileStore
+from twin.shared.memory.timeline import (
+    Cleanup,
+    CleanupScheduler,
+    Consolidator,
+    Extractor,
+    TimelineSearch,
+    TimelineStore,
+    TopicResolver,
+)
+from twin.shared.tools.registry.bootstrap import build_tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +41,18 @@ class EvernightContainer:
     def __init__(self, config: EvernightConfig):
         self.config = config
         self.llm_service = None
+        self.embedding_service = None
         self.memory_manager = None
         self.agent = None
         self.tool_registry = None
-        self.redis_storage = None
         self.redis_client = None
+        self.timeline_redis_client = None
+        self.timeline_store = None
+        self.timeline_search = None
+        self.profile_store = None
+        self.cleanup_scheduler = None
+        self.state_repo = None
+        self.summary_policy = None
 
     @classmethod
     def get_instance(cls, config: EvernightConfig = None):
@@ -52,135 +64,108 @@ class EvernightContainer:
         load_dotenv(override=True)
         logger.info("EvernightContainer initializing...")
 
-        # LLM Service
-        provider = getattr(Config, "LLM_PROVIDER", "gemini").lower()
-        if provider in {"openai", "openai_compat", "openai-compatible", "openai_compatible"}:
-            # OpenAI-compatible covers OpenAI, OpenRouter, LM Studio, Qwen compatible-mode, etc.
-            self.llm_service = OpenAIService(persona_path=self.config.persona_path)
-        else:
-            self.llm_service = GeminiService(persona_path=self.config.persona_path)
-
-        # Embedding Service
+        self.llm_service = self._build_llm_service()
         self.embedding_service = create_embedding_service()
 
-        # T1 Active Memory
-        event_bus = EventDispatcher()
-        t1_storage = await self._get_t1_storage()
-        t1_token_counter = TokenCounter()
-        t1_context_builder = ContextBuilder()
-        summary_state_repo = SummaryStateRepository(self.redis_client)
-        summary_policy = SummaryPolicy(t1_storage, summary_state_repo, event_bus)
+        self.redis_client = await self._connect_redis(self.config.redis_db)
+        timeline_db = getattr(Config, "TIMELINE_REDIS_DB", 0)
+        self.timeline_redis_client = await self._connect_redis(timeline_db)
 
-        t1_service = ActiveMemoryService(
-            storage=t1_storage,
-            token_counter=t1_token_counter,
-            context_builder=t1_context_builder,
-            event_dispatcher=event_bus,
-            summary_policy=summary_policy,
+        active = ActiveMemory(
+            store=ActiveStore(self.redis_client),
+            detector=FastPathDetector(),
         )
 
-        # T3 Core Memory
-        t3_storage = MarkdownStorage()
-        # SmartUpdater removed - agent handles merge
-        t3_manager = CoreManager(storage=t3_storage)
+        self.profile_store = MarkdownProfileStore()
 
-        # T2 semantic memory (Redis Stack, shared)
-        t2_store = await self._get_t2_store()
-        episodic_memory = T2Memory(
-            store=t2_store,
-            embedding_service=self.embedding_service,
-        )
-
-        # DiscussionConsolidator wires the SUMMARY_REQUESTED event into T2 fan-out
-        consolidator = DiscussionConsolidator(
+        self.timeline_store = TimelineStore(self.timeline_redis_client)
+        await self.timeline_store.initialize()
+        resolver = TopicResolver(self.timeline_store, self.embedding_service, self.llm_service)
+        extractor = Extractor(self.llm_service)
+        cleanup = Cleanup(
+            store=self.timeline_store,
+            embedder=self.embedding_service,
             llm=self.llm_service,
-            t2_memory=episodic_memory,
-            event_dispatcher=event_bus,
+            profile_reader=self.profile_store.read_raw,
+            profile_writer=self.profile_store.write_raw,
+        )
+        self.cleanup_scheduler = CleanupScheduler(cleanup.run)
+        consolidator = Consolidator(
+            active=active,
+            store=self.timeline_store,
+            resolver=resolver,
+            extractor=extractor,
+            embedder=self.embedding_service,
+            profile_reader=self.profile_store.read_raw,
+            profile_appender=self.profile_store.append_raw,
+            cleanup_scheduler=self.cleanup_scheduler.schedule,
+        )
+        self.timeline_search = TimelineSearch(
+            store=self.timeline_store,
+            embedder=self.embedding_service,
         )
 
-        # Memory Manager
-        self.memory_manager = MemoryManager(
-            active_memory=t1_service,
-            core_memory=t3_manager,
-            event_dispatcher=event_bus,
-            state_repo=summary_state_repo,
+        self.memory_manager = SharedMemoryManager(
+            active=active,
+            profile_store=self.profile_store,
+            timeline_search=self.timeline_search,
             consolidator=consolidator,
         )
+        active.trigger_callback = self.memory_manager.consolidate_scope
 
-        self.consolidator = consolidator
-        # Expose for downstream wiring (InactivityTrigger, A2A skills)
-        self.state_repo = summary_state_repo
-        self.summary_policy = summary_policy
-        self.event_bus = event_bus
+        self.state_repo = ActiveSummaryStateRepository(active)
+        self.summary_policy = ActiveSummaryPolicy(
+            active,
+            self.memory_manager.consolidate_scope,
+        )
 
-        # Tool Registry
         tools = build_tool_registry(
             agent_name="evernight",
-            core_manager=t3_manager,
-            memory_manager=episodic_memory,
+            core_manager=None,
+            memory_manager=self.memory_manager,
+            timeline_search=self.timeline_search,
+            profile_store=self.profile_store,
             llm_service=self.llm_service,
             base_memory_path=self.config.persona_path,
         )
-        tool_registry = tools.registry
+        self.tool_registry = tools.registry
+        self.llm_service.set_tool_registry(self.tool_registry)
 
-        self.llm_service.set_tool_registry(tool_registry)
-
-        # Evernight Agent
         self.agent = EvernightAgent(
             memory_manager=self.memory_manager,
-            episodic_memory=episodic_memory,
+            episodic_memory=self.timeline_search,
             llm_service=self.llm_service,
-            tool_registry=tool_registry,
+            tool_registry=self.tool_registry,
             march7_url=self.config.march7_url,
-            consolidator=consolidator,
+            consolidator=self.memory_manager,
         )
 
-        self.tool_registry = tool_registry
         logger.info("EvernightContainer initialized")
 
     async def shutdown(self):
+        if self.cleanup_scheduler:
+            await self.cleanup_scheduler.close()
         if self.llm_service:
             await self.llm_service.close()
-        if self.redis_storage:
-            await self.redis_storage.close()
+        if self.redis_client:
+            await self.redis_client.aclose()
+        if self.timeline_redis_client and self.timeline_redis_client is not self.redis_client:
+            await self.timeline_redis_client.aclose()
 
-    async def _get_t1_storage(self) -> BaseStorage:
-        redis_enabled = getattr(Config, "REDIS_ENABLED", False)
-        if not redis_enabled:
-            return LocalMemoryDB()
+    def _build_llm_service(self):
+        provider = getattr(Config, "LLM_PROVIDER", "gemini").lower()
+        if provider in {"openai", "openai_compat", "openai-compatible", "openai_compatible"}:
+            return OpenAIService(persona_path=self.config.persona_path)
+        return GeminiService(persona_path=self.config.persona_path)
 
-        try:
-            storage = create_redis_storage(
-                redis_url=Config.REDIS_URL,
-                redis_password=Config.REDIS_PASSWORD,
-                redis_db=self.config.redis_db,
-            )
-            if await storage.health_check():
-                self.redis_storage = storage
-                self.redis_client = storage.redis
-                phase = getattr(Config, "T1_STORAGE_PHASE", "legacy")
-                if phase == "redis_stack":
-                    stack_storage = RedisStackStorage(self.redis_client)
-                    try:
-                        await stack_storage.initialize()
-                    except Exception as e:
-                        logger.warning("T1 Redis Stack init failed, fallback legacy: %s", e)
-                        return storage
-
-                    logger.info("Evernight T1 Redis Stack phase=redis_stack")
-                    return stack_storage
-                return storage
-            else:
-                await storage.close()
-                return LocalMemoryDB()
-        except Exception as e:
-            logger.warning(f"Redis connection failed, using RAM: {e}")
-            return LocalMemoryDB()
-
-    async def _get_t2_store(self):
-        try:
-            storage = T2Store(redis_client=self.redis_client)
-            await storage.initialize()
-            return storage
-        except Exception as e:
-            raise RuntimeError(f"T2 storage init failed: {e}")
+    async def _connect_redis(self, db: int):
+        if not getattr(Config, "REDIS_ENABLED", False):
+            raise RuntimeError("REDIS_ENABLED=false; shared memory runtime requires Redis Stack")
+        client = aioredis.from_url(
+            Config.REDIS_URL,
+            db=db,
+            password=Config.REDIS_PASSWORD,
+            decode_responses=False,
+        )
+        await client.ping()
+        return client

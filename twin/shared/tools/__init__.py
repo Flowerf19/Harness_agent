@@ -27,6 +27,7 @@ from .registry.bootstrap import ToolBootstrapResult, build_tool_registry
 # Tool implementations
 from .modules.memory import SearchMemoryTool
 from .modules.profile import (
+    GetProfileTool,
     UpdateUserProfileTool,
     UpdatePersonalityTool,
 )
@@ -54,6 +55,7 @@ __all__ = [
     "build_tool_registry",
     # Implementations
     "SearchMemoryTool",
+    "GetProfileTool",
     "UpdateUserProfileTool",
     "UpdatePersonalityTool",
 ]

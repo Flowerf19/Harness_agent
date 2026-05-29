@@ -27,16 +27,19 @@ def _schema_names(registry):
 def test_bootstrap_filters_tool_visibility_by_agent():
     march7 = _registry_for("march7")
     evernight = _registry_for("evernight")
+    removed_consolidation_tool = "consolidate_" + "t2_memory"
 
-    assert "consolidate_t2_memory" not in _schema_names(march7)
-    assert "consolidate_t2_memory" in _schema_names(evernight)
+    assert removed_consolidation_tool not in _schema_names(march7)
+    assert removed_consolidation_tool not in _schema_names(evernight)
+    assert "get_profile" in _schema_names(march7)
+    assert "get_profile" in _schema_names(evernight)
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_blocks_disallowed_tool_execution():
+async def test_bootstrap_removes_consolidation_tool_execution():
     march7 = _registry_for("march7")
 
     with pytest.raises(ToolExecutionError) as exc:
-        await march7.execute_tool("consolidate_t2_memory", {})
+        await march7.execute_tool("consolidate_" + "t2_memory", {})
 
-    assert "không có quyền" in str(exc.value)
+    assert "not found" in str(exc.value)

@@ -12,7 +12,7 @@ Use [../docker/docker-compose.yml](../docker/docker-compose.yml) and
 
 Main services:
 
-- `redis`: Redis Stack for T1 coordination/storage and T2 semantic memory.
+- `redis`: Redis Stack for T1 active memory and T2 timeline/vector memory.
 - `codebox`: sandboxed Python execution service.
 - `bash-executor`: privileged host command execution with approval/audit.
 - `march7`: Gateway, Discord bot, and March7 A2A server.
@@ -41,9 +41,9 @@ Docker.
 `python -m gateway`, so `gateway/__main__.py` is the production entry that
 owns:
 
-- `March7Container.initialize()` (T1/T3, SummaryPolicy, EvernightClient)
+- `March7Container.initialize()` (shared T1/T2/T3 memory stack, tools, LLM)
 - March7 A2A server on port 8000
-- `InactivityTrigger` over `("user", "channel")` driving `SummaryPolicy.evaluate`
+- `InactivityTrigger` over `("user", "channel")` driving `ActiveSummaryPolicy.evaluate`
 - Discord adapter via `ChatGateway`
 
 `twin/march7/__main__.py` is a thinner CLI-style entry (no gateway / no
@@ -53,9 +53,9 @@ unified flow works in either mode.
 ## Architecture Boundaries
 
 - `gateway/`: platform adapters and routing, currently focused on Discord. Routes public messages to March7 and handles communication.
-- `twin/march7/`: conversational agent, chat/tool loop, T1 active memory (via `activate_memory`), T2 semantic memory (read-only search capability), T3 profile memory, A2A server on default port `8000`.
-- `twin/evernight/`: background consolidation and self-heal agent. Includes its own Discord bot adapter (`EvernightDiscordAdapter` listening to DMs and `!9` prefix) with chat capability (`handle_chat`), and A2A server on default port `8001`.
-- `twin/shared/`: shared A2A, LLM, tool, memory (including T2 memory store/search), and transport code.
+- `twin/march7/`: conversational agent, chat/tool loop, A2A server on default port `8000`, and container wiring for the shared memory stack.
+- `twin/evernight/`: background consolidation and self-heal agent. Includes its own Discord bot adapter (`EvernightDiscordAdapter` listening to DMs and `!9` prefix) with chat capability (`handle_chat`), A2A server on default port `8001`, and container wiring for the same shared memory stack.
+- `twin/shared/`: shared A2A, LLM, tool, memory (`active`, `timeline`, `profile`), and transport code.
 
 Evernight must access March7 session state through A2A skills such as
 `get_snapshot` and `clear_session`; do not couple it directly to March7 Redis
@@ -63,63 +63,47 @@ keys unless the architecture explicitly changes.
 
 ## Current Implementation Status
 
-Unified discussion memory is implemented end-to-end as of 2026-05-25.
+Memory rewrite is implemented end-to-end as of 2026-05-28.
 
-- **T1 scope-aware**: `MemoryEntry.scope` (`user`/`channel`), `scope_id`, plus
+- **Shared stack**: `twin/shared/memory/` is the single implementation for both
+  agents. Containers build `ActiveMemory`, `MarkdownProfileStore`,
+  `TimelineStore`, `TimelineSearch`, `Consolidator`, `Cleanup`, and
+  `CleanupScheduler`.
+- **T1 scope-aware**: `ActiveEntry.scope` (`user`/`channel`), `scope_id`, plus
   `author_*`/`guild_id`/`channel_id`/`message_id`/`reply_to` metadata. Storage
-  keys are `active_memory:{scope}:{scope_id}` across `RamStorage`,
-  `RedisStorage`, and `RedisStackStorage`. Both March7 and Evernight T1 share
-  the same schema (Evernight uses it for DM / `!9` chat).
-- **Gateway split**: `should_observe` (DM | mention | reply-to-bot | observe
-  channel) and `should_respond` (DM | mention | reply-to-bot | respond
-  channel). `AdminChannels` cog stores per-channel `ChannelMode`
-  (`observe`/`respond`).
-- **Channel prompt context**: `build_channel_context` injects recent channel
-  transcript with `author_name` when the bot is invoked in a channel.
-- **Unified summary flow**: `SummaryPolicy.evaluate` fires
-  `SUMMARY_REQUESTED` on token / message_count / idle thresholds.
-  `MemoryManager` routes the event to Evernight via the A2A skill
-  `consolidate_discussion` (`EvernightClient.request_consolidation`), then
-  emits `SUMMARY_COMPLETED` / `SUMMARY_FAILED` locally. `cleanup_summarized`
-  trims raw T1 entries after success while keeping the most recent few.
-- **T2 user-centric fan-out**: `DiscussionConsolidator` lives in
-  `twin/shared/memories/discussion_consolidator.py`. For each
-  `active_participant` the LLM returns, it generates a deterministic
-  `T2Page` (per real user_id) and merges with existing pages. Channel ids
-  stay in `source_refs`. Page schema also includes `participants` (TAG
-  indexed for future joint filters).
-- **InactivityTrigger**: rewritten to poll `SummaryStateRepository.list_active`
-  and call `SummaryPolicy.evaluate` per scope. Each agent runs its own
-  instance in-process — March7 scans `("user", "channel")`, Evernight scans
-  `("user",)`. The legacy snapshot-based path was removed.
-- **Legacy removed**: `TOKEN_LIMIT_REACHED` event, `_handle_memory_overflow`,
-  `ActiveMemoryService.force_cleanup`, the `else` fallback in
-  `observe_user_message`, and the `overflow_queue` parameter of
-  `MemoryManager` are gone. `MemoryJobQueue` and `MemoryWorker` still exist
-  as backwards-compat consumers for any external tooling that pushes jobs
-  directly to the legacy queue.
+  uses Redis JSON keys `active:{scope}:{scope_id}:{entry_id}` plus
+  `active_state:*` and `active_index:*`.
+- **Prompt context**: `SharedMemoryManager.get_context()` injects T3 profile
+  context from `MarkdownProfileStore.get_system_prompt_context()` and T2
+  pre-flight retrieval from `TimelineSearch.preflight()`.
+- **Consolidation flow**: `ActiveMemory` threshold/idle calls
+  `SharedMemoryManager.consolidate_scope()`. User scope consolidates directly;
+  channel scope fans out per participant author id. Successful consolidation
+  trims summarized T1 entries and schedules cleanup.
+- **T2 timeline/vector**: `T2Memory` and `T2Topic` are stored as Redis JSON with
+  RediSearch `VECTOR HNSW` indexes `idx:t2:mem` and `idx:t2:topic`.
+- **Legacy removed**: old `twin/*/memories/`, `twin/shared/memories/`,
+  `DiscussionConsolidator`, `consolidate_t2_memory`, and the old T2 page model
+  were removed.
 
 ## Memory Tiers
 
-- **T1 Active Memory**: short-term session context in Redis. `redis_stack` is
-  the default stable path (set via `T1_STORAGE_PHASE` in settings); `legacy`
-  Redis/HASH is the fallback. Keys are now scoped as
-  `active_memory:{scope}:{scope_id}` for hash storage and equivalent
-  `scope/scope_id` JSON fields for Redis Stack storage.
-- **T2 Episodic/Wiki Memory**: Redis Stack semantic/vector memory, used by
-  March7 for search queries and Evernight for consolidation. T2 remains
-  user-centric; channel ids belong in `source_refs`, not `T2Page.user_id`.
-- **T3 Core/Profile Memory**: Markdown files via `MarkdownStorage`, default
-  base path `memories/`.
+- **T1 Active Memory**: short-term session context in Redis JSON, scoped as
+  `user` or `channel`.
+- **T2 Timeline Memory**: Redis Stack semantic/vector memory, used by both
+  agents for pre-flight retrieval, search tool calls, consolidation, topic
+  resolution, supersede chains, and cleanup.
+- **T3 Core/Profile Memory**: Markdown files via `MarkdownProfileStore`, default
+  base path `memories/`, rendered as 8 profile sections.
 
 ## Key Environment Groups
 
 Shared infrastructure and LLM:
 
 - `REDIS_URL`
+- `TIMELINE_REDIS_DB` default `0` (required for RediSearch indexes)
 - `CODEBOX_API_URL`
 - `BASH_EXECUTOR_URL`
-- `T1_STORAGE_PHASE`
 - `T1_CONTEXT_MAX_TOKENS`
 - `T1_CONTEXT_MAX_MESSAGES`
 - `LLM_PROVIDER` and provider-specific chat/embedding variables
