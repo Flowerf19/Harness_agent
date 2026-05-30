@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import TYPE_CHECKING
 
 from discord.ext import commands
@@ -28,6 +29,12 @@ logger = logging.getLogger(__name__)
 
 ERROR_MESSAGE = "Hệ thống não bộ của tớ đang bị quá tải xíu, cậu thử lại sau vài giây nhé!"
 
+# Wait this long after a message before replying, coalescing a burst of rapid
+# messages in the same scope into a single reply (the latest message wins).
+MESSAGE_DEBOUNCE_SECONDS = float(os.getenv("MESSAGE_DEBOUNCE_SECONDS", "2.0"))
+# Cap reply parts so a degenerate (looping) LLM response can't flood a channel.
+MAX_REPLY_PARTS = 5
+
 
 class DiscordGatewayHandler(GatewayHandler):
     """Handles unified messages from the Discord adapter."""
@@ -36,6 +43,24 @@ class DiscordGatewayHandler(GatewayHandler):
 
     def __init__(self, agent_router: AgentRouter | None = None):
         self._agent_router = agent_router
+        # Per-scope serialization + debounce state. Scope = channel (guild) or
+        # user (DM), matching the memory scope.
+        self._scope_locks: dict[str, asyncio.Lock] = {}
+        self._latest_msg: dict[str, str] = {}
+        self._burst_addressed: dict[str, bool] = {}
+
+    @staticmethod
+    def _scope_key(raw_message: discord.Message, is_dm: bool, user_id: str) -> str:
+        if not is_dm and raw_message.guild:
+            return f"channel:{raw_message.channel.id}"
+        return f"dm:{user_id}"
+
+    def _get_lock(self, scope_key: str) -> asyncio.Lock:
+        lock = self._scope_locks.get(scope_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._scope_locks[scope_key] = lock
+        return lock
 
     async def handle_message(self, msg: UnifiedMessage) -> str:
         raw_message: discord.Message | None = None
@@ -71,9 +96,6 @@ class DiscordGatewayHandler(GatewayHandler):
         is_respond_channel = mode == ChannelMode.RESPOND_ALLOWED
         is_addressed = is_dm or is_mentioned or is_reply_to_bot
         should_respond = is_addressed or is_respond_channel
-        # In a respond channel, ambient (non-addressed) messages are routed too,
-        # but March7 may stay silent based on context. Direct address always replies.
-        allow_silence = is_respond_channel and not is_addressed
 
         # Content check
         content = msg.content.strip()
@@ -91,47 +113,74 @@ class DiscordGatewayHandler(GatewayHandler):
         if not should_respond:
             return ""
 
-        # Route to March7 agent (all messages here are non-!9)
-        try:
-            set_current_message(raw_message)
-            logger.info("Routing to march7 agent: user=%s content=%.80s", user_id, content)
-            bot_user = self._get_bot().user if self._get_bot() else None
-            async with raw_message.channel.typing():
-                if self._agent_router:
-                    response = await self._agent_router.route(
-                        agent_name="march7",
-                        user_id=user_id,
-                        content=content,
-                        channel_id=(
-                            str(raw_message.channel.id)
-                            if raw_message.guild
-                            else None
-                        ),
-                        observe_input=False,
-                        guild_id=(
-                            str(raw_message.guild.id)
-                            if raw_message.guild
-                            else None
-                        ),
-                        bot_id=str(bot_user.id) if bot_user else None,
-                        bot_name=bot_user.display_name if bot_user else None,
-                        allow_silence=allow_silence,
-                    )
-                else:
-                    response = await self._legacy_process(user_id, content)
+        # Debounce: coalesce a burst of rapid messages in this scope into one
+        # reply. Mark this message the latest, remember if any burst message
+        # addressed the bot, then wait — if a newer message arrives, drop this
+        # one (the newer message handles the whole burst).
+        scope_key = self._scope_key(raw_message, is_dm, user_id)
+        self._latest_msg[scope_key] = msg.message_id
+        self._burst_addressed[scope_key] = (
+            self._burst_addressed.get(scope_key, False) or is_addressed
+        )
 
-            logger.info("Got response from march7: %.80s", response)
-            await self._send_response(raw_message, response)
-        except BashExecutorUnavailableError:
-            await self._handle_bash_executor_unavailable(raw_message, user_id, content)
-        except Exception:
-            logger.exception("Error processing message")
+        await asyncio.sleep(MESSAGE_DEBOUNCE_SECONDS)
+        if self._latest_msg.get(scope_key) != msg.message_id:
+            return ""
+
+        # Serialize per scope so two turns of the same conversation never run
+        # concurrently. Re-check after acquiring: a newer message may have
+        # arrived while a previous turn held the lock.
+        async with self._get_lock(scope_key):
+            if self._latest_msg.get(scope_key) != msg.message_id:
+                return ""
+            # In a respond channel, March7 may stay silent on ambient messages,
+            # but if anything in the burst addressed it, it always replies.
+            addressed = self._burst_addressed.pop(scope_key, False)
+            allow_silence = is_respond_channel and not addressed
+
+            # Route to March7 agent (all messages here are non-!9)
             try:
-                await raw_message.channel.send(ERROR_MESSAGE)
+                set_current_message(raw_message)
+                logger.info("Routing to march7 agent: user=%s content=%.80s", user_id, content)
+                bot_user = self._get_bot().user if self._get_bot() else None
+                async with raw_message.channel.typing():
+                    if self._agent_router:
+                        response = await self._agent_router.route(
+                            agent_name="march7",
+                            user_id=user_id,
+                            content=content,
+                            channel_id=(
+                                str(raw_message.channel.id)
+                                if raw_message.guild
+                                else None
+                            ),
+                            observe_input=False,
+                            guild_id=(
+                                str(raw_message.guild.id)
+                                if raw_message.guild
+                                else None
+                            ),
+                            bot_id=str(bot_user.id) if bot_user else None,
+                            bot_name=bot_user.display_name if bot_user else None,
+                            allow_silence=allow_silence,
+                        )
+                    else:
+                        response = await self._legacy_process(user_id, content)
+
+                logger.info("Got response from march7: %.80s", response)
+                await self._send_response(raw_message, response)
+            except BashExecutorUnavailableError:
+                await self._handle_bash_executor_unavailable(raw_message, user_id, content)
             except Exception:
-                logger.exception("Failed to send error message to user")
-        finally:
-            clear_current_message()
+                logger.exception("Error processing message")
+                try:
+                    await raw_message.channel.send(ERROR_MESSAGE)
+                except Exception:
+                    logger.exception("Failed to send error message to user")
+            finally:
+                clear_current_message()
+
+        return ""
 
         return ""
 
@@ -241,6 +290,15 @@ class DiscordGatewayHandler(GatewayHandler):
         messages_to_send = [
             msg.strip() for msg in clean_text.split("\n") if msg.strip()
         ]
+
+        # Flood guard: a degenerate (looping) LLM response can produce dozens of
+        # lines. Cap the number of parts so it can't spam the channel.
+        if len(messages_to_send) > MAX_REPLY_PARTS:
+            logger.warning(
+                "Reply has %d parts, capping to %d (possible degenerate output)",
+                len(messages_to_send), MAX_REPLY_PARTS,
+            )
+            messages_to_send = messages_to_send[:MAX_REPLY_PARTS]
 
         from twin.shared.config.settings import Config
 
