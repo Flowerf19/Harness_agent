@@ -61,7 +61,10 @@ class DiscordPlatformAdapter(PlatformAdapter):
             if ctx.valid:
                 return
 
-            content = message.content
+            # clean_content resolves mentions to readable "@name"/"#channel"
+            # (guild-nick aware) so the model knows who a message refers to,
+            # instead of seeing raw "<@id>". Does not touch markdown.
+            content = message.clean_content
 
             # Ignore !9 prefix — let Evernight bot handle it directly
             if content.strip().lower().startswith("!9"):
@@ -69,8 +72,13 @@ class DiscordPlatformAdapter(PlatformAdapter):
 
             is_mentioned = self._bot.user in message.mentions
             if is_mentioned:
-                content = content.replace(f"<@{self._bot.user.id}>", "")
-                content = content.replace(f"<@!{self._bot.user.id}>", "")
+                # The bot's own mention is now "@<display name>"; strip it so the
+                # message reads naturally. Other users' mentions stay resolved.
+                bot_names = {self._bot.user.display_name}
+                if message.guild and message.guild.me:
+                    bot_names.add(message.guild.me.display_name)
+                for name in bot_names:
+                    content = content.replace(f"@{name}", "")
 
             try:
                 unified = DiscordMessageConverter.to_unified(
