@@ -38,6 +38,7 @@ class AgentRouter:
         guild_id: str | None = None,
         bot_id: str | None = None,
         bot_name: str | None = None,
+        allow_silence: bool = False,
     ) -> str:
         """Route message to the specified agent."""
         if agent_name == "evernight":
@@ -55,6 +56,7 @@ class AgentRouter:
                 guild_id=guild_id,
                 bot_id=bot_id,
                 bot_name=bot_name,
+                allow_silence=allow_silence,
             )
 
     async def close(self):

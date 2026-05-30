@@ -180,3 +180,69 @@ async def test_handle_chat_in_dm_uses_user_scope():
     # Bot reply saved to user scope (channel_id=None).
     assert memory.add_assistant_calls[-1]["channel_id"] is None
     assert memory.user_scope_msgs["u1"][-1] == {"role": "assistant", "content": "chào Hoà"}
+
+
+@pytest.mark.asyncio
+async def test_handle_chat_silence_sentinel_stays_silent():
+    """allow_silence + model emits [skip] → empty reply, nothing saved, note injected."""
+    memory = FakeMemoryManager()
+    agent = _make_agent(memory, llm_response="[skip]")
+
+    response = await agent.handle_chat(
+        user_id="u1",
+        content="hôm nay trời đẹp",
+        channel_id="c1",
+        observe_input=False,
+        bot_id="march7",
+        bot_name="March7",
+        allow_silence=True,
+    )
+
+    assert response == ""
+    # Silent → no assistant reply persisted to any scope.
+    assert memory.add_assistant_calls == []
+    assert "c1" not in memory.channel_scope_msgs
+    # The silence permission note must reach the LLM's system prompt.
+    assert "[skip]" in agent._fake_llm.last_system_prompt  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_handle_chat_allow_silence_normal_reply_is_sent():
+    """allow_silence but a real reply → sent and saved (sentinel only on exact [skip])."""
+    memory = FakeMemoryManager()
+    agent = _make_agent(memory, llm_response="ờ đẹp thật đó =))")
+
+    response = await agent.handle_chat(
+        user_id="u1",
+        content="hôm nay trời đẹp",
+        channel_id="c1",
+        observe_input=False,
+        bot_id="march7",
+        bot_name="March7",
+        allow_silence=True,
+    )
+
+    assert response == "ờ đẹp thật đó =))"
+    assert len(memory.add_assistant_calls) == 1
+    assert memory.channel_scope_msgs["c1"][-1]["content"] == "ờ đẹp thật đó =))"
+
+
+@pytest.mark.asyncio
+async def test_handle_chat_sentinel_ignored_when_silence_not_allowed():
+    """Default allow_silence=False (e.g. direct mention) → [skip] is a literal reply."""
+    memory = FakeMemoryManager()
+    agent = _make_agent(memory, llm_response="[skip]")
+
+    response = await agent.handle_chat(
+        user_id="u1",
+        content="@Bảy nói gì đi",
+        channel_id="c1",
+        observe_input=False,
+        bot_id="march7",
+        bot_name="March7",
+    )
+
+    assert response == "[skip]"
+    assert len(memory.add_assistant_calls) == 1
+    # No silence note when not permitted.
+    assert "NGỮ CẢNH KÊNH" not in (agent._fake_llm.last_system_prompt or "")  # type: ignore[attr-defined]

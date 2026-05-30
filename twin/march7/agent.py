@@ -18,6 +18,14 @@ logger = logging.getLogger(__name__)
 
 TOOL_EXECUTION_TIMEOUT = 60
 
+# Sentinel the model emits to stay silent in a group channel when not addressed.
+SILENCE_SENTINEL = "[skip]"
+SILENCE_NOTE = (
+    "=== NGỮ CẢNH KÊNH ===\n"
+    "Tin nhắn này ở kênh chung và KHÔNG nhắc tới bạn. Bạn không bắt buộc phải trả lời. "
+    "Nếu không có gì đáng nói, hãy im lặng bằng cách trả lời đúng một dòng `[skip]` và không gì khác."
+)
+
 
 class March7Agent:
     def __init__(
@@ -89,6 +97,7 @@ class March7Agent:
         guild_id: str | None = None,
         bot_id: str | None = None,
         bot_name: str | None = None,
+        allow_silence: bool = False,
     ) -> str:
         try:
             if observe_input:
@@ -98,6 +107,8 @@ class March7Agent:
             sys_prompt, context_msgs = await self.memory.get_context(
                 user_id=user_id, current_query=content, channel_id=channel_id
             )
+            if allow_silence:
+                sys_prompt = f"{sys_prompt}\n\n{SILENCE_NOTE}"
 
             max_iterations = 10
             llm_response = None
@@ -156,6 +167,10 @@ class March7Agent:
             else:
                 bot_response = llm_response
 
+            if allow_silence and self._is_silence(bot_response):
+                logger.info("March7 chose to stay silent (channel=%s, user=%s)", channel_id, user_id)
+                return ""
+
             is_reasoning_only = isinstance(llm_response, LLMResponse) and llm_response.reasoning_only
             if bot_response and not bot_response.startswith("Error:") and not is_reasoning_only:
                 await self.memory.add_assistant_message(
@@ -174,6 +189,14 @@ class March7Agent:
         except Exception as e:
             logger.error(f"March7Agent error: {e}")
             return "Xin lỗi, hệ thống não bộ của tôi đang gặp chút trục trặc. Bạn chờ xíu nhé!"
+
+    @staticmethod
+    def _is_silence(text: str | None) -> bool:
+        """True when the model emitted the silence sentinel (tolerant of wrapping)."""
+        if not text:
+            return False
+        cleaned = text.strip().strip("`'\" .").lower()
+        return cleaned in {SILENCE_SENTINEL, "skip"}
 
     async def handle_get_snapshot(self, user_id: str) -> List[dict]:
         try:

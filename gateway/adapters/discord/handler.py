@@ -69,7 +69,11 @@ class DiscordGatewayHandler(GatewayHandler):
             return ""
 
         is_respond_channel = mode == ChannelMode.RESPOND_ALLOWED
-        should_respond = is_dm or is_mentioned or is_reply_to_bot or is_respond_channel
+        is_addressed = is_dm or is_mentioned or is_reply_to_bot
+        should_respond = is_addressed or is_respond_channel
+        # In a respond channel, ambient (non-addressed) messages are routed too,
+        # but March7 may stay silent based on context. Direct address always replies.
+        allow_silence = is_respond_channel and not is_addressed
 
         # Content check
         content = msg.content.strip()
@@ -111,6 +115,7 @@ class DiscordGatewayHandler(GatewayHandler):
                         ),
                         bot_id=str(bot_user.id) if bot_user else None,
                         bot_name=bot_user.display_name if bot_user else None,
+                        allow_silence=allow_silence,
                     )
                 else:
                     response = await self._legacy_process(user_id, content)
