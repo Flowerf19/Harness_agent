@@ -66,6 +66,13 @@ docker/volumes/**
 **/.codebuddy/
 **/.cursor/
 **/.continue/
+.codegraph/
+.codex/
+.github/
+
+# Generated/temp test reports (keep the rest of .agents/ as docs)
+.agents/E2E_TEST_REPORT.md
+.agents/FINAL_TEST_REPORT.md
 
 # Conda environment cache (mounted from Docker)
 docker/volumes/conda_envs/
