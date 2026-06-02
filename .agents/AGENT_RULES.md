@@ -15,9 +15,8 @@ Rules for coding agents working in this repository.
 ## Working Style
 
 - **Use CodeGraph first** for structural questions (definitions, signatures, callers, callees, impact, and feature context).
-- **NEVER use `view_file` or `grep`** to read code files for exploration if `codegraph` tools (like `codegraph_explore` or `codegraph_node`) have already retrieved the symbol/source code. Native read/search must only be used to confirm specific details not covered by CodeGraph or to inspect configuration/docs/manifests.
-- **Invoke skills properly** by setting `IsSkillFile: true` in the `view_file` call when reading a skill's `SKILL.md`.
-- **Enforce the planning workflow:** Write planning artifacts (`implementation_plan.md`) to `<appDataDir>/brain/<conversation-id>/implementation_plan.md` first, set `RequestFeedback: true` in metadata, and wait for user approval before making any code changes.
+- **NEVER re-read code files** with native read/grep for exploration once `codegraph` tools (`codegraph_explore`, `codegraph_node`) have already returned the symbol/source. Native read/search is only for confirming specifics CodeGraph didn't cover, or for inspecting config/docs/manifests.
+- **Plan before coding.** For any non-trivial feature/bug, produce a plan (via the `implementation-planner` skill) and get user approval before editing code. The plan is part of the conversation — do not write it into an external app-data directory.
 - Make small, task-scoped changes. Avoid broad refactors, speculative abstractions, unrelated formatting, and new tooling unless requested.
 - If a change affects runtime flow, env vars, Docker, memory schema, or public
   behavior, update relevant docs in this folder and project READMEs.
@@ -71,7 +70,7 @@ Update upstream: `cd ~/.claude/skills && git pull`.
   `MarkdownProfileStore`, `TimelineStore/Search`, `Consolidator`, `Cleanup`)
   in its container. T2 RediSearch indexes must use Redis DB 0
   (`TIMELINE_REDIS_DB=0`).
-- **`twin/shared/tools/` consolidated 2026-05-26** (see [plans/tools-registry-consolidation.md](plans/tools-registry-consolidation.md)). Core types live in `twin.shared.tools.registry`; individual tool classes live under `twin.shared.tools.modules.<domain>.<tool>` (`execution`, `memory`, `profile`, `web`). The paths `twin.shared.tools.base_tool` / `tool_registry` / `tool_discovery` / `implementations.system.*` no longer exist — do not recreate them.
+- **`twin/shared/tools/` consolidated 2026-05-26.** Core types live in `twin.shared.tools.registry`; individual tool classes live under `twin.shared.tools.modules.<domain>.<tool>` (domains: `execution`, `memory`, `profile`, `web`). The paths `twin.shared.tools.base_tool` / `tool_registry` / `tool_discovery` / `implementations.system.*` no longer exist — do not recreate them.
 - **LLM/embedding endpoints chạy trên host phải dùng `host.docker.internal`, không phải `localhost`.** Container march7/evernight có `extra_hosts: host.docker.internal:host-gateway` trong compose; `localhost` trong `.env` sẽ trỏ vào chính container và fail với `Cannot connect to host localhost:<port>`. Áp dụng cho `OPENAI_API_URL`, `EMBEDDING_API_URL`, `LM_STUDIO_API_URL`, `TOOL_LLM_ENDPOINT`. Service nội-mạng Docker (redis, codebox, bash-executor, evernight) thì dùng service name.
 - **Docker entry for March7 is `python -m gateway`** (`gateway/__main__.py`),
   not `python -m twin.march7`. When wiring new background tasks (triggers,
