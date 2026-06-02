@@ -53,7 +53,7 @@ Update upstream: `cd ~/.claude/skills && git pull`.
 ## Verified Gotchas
 
 - T3 storage is Markdown via `MarkdownProfileStore`, not YAML.
-- `README.MD` is the project README filename currently used at repo root.
+- `README.md` is the project README filename currently used at repo root.
 - Root lint/format/type-check config is not currently established; do not add
   or run repo-wide formatters as part of unrelated work.
 - Memory source lives under `twin/shared/memory/`. Do not recreate

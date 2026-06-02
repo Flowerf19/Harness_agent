@@ -193,4 +193,4 @@ T1 active memory can use each agent's own Redis DB (`MARCH7_REDIS_DB`,
 on Redis DB 0, so compose sets `TIMELINE_REDIS_DB=0` for both agents.
 
 > [!TIP]
-> Chi tiết provider và mapping endpoint xem `README_LLM_PROVIDERS.md`.
+> Chi tiết provider và mapping endpoint xem `../twin/shared/llm/README.md`.

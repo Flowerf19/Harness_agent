@@ -90,6 +90,6 @@ Docker health and A2A endpoints can be verified without Discord.
 ## Quick Links
 
 - Docker/local runbook: [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)
-- LLM providers: [../README_LLM_PROVIDERS.md](../README_LLM_PROVIDERS.md)
-- Bash Executor security: [../README_BASH_EXECUTOR.md](../README_BASH_EXECUTOR.md)
+- LLM providers: [../twin/shared/llm/README.md](../twin/shared/llm/README.md)
+- Bash Executor security: [../scripts/README.md](../scripts/README.md)
 - Docker services: [../docker/README.md](../docker/README.md)

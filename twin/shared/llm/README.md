@@ -21,7 +21,7 @@ Cấu hình env vars cho chat + embedding của `march7`/`evernight`. Code looku
 Voyage / Cohere v2-compat / LM Studio / OpenRouter → dùng `openai_compat` với URL+model riêng, không cần class mới.
 
 > [!IMPORTANT]
-> **Gemini MRL truncation**: `gemini-embedding-001` native 3072-dim. Service tự truyền `outputDimensionality=EMBEDDING_VECTOR_SIZE` (Matryoshka Representation Learning) và L2-normalize sau khi truncate → giữ `EMBEDDING_VECTOR_SIZE=1024` để khớp T2 FT index có sẵn, không phải drop. Khi đổi size: `FT.DROPINDEX idx:t2:page` + restart (xem `.agents/AGENT_RULES.md`).
+> **Gemini MRL truncation**: `gemini-embedding-001` native 3072-dim. Service truyền `outputDimensionality=EMBEDDING_VECTOR_SIZE` (Matryoshka Representation Learning) rồi L2-normalize → truncate xuống `768` để khớp T2 VECTOR index có sẵn. Giữ `EMBEDDING_VECTOR_SIZE=768`. Khi đổi size: `FT.DROPINDEX idx:t2:mem` + `FT.DROPINDEX idx:t2:topic` + restart (xem `../../../.agents/AGENT_RULES.md`).
 
 ## Ví dụ cấu hình
 
@@ -37,7 +37,7 @@ EMBEDDING_PROVIDER=openai_compat
 EMBEDDING_API_URL=http://host.docker.internal:1234/v1
 EMBEDDING_API_KEY=dummy-key
 EMBEDDING_MODEL_NAME=<embedding-model>
-EMBEDDING_VECTOR_SIZE=1024
+EMBEDDING_VECTOR_SIZE=768
 ```
 
 ### Gemini cả chat + embeddings
@@ -48,7 +48,7 @@ GEMINI_API_KEY=...
 LLM_MODEL=gemini-2.5-flash
 
 EMBEDDING_PROVIDER=gemini
-EMBEDDING_VECTOR_SIZE=1024
+EMBEDDING_VECTOR_SIZE=768
 ```
 
 ### Mix: OpenAI chat + Gemini embeddings
@@ -61,7 +61,7 @@ OPENAI_MODEL=gpt-4o-mini
 
 EMBEDDING_PROVIDER=gemini
 GEMINI_API_KEY=...
-EMBEDDING_VECTOR_SIZE=1024
+EMBEDDING_VECTOR_SIZE=768
 ```
 
 > [!NOTE]

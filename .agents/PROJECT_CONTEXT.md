@@ -122,8 +122,9 @@ Evernight:
 - `MARCH7_URL` default `http://march7:8000`
 - `EVERNIGHT_A2A_URL` default `http://evernight:8001` (March7 reads this to
   reach Evernight's `consolidate_discussion` skill)
-- `INACTIVITY_SECONDS` default `1800`
-- `POLL_INTERVAL` default `60` (both InactivityTrigger instances honor this)
+- `POLL_INTERVAL` default `60` (both InactivityTrigger instances honor this;
+  the idle-summary threshold itself is the `IDLE_TRIGGER_MINUTES` constant, not
+  an env var)
 - `SELF_HEAL_ENABLED` default `true`
 
 Discord/Gateway:
