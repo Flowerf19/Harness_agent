@@ -6,7 +6,11 @@ import aiohttp
 from langsmith import traceable
 
 from twin.shared.config.settings import Config
-from .base_llm_service import BaseLLMService
+from .base_llm_service import (
+    BaseLLMService,
+    LLM_ERROR_BAD_FORMAT,
+    LLM_ERROR_RESPONSE,
+)
 from .llm_response import LLMResponse
 
 
@@ -38,7 +42,8 @@ class OpenAIService(BaseLLMService):
         self,
         messages: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
-        use_native_tools: bool = False
+        use_native_tools: bool = False,
+        max_tokens: Optional[int] = None,
     ) -> Union[str, LLMResponse]:
         session = await self._get_session()
         final_system_prompt = self._build_final_system_prompt(system_prompt)
@@ -48,7 +53,7 @@ class OpenAIService(BaseLLMService):
             "model": self.model,
             "messages": api_messages,
             "temperature": Config.LLM_TEMPERATURE,
-            "max_tokens": Config.LLM_MAX_TOKENS,
+            "max_tokens": max_tokens or Config.LLM_MAX_TOKENS,
             "top_p": Config.LLM_TOP_P,
         }
 
@@ -72,7 +77,7 @@ class OpenAIService(BaseLLMService):
                 if response.status != 200:
                     error_text = await response.text()
                     self.logger.error("OpenAI-compatible API error: %s", error_text)
-                    return "Error generating response."
+                    return LLM_ERROR_RESPONSE
 
                 # Some OpenAI-compatible gateways return valid JSON without
                 # a proper JSON content-type header. Keep parsing tolerant so
@@ -84,7 +89,7 @@ class OpenAIService(BaseLLMService):
                 total_tokens = usage.get("total_tokens", input_tokens + output_tokens)
 
                 if "choices" not in response_data or not response_data["choices"]:
-                    return "Error: Unexpected response format."
+                    return LLM_ERROR_BAD_FORMAT
 
                 choice = response_data["choices"][0]
                 message = choice.get("message", {})
@@ -141,7 +146,7 @@ class OpenAIService(BaseLLMService):
 
         except Exception as e:
             self.logger.error("Error communicating with OpenAI-compatible API: %s", e)
-            return "Error generating response."
+            return LLM_ERROR_RESPONSE
 
     async def close(self):
         if self.session:

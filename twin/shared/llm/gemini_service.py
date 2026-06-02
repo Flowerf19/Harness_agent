@@ -6,7 +6,11 @@ import aiohttp
 from langsmith import traceable
 
 from twin.shared.config.settings import Config
-from .base_llm_service import BaseLLMService
+from .base_llm_service import (
+    BaseLLMService,
+    LLM_ERROR_BAD_FORMAT,
+    LLM_ERROR_RESPONSE,
+)
 from .llm_response import LLMResponse
 
 
@@ -53,7 +57,8 @@ class GeminiService(BaseLLMService):
         self,
         messages: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
-        use_native_tools: bool = False
+        use_native_tools: bool = False,
+        max_tokens: Optional[int] = None,
     ) -> Union[str, LLMResponse]:
         """
         Generate response from Gemini API.
@@ -89,7 +94,7 @@ class GeminiService(BaseLLMService):
             "contents": gemini_contents,
             "generationConfig": {
                 "temperature": Config.LLM_TEMPERATURE,
-                "maxOutputTokens": Config.LLM_MAX_TOKENS,
+                "maxOutputTokens": max_tokens or Config.LLM_MAX_TOKENS,
                 "topP": Config.LLM_TOP_P,
                 "topK": Config.LLM_TOP_K,
             },
@@ -112,7 +117,7 @@ class GeminiService(BaseLLMService):
                 if response.status != 200:
                     error_text = await response.text()
                     self.logger.error(f"Gemini API error: {error_text}")
-                    return "Error generating response."
+                    return LLM_ERROR_RESPONSE
 
                 response_data = await response.json()
 
@@ -168,11 +173,11 @@ class GeminiService(BaseLLMService):
                             tool_calls=tool_calls,
                         )
 
-                return "Error: Unexpected response format."
+                return LLM_ERROR_BAD_FORMAT
 
         except Exception as e:
             self.logger.error(f"Error communicating with Gemini API: {e}")
-            return "Error generating response."
+            return LLM_ERROR_RESPONSE
 
     async def close(self):
         if self.session:

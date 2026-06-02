@@ -114,7 +114,36 @@ async def test_manager_injects_profile_and_preflight_context(tmp_path):
     assert messages == [{"role": "user", "content": "nhắc lại phim"}]
 
 
-async def test_manager_fans_out_channel_consolidation(tmp_path):
+async def test_get_context_anchors_current_speaker_display_name(tmp_path):
+    active = _active()
+    profile = MarkdownProfileStore(base_path=str(tmp_path))
+    manager = SharedMemoryManager(active=active, profile_store=profile)
+
+    # Channel scope with multiple authors — the header must pin the live speaker.
+    await manager.observe_channel_message("g1", "c1", "418", "Quang", "m1", "alo")
+    await manager.observe_channel_message("g1", "c1", "726", "Hoà", "m2", "bảy ơi")
+
+    system_prompt, _ = await manager.get_context(
+        "726", "bảy ơi", channel_id="c1", user_name="Hoà"
+    )
+
+    assert "=== CURRENT USER ===" in system_prompt
+    assert "Hoà" in system_prompt
+    assert "726" in system_prompt
+
+
+async def test_get_context_falls_back_to_id_without_display_name(tmp_path):
+    active = _active()
+    profile = MarkdownProfileStore(base_path=str(tmp_path))
+    manager = SharedMemoryManager(active=active, profile_store=profile)
+    await manager.observe_user_message("726", "user", "alo")
+
+    system_prompt, _ = await manager.get_context("726", "alo")
+
+    assert "Discord user ID: 726" in system_prompt
+
+
+async def test_manager_channel_consolidation_extracts_once(tmp_path):
     active = _active()
     profile = MarkdownProfileStore(base_path=str(tmp_path))
     consolidator = FakeConsolidator()
@@ -131,7 +160,9 @@ async def test_manager_fans_out_channel_consolidation(tmp_path):
     result = await manager.consolidate_scope("channel", "c1")
 
     assert result["status"] == "ok"
-    assert consolidator.calls == [("channel", "c1", "u1"), ("channel", "c1", "u2")]
+    # No per-participant fan-out: the consolidator is called once for the channel
+    # (it routes each memory to the right user internally by subject).
+    assert consolidator.calls == [("channel", "c1", None)]
     # Shared T1 cleanup keeps the recent tail by default to preserve continuity.
     assert len(await active.get_context("channel", "c1")) == 2
 

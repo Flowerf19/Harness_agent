@@ -95,18 +95,24 @@ class Consolidator:
         scope_id: str,
         user_id: str | None = None,
     ) -> ConsolidationResult:
-        """Hot path Pass 1. Sync, never raises."""
+        """Hot path Pass 1. Sync, never raises.
+
+        ``user`` scope: every memory belongs to the single ``user_id``.
+        ``channel`` scope: one extraction over the whole transcript; each memory
+        is routed to the participant it is ABOUT (its ``subject``), so facts
+        about one person never land in another's profile.
+        """
         if scope == "user":
             user_id = user_id or scope_id
-        if not user_id:
-            self.logger.warning(
-                "T2:consolidator: user_id required for scope=%s/%s",
-                scope, scope_id,
-            )
-            return ConsolidationResult(
-                status="failed", scope=scope, scope_id=scope_id,
-                error="user_id required",
-            )
+            if not user_id:
+                self.logger.warning(
+                    "T2:consolidator: user_id required for scope=%s/%s",
+                    scope, scope_id,
+                )
+                return ConsolidationResult(
+                    status="failed", scope=scope, scope_id=scope_id,
+                    error="user_id required",
+                )
 
         result = ConsolidationResult(
             status="failed", scope=scope, scope_id=scope_id,
@@ -123,52 +129,82 @@ class Consolidator:
                 return result
 
             transcript = _format_transcript(entries)
-            t3_snap = ""
-            if self.profile_reader is not None:
-                try:
-                    t3_snap = await _maybe_await(self.profile_reader(user_id)) or ""
-                except Exception as exc:
-                    self.logger.warning(
-                        "T2:consolidator: profile_reader failed: %s", exc,
-                    )
-                    t3_snap = ""
-
-            try:
-                topic_glossary = await self.store.recent_topics(user_id, k=20)
-            except Exception as exc:
-                self.logger.debug(
-                    "T2:consolidator: recent_topics failed: %s", exc,
-                )
-                topic_glossary = []
 
             participants_map = {
                 e.author_id: (e.author_name or e.author_id)
                 for e in entries
                 if e.role != "assistant" and e.author_id
             }
+            bot_name = next(
+                (e.author_name for e in entries
+                 if e.role == "assistant" and e.author_name),
+                None,
+            )
+
+            # Per-user hints (T3 profile + topic glossary) only make sense for a
+            # single-user scope; a channel mixes several subjects.
+            t3_snap = ""
+            topic_glossary = []
+            if scope == "user":
+                if self.profile_reader is not None:
+                    try:
+                        t3_snap = await _maybe_await(self.profile_reader(user_id)) or ""
+                    except Exception as exc:
+                        self.logger.warning(
+                            "T2:consolidator: profile_reader failed: %s", exc,
+                        )
+                        t3_snap = ""
+                try:
+                    topic_glossary = await self.store.recent_topics(user_id, k=20)
+                except Exception as exc:
+                    self.logger.debug(
+                        "T2:consolidator: recent_topics failed: %s", exc,
+                    )
+                    topic_glossary = []
 
             extract_result = await self.extractor.extract(
                 transcript,
                 t3_snapshot=t3_snap,
                 topic_glossary=topic_glossary,
                 participants=participants_map,
+                bot_name=bot_name,
             )
             result.primary_catalog = extract_result.primary_catalog
             result.primary_confidence = extract_result.primary_confidence
 
             summarized_ids = [e.entry_id for e in entries]
 
-            if not extract_result.memories:
+            # Route each memory to the participant it is ABOUT. Drop memories
+            # about the bot or whose subject matches no participant.
+            name_to_id = {
+                (name or "").strip().lower(): author_id
+                for author_id, name in participants_map.items()
+            }
+            bot_key = (bot_name or "").strip().lower()
+            routed: list[tuple[str, CandidateMemory]] = []
+            for cand in extract_result.memories:
+                target_id = self._route_subject(
+                    scope, user_id, cand, name_to_id, bot_key
+                )
+                if target_id is None:
+                    self.logger.info(
+                        "T2:consolidator: drop memory subject=%r (bot/unmatched) "
+                        "scope=%s/%s", cand.subject, scope, scope_id,
+                    )
+                    continue
+                routed.append((target_id, cand))
+
+            if not routed:
                 self.logger.info(
-                    "T2:consolidator: 0 candidates scope=%s/%s — skipped (flush T1)",
-                    scope, scope_id,
+                    "T2:consolidator: 0 routable candidates scope=%s/%s — skipped "
+                    "(flush T1)", scope, scope_id,
                 )
                 result.status = "skipped"
                 result.summarized_entry_ids = summarized_ids
                 return result
 
-            for cand in extract_result.memories:
-                await self._process_candidate(user_id, cand, result)
+            for target_id, cand in routed:
+                await self._process_candidate(target_id, cand, result)
 
             result.summarized_entry_ids = summarized_ids
             result.status = "ok"
@@ -180,15 +216,16 @@ class Consolidator:
             )
 
             if self.cleanup_scheduler is not None:
-                try:
-                    sched = self.cleanup_scheduler(user_id)
-                    if asyncio.iscoroutine(sched):
-                        # Fire-and-forget — don't await.
-                        asyncio.create_task(sched)
-                except Exception as exc:
-                    self.logger.warning(
-                        "T2:consolidator: cleanup_scheduler failed: %s", exc,
-                    )
+                for target_id in {tid for tid, _ in routed}:
+                    try:
+                        sched = self.cleanup_scheduler(target_id)
+                        if asyncio.iscoroutine(sched):
+                            # Fire-and-forget — don't await.
+                            asyncio.create_task(sched)
+                    except Exception as exc:
+                        self.logger.warning(
+                            "T2:consolidator: cleanup_scheduler failed: %s", exc,
+                        )
 
             return result
 
@@ -200,6 +237,27 @@ class Consolidator:
             result.status = "failed"
             result.error = str(exc)
             return result
+
+    @staticmethod
+    def _route_subject(
+        scope: str,
+        user_id: str | None,
+        cand: CandidateMemory,
+        name_to_id: dict[str, str],
+        bot_key: str,
+    ) -> str | None:
+        """Return the user_id a memory belongs to, or None to drop it.
+
+        ``user`` scope → always the single user. ``channel`` scope → the
+        participant whose display name matches ``cand.subject``; None for the
+        bot or an unknown subject (prevents cross-profile contamination).
+        """
+        if scope == "user":
+            return user_id
+        subject = (cand.subject or "").strip().lower()
+        if not subject or subject == bot_key:
+            return None
+        return name_to_id.get(subject)
 
     async def _process_candidate(
         self,

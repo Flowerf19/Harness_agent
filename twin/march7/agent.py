@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from langsmith import traceable
 
-from twin.shared.llm.base_llm_service import BaseLLMService
+from twin.shared.llm.base_llm_service import BaseLLMService, LLM_ERROR_RESPONSES
 from twin.shared.llm.llm_response import LLMResponse
 from twin.shared.tools.registry import ToolRegistry
 from twin.shared.tools.exceptions import BashExecutorUnavailableError
@@ -17,6 +17,10 @@ from twin.shared.memory import SharedMemoryManager
 logger = logging.getLogger(__name__)
 
 TOOL_EXECUTION_TIMEOUT = 60
+
+# Shown to the user when the LLM endpoint fails (reset/timeout/non-200). Keeps
+# the raw "Error generating response." sentinel from leaking into the chat.
+LLM_FAILURE_REPLY = "Xin lỗi, hệ thống não bộ của tôi đang gặp chút trục trặc. Bạn chờ xíu nhé!"
 
 # Sentinel the model emits to stay silent in a group channel when not addressed.
 SILENCE_SENTINEL = "[skip]"
@@ -98,6 +102,7 @@ class March7Agent:
         bot_id: str | None = None,
         bot_name: str | None = None,
         allow_silence: bool = False,
+        user_name: str | None = None,
     ) -> str:
         try:
             if observe_input:
@@ -105,7 +110,10 @@ class March7Agent:
             await self._set_active_marker(user_id)
 
             sys_prompt, context_msgs = await self.memory.get_context(
-                user_id=user_id, current_query=content, channel_id=channel_id
+                user_id=user_id,
+                current_query=content,
+                channel_id=channel_id,
+                user_name=user_name,
             )
             if allow_silence:
                 sys_prompt = f"{sys_prompt}\n\n{SILENCE_NOTE}"
@@ -167,6 +175,14 @@ class March7Agent:
             else:
                 bot_response = llm_response
 
+            # LLM hard-failure sentinel: never relay it to the user or persist it
+            # to memory — surface a friendly retry message instead.
+            if isinstance(bot_response, str) and bot_response in LLM_ERROR_RESPONSES:
+                logger.error(
+                    "LLM returned error sentinel for user=%s: %s", user_id, bot_response
+                )
+                return LLM_FAILURE_REPLY
+
             if allow_silence and self._is_silence(bot_response):
                 logger.info("March7 chose to stay silent (channel=%s, user=%s)", channel_id, user_id)
                 return ""
@@ -188,7 +204,7 @@ class March7Agent:
             raise
         except Exception as e:
             logger.error(f"March7Agent error: {e}")
-            return "Xin lỗi, hệ thống não bộ của tôi đang gặp chút trục trặc. Bạn chờ xíu nhé!"
+            return LLM_FAILURE_REPLY
 
     @staticmethod
     def _is_silence(text: str | None) -> bool:

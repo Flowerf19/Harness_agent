@@ -87,8 +87,8 @@ class FakeExtractor:
         self.calls: list[tuple] = []
 
     async def extract(self, transcript, *, t3_snapshot="",
-                      topic_glossary=None, participants=None):
-        self.calls.append((transcript, t3_snapshot, topic_glossary, participants))
+                      topic_glossary=None, participants=None, bot_name=None):
+        self.calls.append((transcript, t3_snapshot, topic_glossary, participants, bot_name))
         return self.result
 
 
@@ -348,8 +348,61 @@ async def test_consolidate_uses_profile_reader():
     assert extractor.calls[0][1] == "T3 snapshot text"
 
 
-async def test_consolidate_channel_scope_requires_user_id():
-    cons, *_ = _build(active_entries=[_entry("x")])
+async def test_consolidate_channel_routes_memory_by_subject():
+    """Channel: one extraction, each memory filed under the participant it's about;
+    bot-subject memories are dropped (no cross-profile contamination)."""
+    entries = [
+        _entry("hôm nay đi làm", author_id="u1", author_name="Hoà"),
+        _entry("tớ thích game", author_id="u2", author_name="Quang"),
+        _entry("chào cả nhà", role="assistant", author_id=None, author_name="Bé Bảy"),
+    ]
+    extract_result = ExtractResult(
+        memories=[
+            _cand(content="Hoà đi làm hôm nay.", subject="Hoà"),
+            _cand(content="Quang thích game.", subject="Quang"),
+            _cand(content="Bé Bảy là trợ lý.", subject="Bé Bảy"),  # bot → dropped
+            _cand(content="Ai đó nói gì đó.", subject="NgườiLạ"),  # unmatched → dropped
+        ],
+        primary_catalog="interest", primary_confidence=0.8,
+    )
+    cons, store, *_ = _build(active_entries=entries, extract_result=extract_result)
+
     res = await cons.consolidate(scope="channel", scope_id="ch1")
-    assert res.status == "failed"
-    assert "user_id" in (res.error or "")
+
+    assert res.status == "ok"
+    by_user = {m.content: m.user_id for m in store.memories.values()}
+    assert by_user == {"Hoà đi làm hôm nay.": "u1", "Quang thích game.": "u2"}
+    # Bot + unknown-subject memories never reached the store.
+    assert "Bé Bảy là trợ lý." not in by_user
+    assert "Ai đó nói gì đó." not in by_user
+
+
+async def test_consolidate_channel_extracts_once_with_bot_name():
+    """Channel consolidation makes a single extraction call and passes the bot name."""
+    entries = [
+        _entry("hi", author_id="u1", author_name="Hoà"),
+        _entry("yo", role="assistant", author_id=None, author_name="Bé Bảy"),
+    ]
+    cons, _store, _resolver, extractor, _emb = _build(
+        active_entries=entries,
+        extract_result=ExtractResult(memories=[]),
+    )
+    await cons.consolidate(scope="channel", scope_id="ch1")
+    assert len(extractor.calls) == 1
+    # extract() call tuple: (transcript, t3_snapshot, topic_glossary, participants, bot_name)
+    assert extractor.calls[0][4] == "Bé Bảy"
+    assert extractor.calls[0][3] == {"u1": "Hoà"}
+
+
+async def test_consolidate_channel_no_match_skipped():
+    entries = [_entry("hi", author_id="u1", author_name="Hoà")]
+    extract_result = ExtractResult(
+        memories=[_cand(content="về người khác", subject="KhôngAi")],
+        primary_catalog="interest", primary_confidence=0.6,
+    )
+    cons, store, *_ = _build(active_entries=entries, extract_result=extract_result)
+    res = await cons.consolidate(scope="channel", scope_id="ch1")
+    assert res.status == "skipped"
+    assert store.memories == {}
+    # T1 still flushed so the channel doesn't get stuck re-processing.
+    assert len(res.summarized_entry_ids) == 1

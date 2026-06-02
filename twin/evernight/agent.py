@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from langsmith import traceable
 
-from twin.shared.llm.base_llm_service import BaseLLMService
+from twin.shared.llm.base_llm_service import BaseLLMService, LLM_ERROR_RESPONSES
 from twin.shared.llm.llm_response import LLMResponse
 from twin.shared.tools.registry import ToolRegistry
 from twin.shared.a2a.types import AgentCard, A2AMessage, Part, TaskStatus
@@ -16,6 +16,10 @@ from twin.shared.memory import SharedMemoryManager
 logger = logging.getLogger(__name__)
 
 TOOL_EXECUTION_TIMEOUT = 60
+
+# Shown to the user when the LLM endpoint fails — keeps the raw
+# "Error generating response." sentinel from leaking into the chat.
+LLM_FAILURE_REPLY = "Xin lỗi, tôi đang gặp chút trục trặc với hệ thống ký ức."
 
 class EvernightAgent:
     def __init__(
@@ -154,6 +158,14 @@ class EvernightAgent:
             else:
                 bot_response = llm_response
 
+            # LLM hard-failure sentinel: never relay it to the user or persist it
+            # to memory — surface a friendly retry message instead.
+            if isinstance(bot_response, str) and bot_response in LLM_ERROR_RESPONSES:
+                logger.error(
+                    "LLM returned error sentinel for user=%s: %s", user_id, bot_response
+                )
+                return LLM_FAILURE_REPLY
+
             is_reasoning_only = isinstance(llm_response, LLMResponse) and llm_response.reasoning_only
             if bot_response and not bot_response.startswith("Error:") and not is_reasoning_only:
                 await self.memory.add_message(
@@ -164,7 +176,7 @@ class EvernightAgent:
 
         except Exception as e:
             logger.error(f"EvernightAgent chat error: {e}")
-            return "Xin lỗi, tôi đang gặp chút trục trặc với hệ thống ký ức."
+            return LLM_FAILURE_REPLY
 
     async def clear_chat_history(self, user_id: str):
         await self.memory.clear_session(user_id)

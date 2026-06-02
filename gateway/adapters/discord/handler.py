@@ -163,6 +163,7 @@ class DiscordGatewayHandler(GatewayHandler):
                             bot_id=str(bot_user.id) if bot_user else None,
                             bot_name=bot_user.display_name if bot_user else None,
                             allow_silence=allow_silence,
+                            user_name=msg.user.display_name,
                         )
                     else:
                         response = await self._legacy_process(user_id, content)
@@ -262,6 +263,7 @@ class DiscordGatewayHandler(GatewayHandler):
                         agent_name=bot_name,
                         user_id=user_id,
                         content=content,
+                        user_name=raw_message.author.display_name,
                     )
                 else:
                     response = await self._legacy_process(user_id, content)

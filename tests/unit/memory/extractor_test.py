@@ -20,16 +20,20 @@ class _Response:
 
 class FakeLLM:
     def __init__(self, payload: str | Exception = "{}") -> None:
+        # A single payload, or a list consumed one-per-call (for retry tests).
         self.payload = payload
         self.calls: list[tuple] = []
 
     async def generate_response(
-        self, messages, system_prompt=None, use_native_tools=False
+        self, messages, system_prompt=None, use_native_tools=False, max_tokens=None
     ):
-        self.calls.append((messages, system_prompt, use_native_tools))
-        if isinstance(self.payload, Exception):
-            raise self.payload
-        return _Response(self.payload)
+        self.calls.append((messages, system_prompt, use_native_tools, max_tokens))
+        payload = self.payload
+        if isinstance(payload, list):
+            payload = payload[min(len(self.calls) - 1, len(payload) - 1)]
+        if isinstance(payload, Exception):
+            raise payload
+        return _Response(payload)
 
 
 def _payload(memories: list[dict], primary_catalog: str = "interest",
@@ -131,6 +135,66 @@ async def test_extract_llm_raises_returns_empty():
     res = await ex.extract("x")
     assert res.memories == []
     assert res.primary_catalog == "discussion"
+
+
+async def test_extract_parses_json_amid_reasoning_prose():
+    """Reasoning model wraps the answer in chain-of-thought — brace scan finds it."""
+    inner = _payload([_mem(content="kept")])
+    noisy = f"Chúng ta cần phân tích...\nĐầu tiên xác định người dùng.\n{inner}\nDone."
+    ex = Extractor(FakeLLM(noisy))
+    res = await ex.extract("x")
+    assert len(res.memories) == 1
+    assert res.memories[0].content == "kept"
+
+
+async def test_extract_retries_once_when_first_call_has_no_json():
+    """First call returns pure reasoning (no JSON) → retry with strict prompt succeeds."""
+    valid = _payload([_mem(content="kept")])
+    llm = FakeLLM(["Chúng ta cần phân tích đoạn hội thoại, không có JSON ở đây.", valid])
+    ex = Extractor(llm)
+    res = await ex.extract("x")
+    assert len(res.memories) == 1
+    assert len(llm.calls) == 2  # retried exactly once
+    # The retry tightened the system prompt to demand JSON only.
+    assert "KHÔNG suy luận" in llm.calls[1][1]
+
+
+async def test_extract_gives_up_after_retry():
+    """Both attempts return no JSON → empty result, no raise, capped at 2 calls."""
+    llm = FakeLLM("chỉ là văn bản, không JSON")
+    ex = Extractor(llm)
+    res = await ex.extract("x")
+    assert res.memories == []
+    assert res.primary_catalog == "discussion"
+    assert len(llm.calls) == 2
+
+
+async def test_extract_keeps_subject_field():
+    llm = FakeLLM(_payload([_mem(subject="Hoà")]))
+    ex = Extractor(llm)
+    res = await ex.extract("x")
+    assert res.memories[0].subject == "Hoà"
+
+
+async def test_extract_prompt_includes_bot_and_participants():
+    llm = FakeLLM(_payload([]))
+    ex = Extractor(llm)
+    await ex.extract(
+        "Hoà: hi\nBot: chào",
+        participants={"726": "Hoà", "418": "Quang"},
+        bot_name="Bé Bảy",
+    )
+    user_msg = llm.calls[0][0][0]["content"]
+    assert "Bé Bảy" in user_msg
+    assert "Hoà" in user_msg and "Quang" in user_msg
+
+
+async def test_extract_passes_generous_max_tokens():
+    from twin.shared.memory.timeline.constants import EXTRACT_MAX_TOKENS
+    llm = FakeLLM(_payload([]))
+    ex = Extractor(llm)
+    await ex.extract("x")
+    assert llm.calls[0][3] == EXTRACT_MAX_TOKENS
 
 
 async def test_extract_with_glossary_includes_topics_in_prompt():

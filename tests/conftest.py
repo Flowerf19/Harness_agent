@@ -316,7 +316,7 @@ def mock_llm_client(llm_response):
     client._responses = []
     client._response_index = 0
 
-    async def mock_generate_response(messages, system_prompt=None, use_native_tools=False):
+    async def mock_generate_response(messages, system_prompt=None, use_native_tools=False, max_tokens=None):
         if client._response_index < len(client._responses):
             response = client._responses[client._response_index]
             client._response_index += 1

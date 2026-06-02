@@ -9,6 +9,10 @@ TOPIC_MATCH_THRESHOLD_LLM = 0.75
 TOPIC_CASCADE_LIMIT = 50
 MAX_CANDIDATES_PER_TRANSCRIPT = 5
 MAX_CATALOGS_PER_MEMORY = 2
+# Output budget for the extractor's structured JSON call. Larger than the chat
+# default because reasoning models spend tokens thinking before emitting JSON;
+# too small a cap truncates the answer (or leaves only reasoning, no JSON).
+EXTRACT_MAX_TOKENS = 4000
 KNN_NEIGHBOURS_FOR_PRE_FLIGHT = 5
 T3_PROMOTE_MIN_IMPORTANCE = 4
 T3_PROMOTE_MIN_CONFIDENCE = 0.8

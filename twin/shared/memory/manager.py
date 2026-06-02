@@ -108,6 +108,7 @@ class SharedMemoryManager:
         user_id: str,
         current_query: str,
         channel_id: str | None = None,
+        user_name: str | None = None,
     ) -> tuple[str, list[dict]]:
         scope = "channel" if channel_id else "user"
         scope_id = str(channel_id or user_id)
@@ -115,7 +116,19 @@ class SharedMemoryManager:
         entries = await self.t1.get_context(scope, scope_id)
         messages = self._entries_to_messages(entries)
 
-        user_id_header = f"=== CURRENT USER ===\nDiscord user ID: {user_id}"
+        # Anchor WHO is speaking right now. In a channel the transcript carries
+        # many authors (each line prefixed "name: ..."), so a bare numeric ID
+        # leaves the model guessing — it would grab whatever name is salient and
+        # mis-attribute the turn. The display name ties the ID to the live
+        # speaker and matches the transcript's author prefix.
+        if user_name:
+            user_id_header = (
+                "=== CURRENT USER ===\n"
+                f"Người đang nói chuyện với bạn ngay lúc này: {user_name} "
+                f"(Discord ID: {user_id})"
+            )
+        else:
+            user_id_header = f"=== CURRENT USER ===\nDiscord user ID: {user_id}"
         profile_context = await self.profile.get_system_prompt_context(str(user_id))
         t2_context = await self._preflight_context(str(user_id), current_query)
         system_parts = [user_id_header] + [part for part in (profile_context, t2_context) if part]
@@ -135,27 +148,12 @@ class SharedMemoryManager:
             logger.warning("T2: no consolidator configured for scope=%s/%s", scope, scope_id)
             return {"status": "failed", "scope": scope, "scope_id": scope_id, "error": "consolidator not configured"}
 
-        if scope == "user":
-            result = await self.consolidator.consolidate(scope=scope, scope_id=scope_id)
-            await self._trim_if_complete(result)
-            return self._result_to_dict(result)
-
-        entries = await self.t1.get_context(scope, scope_id, limit=200)
-        participants = self._participants(entries)
-        if not participants:
-            return {"status": "skipped", "scope": scope, "scope_id": scope_id, "summarized_entry_ids": []}
-
-        results = []
-        for user_id in participants:
-            results.append(
-                await self.consolidator.consolidate(
-                    scope=scope,
-                    scope_id=scope_id,
-                    user_id=user_id,
-                )
-            )
-        await self._trim_if_complete(results[0])
-        return self._combine_results(scope, scope_id, results)
+        # Both scopes extract once. For a channel the consolidator routes each
+        # memory to the participant it is about (no per-user fan-out), so facts
+        # never leak across profiles.
+        result = await self.consolidator.consolidate(scope=scope, scope_id=scope_id)
+        await self._trim_if_complete(result)
+        return self._result_to_dict(result)
 
     async def consolidate_snapshot(
         self,
@@ -247,19 +245,6 @@ class SharedMemoryManager:
             "timestamp": entry.created_at.isoformat(),
         }
 
-    @staticmethod
-    def _participants(entries: list[ActiveEntry]) -> list[str]:
-        seen: set[str] = set()
-        participants: list[str] = []
-        for entry in entries:
-            if entry.role == "assistant" or not entry.author_id:
-                continue
-            if entry.author_id in seen:
-                continue
-            seen.add(entry.author_id)
-            participants.append(entry.author_id)
-        return participants
-
     async def _trim_if_complete(self, result: ConsolidationResult) -> None:
         if result.status not in {"ok", "skipped"}:
             return
@@ -286,34 +271,3 @@ class SharedMemoryManager:
             "error": result.error,
         }
 
-    @classmethod
-    def _combine_results(
-        cls,
-        scope: str,
-        scope_id: str,
-        results: list[ConsolidationResult],
-    ) -> dict:
-        statuses = [r.status for r in results]
-        status = "ok" if "ok" in statuses else ("skipped" if "skipped" in statuses else "failed")
-        memory_ids: list[str] = []
-        topic_ids: list[str] = []
-        promoted: list[dict] = []
-        summarized: list[str] = []
-        errors: list[str] = []
-        for result in results:
-            memory_ids.extend(result.memory_ids)
-            topic_ids.extend(result.topic_ids)
-            promoted.extend(result.promoted_to_t3)
-            summarized.extend(result.summarized_entry_ids)
-            if result.error:
-                errors.append(result.error)
-        return {
-            "status": status,
-            "scope": scope,
-            "scope_id": scope_id,
-            "summarized_entry_ids": list(dict.fromkeys(summarized)),
-            "memory_ids": memory_ids,
-            "topic_ids": list(dict.fromkeys(topic_ids)),
-            "promoted_to_t3": promoted,
-            "errors": errors,
-        }

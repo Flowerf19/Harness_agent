@@ -9,7 +9,8 @@ from typing import Any, Dict, List
 
 import pytest
 
-from twin.march7.agent import March7Agent
+from twin.march7.agent import March7Agent, LLM_FAILURE_REPLY
+from twin.shared.llm.base_llm_service import LLM_ERROR_RESPONSE
 
 
 class FakeMemoryManager:
@@ -31,8 +32,11 @@ class FakeMemoryManager:
         user_id: str,
         current_query: str,
         channel_id: str | None = None,
+        user_name: str | None = None,
     ):
-        self.get_context_calls.append({"user_id": user_id, "channel_id": channel_id})
+        self.get_context_calls.append(
+            {"user_id": user_id, "channel_id": channel_id, "user_name": user_name}
+        )
         if channel_id:
             return "sys-prompt", list(self.channel_scope_msgs.get(channel_id, []))
         return "sys-prompt", list(self.user_scope_msgs.get(user_id, []))
@@ -119,7 +123,9 @@ async def test_handle_chat_in_channel_loads_channel_scope_only():
     )
 
     assert response == "echo"
-    assert memory.get_context_calls == [{"user_id": "u1", "channel_id": "c1"}]
+    assert memory.get_context_calls == [
+        {"user_id": "u1", "channel_id": "c1", "user_name": None}
+    ]
     seen = agent._fake_llm.last_messages  # type: ignore[attr-defined]
     assert seen == [{"role": "user", "content": "Hoà: Năm 2070+10 bằng?"}]
     # DM-only contamination must not appear in the LLM context for a channel turn.
@@ -174,7 +180,9 @@ async def test_handle_chat_in_dm_uses_user_scope():
     )
 
     assert response == "chào Hoà"
-    assert memory.get_context_calls == [{"user_id": "u1", "channel_id": None}]
+    assert memory.get_context_calls == [
+        {"user_id": "u1", "channel_id": None, "user_name": None}
+    ]
     # observe_input=True → user message recorded into user scope.
     assert memory.add_user_calls[-1] == {"user_id": "u1", "role": "user", "content": "alo"}
     # Bot reply saved to user scope (channel_id=None).
@@ -225,6 +233,51 @@ async def test_handle_chat_allow_silence_normal_reply_is_sent():
     assert response == "ờ đẹp thật đó =))"
     assert len(memory.add_assistant_calls) == 1
     assert memory.channel_scope_msgs["c1"][-1]["content"] == "ờ đẹp thật đó =))"
+
+
+@pytest.mark.asyncio
+async def test_handle_chat_threads_user_name_to_get_context():
+    """The live speaker's display name must reach get_context so the prompt can
+    anchor identity (regression: bot mixed up users in a multi-author channel)."""
+    memory = FakeMemoryManager()
+    agent = _make_agent(memory)
+
+    await agent.handle_chat(
+        user_id="726",
+        content="bảy ơi",
+        channel_id="c1",
+        observe_input=False,
+        bot_id="march7",
+        bot_name="March7",
+        user_name="Hoà",
+    )
+
+    assert memory.get_context_calls == [
+        {"user_id": "726", "channel_id": "c1", "user_name": "Hoà"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_handle_chat_llm_error_sentinel_not_relayed_or_saved():
+    """LLM hard-failure sentinel → friendly reply, never sent verbatim nor saved."""
+    memory = FakeMemoryManager()
+    agent = _make_agent(memory, llm_response=LLM_ERROR_RESPONSE)
+
+    response = await agent.handle_chat(
+        user_id="u1",
+        content="alo",
+        channel_id="c1",
+        observe_input=False,
+        bot_id="march7",
+        bot_name="March7",
+    )
+
+    assert response == LLM_FAILURE_REPLY
+    # The raw sentinel must not leak to the user.
+    assert response != LLM_ERROR_RESPONSE
+    # Failure must not pollute memory in any scope.
+    assert memory.add_assistant_calls == []
+    assert "c1" not in memory.channel_scope_msgs
 
 
 @pytest.mark.asyncio

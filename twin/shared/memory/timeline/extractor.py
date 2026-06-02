@@ -2,39 +2,66 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from twin.shared.memory.timeline.constants import (
+    EXTRACT_MAX_TOKENS,
     MAX_CANDIDATES_PER_TRANSCRIPT,
     MAX_CATALOGS_PER_MEMORY,
 )
 from twin.shared.memory.timeline.models import CATALOG_SET, T2Topic
 
 
-_JSON_BLOCK_RE = re.compile(
-    r"```(?:json)?\s*(\{.*?\})\s*```|(\{.*\})",
-    re.DOTALL,
-)
-
-
 def _extract_json(text: str) -> str:
-    s = (text or "").strip()
-    if s.startswith("{") and s.endswith("}"):
-        return s
-    m = _JSON_BLOCK_RE.search(text or "")
-    if m:
-        return (m.group(1) or m.group(2)).strip()
+    """Return the first complete, balanced JSON object found in *text*.
+
+    Reasoning models wrap the answer in chain-of-thought prose and/or ```json
+    fences. A string-aware brace scan locates the first balanced ``{...}`` and
+    ignores everything around it. Truncated output (no closing brace) raises so
+    the caller can retry. Raises ``ValueError`` when no object is present.
+    """
+    s = text or ""
+    start = s.find("{")
+    if start == -1:
+        raise ValueError("no JSON object")
+
+    depth = 0
+    in_str = False
+    escape = False
+    for i in range(start, len(s)):
+        ch = s[i]
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return s[start : i + 1]
     raise ValueError("no JSON object")
 
 
 SYSTEM_PROMPT = (
     "Bạn là Memory Extractor. Đọc đoạn hội thoại, rút ra TỐI ĐA 5 ký ức atomic "
     "đáng lưu (mỗi cái 1-3 câu, độc lập). Bỏ qua xã giao, đùa, spam.\n\n"
+    "Transcript có nhiều người, mỗi dòng có dạng `Tên: nội dung`. Dòng `Bot:` là "
+    "của chính trợ lý (bot) — xem mục === BOT ===. Người dùng có thể gọi bot bằng "
+    "biệt danh; ĐỪNG coi biệt danh đó là một người dùng và ĐỪNG tạo ký ức nhận dạng "
+    "(identity) cho bot.\n\n"
     "Mỗi ký ức phải có:\n"
     "- content: 1-3 câu, atomic, viết ở ngôi thứ 3 (\"Hoà thích phim Pháp\")\n"
+    "- subject: tên người mà ký ức NÓI VỀ — phải đúng một tên đứng trước dấu \":\" "
+    "trong transcript (== một người trong === NGƯỜI THAM GIA ===). Không phải bot.\n"
     "- topic_names: 1-3 tên topic (tiếng Việt, danh từ ngắn). Ví dụ \"phim ảnh\", "
     "\"công việc dev\", \"gia đình\"\n"
     "- catalogs: 1-2 từ danh sách:\n"
@@ -51,9 +78,16 @@ SYSTEM_PROMPT = (
     "Trả JSON đúng schema. Không markdown fence, không comment."
 )
 
+# Appended on retry when the first call returns prose instead of JSON.
+STRICT_JSON_SUFFIX = (
+    "\n\nQUAN TRỌNG: Chỉ in JSON thuần đúng schema, bắt đầu bằng '{' và kết thúc "
+    "bằng '}'. KHÔNG suy luận, KHÔNG giải thích, KHÔNG markdown fence."
+)
+
 
 class CandidateMemory(BaseModel):
     content: str
+    subject: str = ""
     topic_names: list[str] = Field(default_factory=list)
     catalogs: list[str] = Field(default_factory=list)
     importance: int = Field(ge=1, le=5)
@@ -98,42 +132,72 @@ class Extractor:
         t3_snapshot: str = "",
         topic_glossary: list[T2Topic] | None = None,
         participants: dict[str, str] | None = None,
+        bot_name: str | None = None,
     ) -> ExtractResult:
         """1 LLM call to atomic-extract + classify. Returns ExtractResult (never raises)."""
         if not transcript or not transcript.strip():
             return _empty_result()
 
-        user_prompt = (
-            "=== HỒ SƠ NGƯỜI DÙNG (T3) ===\n"
-            f"{t3_snapshot or '(chưa có)'}\n\n"
-            "=== TOPIC ĐÃ CÓ (T2 glossary) ===\n"
-            f"{format_glossary(topic_glossary)}\n\n"
-            "=== TRANSCRIPT ===\n"
-            f"{transcript}"
-        )
+        sections = [
+            "=== HỒ SƠ NGƯỜI DÙNG (T3) ===",
+            t3_snapshot or "(chưa có)",
+            "",
+            "=== TOPIC ĐÃ CÓ (T2 glossary) ===",
+            format_glossary(topic_glossary),
+            "",
+        ]
+        if bot_name:
+            sections += [
+                "=== BOT ===",
+                f"Trợ lý trong hội thoại tên là \"{bot_name}\" (các dòng `Bot:`). "
+                "Không phải người dùng.",
+                "",
+            ]
+        if participants:
+            names = ", ".join(sorted({n for n in participants.values() if n}))
+            sections += ["=== NGƯỜI THAM GIA ===", names or "(chưa rõ)", ""]
+        sections += ["=== TRANSCRIPT ===", transcript]
+        user_prompt = "\n".join(sections)
 
-        try:
-            response = await self.llm.generate_response(
-                messages=[{"role": "user", "content": user_prompt}],
-                system_prompt=SYSTEM_PROMPT,
-                use_native_tools=False,
-            )
-        except Exception as exc:
-            self.logger.warning("T2:extractor: LLM call failed: %s", exc, exc_info=True)
-            return _empty_result()
+        # Reasoning models often answer the first call with chain-of-thought
+        # prose and no JSON. Try the normal prompt, then retry once with a
+        # stricter "JSON only" instruction before giving up.
+        result: ExtractResult | None = None
+        attempts = (SYSTEM_PROMPT, SYSTEM_PROMPT + STRICT_JSON_SUFFIX)
+        for attempt, system_prompt in enumerate(attempts):
+            try:
+                response = await self.llm.generate_response(
+                    messages=[{"role": "user", "content": user_prompt}],
+                    system_prompt=system_prompt,
+                    use_native_tools=False,
+                    max_tokens=EXTRACT_MAX_TOKENS,
+                )
+            except Exception as exc:
+                self.logger.warning("T2:extractor: LLM call failed: %s", exc, exc_info=True)
+                return _empty_result()
 
-        text = getattr(response, "content", None)
-        if not isinstance(text, str):
-            text = str(response) if response is not None else ""
+            text = getattr(response, "content", None)
+            if not isinstance(text, str):
+                text = str(response) if response is not None else ""
 
-        try:
-            json_str = _extract_json(text)
-            result = ExtractResult.model_validate_json(json_str)
-        except Exception as exc:
-            self.logger.warning(
-                "T2:extractor: JSON parse/validate failed: %s | raw=%r",
-                exc, text[:300],
-            )
+            try:
+                json_str = _extract_json(text)
+                result = ExtractResult.model_validate_json(json_str)
+                break
+            except Exception as exc:
+                if attempt + 1 < len(attempts):
+                    self.logger.info(
+                        "T2:extractor: parse failed (attempt %d), retrying strict: %s",
+                        attempt + 1, exc,
+                    )
+                    continue
+                self.logger.warning(
+                    "T2:extractor: JSON parse/validate failed: %s | raw=%r",
+                    exc, text[:300],
+                )
+                return _empty_result()
+
+        if result is None:  # defensive; loop either breaks or returns
             return _empty_result()
 
         # Filter + cap memories.
