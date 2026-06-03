@@ -47,7 +47,17 @@ class OpenAIService(BaseLLMService):
     ) -> Union[str, LLMResponse]:
         session = await self._get_session()
         final_system_prompt = self._build_final_system_prompt(system_prompt)
-        api_messages = [{"role": "system", "content": final_system_prompt}] + messages
+
+        # Strict chat templates (Qwen-derived, e.g. LM Studio) raise
+        # "No user query found in messages" when the first non-system message
+        # is an assistant turn. A channel's active-context window can start
+        # with a "Bot:" turn, so drop any leading assistant messages. Lenient
+        # providers (9Router, OpenRouter) are unaffected by the trim.
+        first_user = next(
+            (i for i, m in enumerate(messages) if m.get("role") == "user"), None
+        )
+        convo = messages[first_user:] if first_user is not None else messages
+        api_messages = [{"role": "system", "content": final_system_prompt}] + convo
 
         payload = {
             "model": self.model,
