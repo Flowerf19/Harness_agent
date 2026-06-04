@@ -103,6 +103,7 @@ class March7Agent:
         bot_name: str | None = None,
         allow_silence: bool = False,
         user_name: str | None = None,
+        mentioned_users: list[dict[str, Any]] | None = None,
     ) -> str:
         try:
             if observe_input:
@@ -114,6 +115,7 @@ class March7Agent:
                 current_query=content,
                 channel_id=channel_id,
                 user_name=user_name,
+                mentioned_users=mentioned_users,
             )
             if allow_silence:
                 sys_prompt = f"{sys_prompt}\n\n{SILENCE_NOTE}"

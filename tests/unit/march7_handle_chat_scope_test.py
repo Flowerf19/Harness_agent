@@ -6,6 +6,7 @@ bot replies were filed under the user scope regardless of channel.
 from __future__ import annotations
 
 from typing import Any, Dict, List
+from types import MethodType
 
 import pytest
 
@@ -33,9 +34,15 @@ class FakeMemoryManager:
         current_query: str,
         channel_id: str | None = None,
         user_name: str | None = None,
+        mentioned_users: list[dict[str, Any]] | None = None,
     ):
         self.get_context_calls.append(
-            {"user_id": user_id, "channel_id": channel_id, "user_name": user_name}
+            {
+                "user_id": user_id,
+                "channel_id": channel_id,
+                "user_name": user_name,
+                "mentioned_users": mentioned_users,
+            }
         )
         if channel_id:
             return "sys-prompt", list(self.channel_scope_msgs.get(channel_id, []))
@@ -95,6 +102,10 @@ def _make_agent(memory: FakeMemoryManager, llm_response: str = "echo") -> March7
         use_native_tools=False,
         redis_client=None,
     )
+    agent.handle_chat = MethodType(  # type: ignore[method-assign]
+        March7Agent.handle_chat.__wrapped__,  # type: ignore[attr-defined]
+        agent,
+    )
     # Stash the LLM so tests can inspect what messages it saw.
     agent._fake_llm = llm  # type: ignore[attr-defined]
     return agent
@@ -124,7 +135,12 @@ async def test_handle_chat_in_channel_loads_channel_scope_only():
 
     assert response == "echo"
     assert memory.get_context_calls == [
-        {"user_id": "u1", "channel_id": "c1", "user_name": None}
+        {
+            "user_id": "u1",
+            "channel_id": "c1",
+            "user_name": None,
+            "mentioned_users": None,
+        }
     ]
     seen = agent._fake_llm.last_messages  # type: ignore[attr-defined]
     assert seen == [{"role": "user", "content": "Hoà: Năm 2070+10 bằng?"}]
@@ -181,7 +197,12 @@ async def test_handle_chat_in_dm_uses_user_scope():
 
     assert response == "chào Hoà"
     assert memory.get_context_calls == [
-        {"user_id": "u1", "channel_id": None, "user_name": None}
+        {
+            "user_id": "u1",
+            "channel_id": None,
+            "user_name": None,
+            "mentioned_users": None,
+        }
     ]
     # observe_input=True → user message recorded into user scope.
     assert memory.add_user_calls[-1] == {"user_id": "u1", "role": "user", "content": "alo"}
@@ -253,7 +274,48 @@ async def test_handle_chat_threads_user_name_to_get_context():
     )
 
     assert memory.get_context_calls == [
-        {"user_id": "726", "channel_id": "c1", "user_name": "Hoà"}
+        {
+            "user_id": "726",
+            "channel_id": "c1",
+            "user_name": "Hoà",
+            "mentioned_users": None,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_handle_chat_threads_mentioned_users_to_get_context():
+    """Mentioned users must reach get_context so the prompt can resolve
+    @display-name to a stable Discord ID/profile without changing speaker."""
+    memory = FakeMemoryManager()
+    agent = _make_agent(memory)
+
+    mentions = [
+        {
+            "user_id": "726302130318868500",
+            "display_name": "AI đang dùng tài khoản này",
+            "is_bot": False,
+        }
+    ]
+
+    await agent.handle_chat(
+        user_id="418621389449199616",
+        content="biết @AI đang dùng tài khoản này là ai không",
+        channel_id="c1",
+        observe_input=False,
+        bot_id="march7",
+        bot_name="March7",
+        user_name="Quang",
+        mentioned_users=mentions,
+    )
+
+    assert memory.get_context_calls == [
+        {
+            "user_id": "418621389449199616",
+            "channel_id": "c1",
+            "user_name": "Quang",
+            "mentioned_users": mentions,
+        }
     ]
 
 

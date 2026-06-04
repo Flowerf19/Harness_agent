@@ -143,6 +143,55 @@ async def test_get_context_falls_back_to_id_without_display_name(tmp_path):
     assert "Discord user ID: 726" in system_prompt
 
 
+async def test_get_context_injects_mentioned_user_identity(tmp_path):
+    active = _active()
+    profile = MarkdownProfileStore(base_path=str(tmp_path))
+    await profile.append_raw("726302130318868500", "basic", "Tên: Hòa")
+    await profile.append_raw(
+        "726302130318868500",
+        "basic",
+        "Được Bé Bảy gọi trực tiếp bằng tên thật",
+    )
+    manager = SharedMemoryManager(active=active, profile_store=profile)
+
+    system_prompt, _ = await manager.get_context(
+        "418621389449199616",
+        "biết @AI đang dùng tài khoản này là ai không",
+        channel_id="c1",
+        user_name="Quang",
+        mentioned_users=[
+            {
+                "user_id": "726302130318868500",
+                "display_name": "AI đang dùng tài khoản này",
+                "is_bot": False,
+            }
+        ],
+    )
+
+    assert "=== CURRENT USER ===" in system_prompt
+    assert "Quang (Discord ID: 418621389449199616)" in system_prompt
+    assert "=== MENTIONED USERS ===" in system_prompt
+    assert "AI đang dùng tài khoản này (Discord ID: 726302130318868500)" in system_prompt
+    assert "Tên: Hòa" in system_prompt
+
+
+async def test_get_context_mentioned_user_lookup_does_not_create_profile(tmp_path):
+    active = _active()
+    profile = MarkdownProfileStore(base_path=str(tmp_path))
+    manager = SharedMemoryManager(active=active, profile_store=profile)
+
+    system_prompt, _ = await manager.get_context(
+        "418",
+        "người này là ai",
+        channel_id="c1",
+        user_name="Quang",
+        mentioned_users=[{"user_id": "999", "display_name": "Người lạ"}],
+    )
+
+    assert "Người lạ (Discord ID: 999)" in system_prompt
+    assert not (tmp_path / "999.md").exists()
+
+
 async def test_manager_channel_consolidation_extracts_once(tmp_path):
     active = _active()
     profile = MarkdownProfileStore(base_path=str(tmp_path))

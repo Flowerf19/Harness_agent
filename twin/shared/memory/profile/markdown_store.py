@@ -127,12 +127,12 @@ class MarkdownProfileStore:
 
     async def _ensure_file(self, path: Path) -> str:
         """Return current file text; create default skeleton if missing."""
-        text = await asyncio.to_thread(self._read_text_sync, path)
+        text = self._read_text_sync(path)
         if text is not None:
             return text
         skeleton = _default_skeleton()
         try:
-            await asyncio.to_thread(self._atomic_write_sync, path, skeleton)
+            self._atomic_write_sync(path, skeleton)
         except OSError as exc:
             logger.warning("profile skeleton write failed for %s: %s", path, exc)
             raise
@@ -150,6 +150,17 @@ class MarkdownProfileStore:
         if section not in SECTIONS:
             raise ValueError(f"invalid section: {section!r}")
         text = await self.read_raw(user_id)
+        parsed = _parse_markdown(text)
+        return list(parsed.get(section, []))
+
+    async def read_section_if_exists(self, user_id: str, section: str) -> list[str]:
+        """Return section bullets only when the profile file already exists."""
+        if section not in SECTIONS:
+            raise ValueError(f"invalid section: {section!r}")
+        path = self._path_for(user_id)
+        text = self._read_text_sync(path)
+        if text is None:
+            return []
         parsed = _parse_markdown(text)
         return list(parsed.get(section, []))
 
@@ -206,9 +217,7 @@ class MarkdownProfileStore:
             parsed[section] = existing
             new_text = _render_markdown(parsed)
             try:
-                await asyncio.to_thread(
-                    self._atomic_write_sync, path, new_text
-                )
+                self._atomic_write_sync(path, new_text)
             except OSError as exc:
                 logger.warning("profile append failed for %s: %s", path, exc)
                 raise
@@ -224,9 +233,7 @@ class MarkdownProfileStore:
         lock = self._lock_for(user_id)
         async with lock:
             try:
-                await asyncio.to_thread(
-                    self._atomic_write_sync, path, new_content
-                )
+                self._atomic_write_sync(path, new_content)
             except OSError as exc:
                 logger.warning("profile write failed for %s: %s", path, exc)
                 raise
@@ -234,6 +241,4 @@ class MarkdownProfileStore:
                 "profile write: user=%s bytes=%d", user_id, len(new_content)
             )
             return True
-
-
 

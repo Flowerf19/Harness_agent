@@ -7,7 +7,7 @@ allowing the gateway to route to either one.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from twin.march7.agent import March7Agent
@@ -40,6 +40,7 @@ class AgentRouter:
         bot_name: str | None = None,
         allow_silence: bool = False,
         user_name: str | None = None,
+        mentioned_users: list[dict[str, Any]] | None = None,
     ) -> str:
         """Route message to the specified agent."""
         if agent_name == "evernight":
@@ -59,6 +60,7 @@ class AgentRouter:
                 bot_name=bot_name,
                 allow_silence=allow_silence,
                 user_name=user_name,
+                mentioned_users=mentioned_users,
             )
 
     async def close(self):

@@ -164,6 +164,16 @@ class DiscordGatewayHandler(GatewayHandler):
                             bot_name=bot_user.display_name if bot_user else None,
                             allow_silence=allow_silence,
                             user_name=msg.user.display_name,
+                            mentioned_users=[
+                                {
+                                    "user_id": mention.platform_id,
+                                    "display_name": mention.display_name,
+                                    "is_bot": mention.is_bot,
+                                }
+                                for mention in msg.mentions
+                                if not mention.is_bot
+                                and mention.platform_id != msg.user.platform_id
+                            ],
                         )
                     else:
                         response = await self._legacy_process(user_id, content)

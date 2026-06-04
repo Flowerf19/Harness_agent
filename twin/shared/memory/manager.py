@@ -109,6 +109,7 @@ class SharedMemoryManager:
         current_query: str,
         channel_id: str | None = None,
         user_name: str | None = None,
+        mentioned_users: list[dict[str, Any]] | None = None,
     ) -> tuple[str, list[dict]]:
         scope = "channel" if channel_id else "user"
         scope_id = str(channel_id or user_id)
@@ -129,9 +130,17 @@ class SharedMemoryManager:
             )
         else:
             user_id_header = f"=== CURRENT USER ===\nDiscord user ID: {user_id}"
+        mentioned_context = await self._mentioned_users_context(
+            str(user_id),
+            mentioned_users,
+        )
         profile_context = await self.profile.get_system_prompt_context(str(user_id))
         t2_context = await self._preflight_context(str(user_id), current_query)
-        system_parts = [user_id_header] + [part for part in (profile_context, t2_context) if part]
+        system_parts = [user_id_header] + [
+            part
+            for part in (mentioned_context, profile_context, t2_context)
+            if part
+        ]
         return "\n\n".join(system_parts), messages
 
     async def get_snapshot(self, user_id: str) -> list[dict]:
@@ -214,6 +223,56 @@ class SharedMemoryManager:
             logger.debug("T2: preflight failed user=%s: %s", user_id, exc)
             return ""
 
+    async def _mentioned_users_context(
+        self,
+        current_user_id: str,
+        mentioned_users: list[dict[str, Any]] | None,
+    ) -> str:
+        users = self._normalize_mentioned_users(current_user_id, mentioned_users)
+        if not users:
+            return ""
+
+        lines = [
+            "=== MENTIONED USERS ===",
+            "Những người được nhắc tới trong tin nhắn hiện tại. "
+            "Đây không phải người đang nói, trừ khi trùng với CURRENT USER.",
+        ]
+        for user in users:
+            user_id = user["user_id"]
+            display_name = user.get("display_name") or user_id
+            lines.append(f"- {display_name} (Discord ID: {user_id})")
+            for bullet in await self._mentioned_user_basic_bullets(user_id):
+                lines.append(f"  - {bullet}")
+        return "\n".join(lines)
+
+    async def _mentioned_user_basic_bullets(self, user_id: str) -> list[str]:
+        reader = getattr(self.profile, "read_section_if_exists", None)
+        if reader is None:
+            return []
+        try:
+            bullets = await reader(str(user_id), "basic")
+        except Exception as exc:
+            logger.debug("T3: mentioned profile read failed user=%s: %s", user_id, exc)
+            return []
+        return list(bullets[:3])
+
+    @staticmethod
+    def _normalize_mentioned_users(
+        current_user_id: str,
+        mentioned_users: list[dict[str, Any]] | None,
+    ) -> list[dict[str, str]]:
+        normalized: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for item in mentioned_users or []:
+            raw_id = item.get("user_id") or item.get("platform_id")
+            user_id = str(raw_id or "").strip()
+            if not user_id or user_id == current_user_id or user_id in seen:
+                continue
+            seen.add(user_id)
+            display_name = str(item.get("display_name") or "").strip()
+            normalized.append({"user_id": user_id, "display_name": display_name})
+        return normalized
+
     @staticmethod
     def _normalize_role(role: str) -> str:
         if role == "assistant":
@@ -270,4 +329,3 @@ class SharedMemoryManager:
             "primary_confidence": result.primary_confidence,
             "error": result.error,
         }
-

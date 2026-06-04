@@ -35,7 +35,10 @@ class GetProfileTool(BaseTool):
             "properties": {
                 "user_id": {
                     "type": "string",
-                    "description": "Discord user ID (số) của user đang chat.",
+                    "description": (
+                        "Discord user ID (số). Dùng CURRENT USER nếu hỏi về người đang chat; "
+                        "dùng MENTIONED USERS nếu hỏi về người được tag."
+                    ),
                 },
                 "section": {
                     "type": "string",

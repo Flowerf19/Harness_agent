@@ -44,7 +44,10 @@ class UpdateUserProfileTool(BaseTool):
             "properties": {
                 "user_id": {
                     "type": "string",
-                    "description": "Discord user ID (số) của user đang chat.",
+                    "description": (
+                        "Discord user ID (số). Dùng ID của người mà fact nói tới; "
+                        "CURRENT USER nếu fact nói về người đang chat, MENTIONED USERS nếu fact nói về người được tag."
+                    ),
                 },
                 "section": {
                     "type": "string",
