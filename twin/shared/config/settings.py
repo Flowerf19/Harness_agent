@@ -42,9 +42,11 @@ class Config:
 
     # Generation parameters (tuned per deployment).
     LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.7"))
-    LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "2000"))
+    LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4000"))
     LLM_TOP_P = float(os.getenv("LLM_TOP_P", "0.9"))
     LLM_TOP_K = int(os.getenv("LLM_TOP_K", "40"))
+    LLM_REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", "120"))
+    LLM_CONNECT_TIMEOUT = int(os.getenv("LLM_CONNECT_TIMEOUT", "10"))
 
     # OpenAI-compatible endpoint.
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "dummy-key")

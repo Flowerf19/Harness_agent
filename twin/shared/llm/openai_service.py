@@ -33,7 +33,10 @@ class OpenAIService(BaseLLMService):
 
     async def _get_session(self):
         if self.session is None:
-            timeout = aiohttp.ClientTimeout(total=60, connect=10)
+            timeout = aiohttp.ClientTimeout(
+                total=Config.LLM_REQUEST_TIMEOUT,
+                connect=Config.LLM_CONNECT_TIMEOUT,
+            )
             self.session = aiohttp.ClientSession(timeout=timeout)
         return self.session
 
