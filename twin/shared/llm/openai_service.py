@@ -68,6 +68,8 @@ class OpenAIService(BaseLLMService):
             "temperature": Config.LLM_TEMPERATURE,
             "max_tokens": max_tokens or Config.LLM_MAX_TOKENS,
             "top_p": Config.LLM_TOP_P,
+            "frequency_penalty": Config.LLM_FREQUENCY_PENALTY,
+            "presence_penalty": Config.LLM_PRESENCE_PENALTY,
         }
 
         if use_native_tools:

@@ -45,6 +45,8 @@ class Config:
     LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4000"))
     LLM_TOP_P = float(os.getenv("LLM_TOP_P", "0.9"))
     LLM_TOP_K = int(os.getenv("LLM_TOP_K", "40"))
+    LLM_FREQUENCY_PENALTY = float(os.getenv("LLM_FREQUENCY_PENALTY", "0.4"))
+    LLM_PRESENCE_PENALTY = float(os.getenv("LLM_PRESENCE_PENALTY", "0.1"))
     LLM_REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", "120"))
     LLM_CONNECT_TIMEOUT = int(os.getenv("LLM_CONNECT_TIMEOUT", "10"))
 
