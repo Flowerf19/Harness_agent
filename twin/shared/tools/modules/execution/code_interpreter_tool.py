@@ -63,10 +63,6 @@ class CodeInterpreterTool(BaseTool):
         return "run_python_code"
 
     @property
-    def description(self) -> str:
-        return "Thực thi code trong Sandbox."
-
-    @property
     def parameters_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",

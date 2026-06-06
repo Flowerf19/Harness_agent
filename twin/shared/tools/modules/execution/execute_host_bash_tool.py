@@ -64,10 +64,6 @@ class ExecuteHostBashTool(BaseTool):
         return "execute_host_bash"
 
     @property
-    def description(self) -> str:
-        return "Chạy bash trên host, cần duyệt."
-
-    @property
     def parameters_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",

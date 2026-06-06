@@ -25,11 +25,6 @@ class TestTavilySearchToolMetadata:
         tool = TavilySearchTool()
         assert tool.name == "web_search"
 
-    def test_tool_description_vietnamese(self):
-        """tool.description contains Vietnamese text."""
-        tool = TavilySearchTool()
-        assert "Tìm" in tool.description or "tin tức" in tool.description
-
     def test_parameters_schema_has_required_fields(self):
         """Schema has query, search_depth, max_results, topic, include_domains, exclude_domains, time_range."""
         tool = TavilySearchTool()

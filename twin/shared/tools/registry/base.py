@@ -3,7 +3,6 @@ BaseTool - Abstract base class cho tất cả Tools trong hệ thống MCP.
 
 Mỗi Tool phải kế thừa từ BaseTool và implement:
 - name: Tên định danh của tool
-- description: Mô tả chức năng cho LLM hiểu
 - parameters_schema: JSON Schema của parameters
 - execute(): Logic thực thi tool
 
@@ -25,7 +24,8 @@ class BaseTool(ABC):
 
     Attributes:
         name: Tên định danh (VD: "search_memory")
-        description: Mô tả cho LLM (VD: "Tìm kiếm ký ức...")
+        description: Fallback metadata. Runtime schema descriptions are loaded
+            from lazy tool guides through DeclaredToolProxy.
         parameters_schema: JSON Schema dict
     """
 
@@ -42,16 +42,18 @@ class BaseTool(ABC):
         pass
 
     @property
-    @abstractmethod
     def description(self) -> str:
         """
-        Mô tả chức năng của tool cho LLM.
-        LLM sẽ đọc description để quyết định khi nào dùng tool.
+        Fallback description for raw/unproxied tool instances.
+
+        Runtime agents should expose tools through DeclaredToolProxy, which
+        loads the native schema description from `<tool_description>` in the
+        selected tool guide.
 
         Returns:
-            str: Human-readable description
+            str: Human-readable fallback description
         """
-        pass
+        return "Runtime description is loaded from the tool guide."
 
     @property
     @abstractmethod

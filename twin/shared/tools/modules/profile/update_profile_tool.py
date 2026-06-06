@@ -31,10 +31,6 @@ class UpdateUserProfileTool(BaseTool):
         return "update_user_profile"
 
     @property
-    def description(self) -> str:
-        return "Lưu một thông tin T3."
-
-    @property
     def parameters_schema(self) -> dict[str, Any]:
         return {
             "type": "object",

@@ -69,10 +69,6 @@ class UpdatePersonalityTool(BaseTool):
         return "update_personality"
 
     @property
-    def description(self) -> str:
-        return "Viết lại persona."
-
-    @property
     def parameters_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",

@@ -27,12 +27,6 @@ class TestCodeInterpreterToolMetadata:
         tool = CodeInterpreterTool()
         assert tool.name == "run_python_code"
 
-    def test_tool_description_vietnamese(self):
-        """tool.description contains Vietnamese text + mentions 'Jupyter' or 'Sandbox'."""
-        tool = CodeInterpreterTool()
-        assert "Thực thi" in tool.description or "Mã Python" in tool.description
-        assert "Sandbox" in tool.description or "Kernel" in tool.description
-
     def test_parameters_schema_has_all_params(self):
         """Schema has user_id, code, kernel, cwd, file_content, filename, download_file_name."""
         tool = CodeInterpreterTool()

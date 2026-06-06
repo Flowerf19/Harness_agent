@@ -54,10 +54,6 @@ class TavilySearchTool(BaseTool):
         return "web_search"
 
     @property
-    def description(self) -> str:
-        return "Tìm web hiện tại."
-
-    @property
     def parameters_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",

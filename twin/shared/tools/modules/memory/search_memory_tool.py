@@ -24,10 +24,6 @@ class SearchMemoryTool(BaseTool):
         return "search_memory"
 
     @property
-    def description(self) -> str:
-        return "Tìm ký ức T2."
-
-    @property
     def parameters_schema(self) -> dict[str, Any]:
         return {
             "type": "object",

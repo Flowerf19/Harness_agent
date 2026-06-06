@@ -25,10 +25,6 @@ class GetProfileTool(BaseTool):
         return "get_profile"
 
     @property
-    def description(self) -> str:
-        return "Đọc hồ sơ T3."
-
-    @property
     def parameters_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
