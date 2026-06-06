@@ -32,10 +32,7 @@ class UpdateUserProfileTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return (
-            "Thêm một bullet vào hồ sơ T3 markdown của user. "
-            "Chỉ dùng cho thông tin bền vững, chọn đúng section 8 mục."
-        )
+        return "Lưu một thông tin T3."
 
     @property
     def parameters_schema(self) -> dict[str, Any]:
@@ -44,26 +41,20 @@ class UpdateUserProfileTool(BaseTool):
             "properties": {
                 "user_id": {
                     "type": "string",
-                    "description": (
-                        "Discord user ID (số). Dùng ID của người mà fact nói tới; "
-                        "CURRENT USER nếu fact nói về người đang chat, MENTIONED USERS nếu fact nói về người được tag."
-                    ),
+                    "description": "Discord user ID.",
                 },
                 "section": {
                     "type": "string",
                     "enum": SECTIONS,
-                    "description": (
-                        "Section T3 cần append: "
-                        + ", ".join(f"{key}={SECTION_HEADERS[key]}" for key in SECTIONS)
-                    ),
+                    "description": "Section T3.",
                 },
                 "content": {
                     "type": "string",
-                    "description": "Nội dung bullet, không cần prefix '- '.",
+                    "description": "Bullet không có prefix '- '.",
                 },
                 "source_memory_id": {
                     "type": "string",
-                    "description": "Optional T2 memory_id nguồn.",
+                    "description": "T2 source id tùy chọn.",
                 },
             },
             "required": ["user_id", "section", "content"],

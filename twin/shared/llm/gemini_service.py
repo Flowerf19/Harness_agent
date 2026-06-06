@@ -84,8 +84,15 @@ class GeminiService(BaseLLMService):
         # 2. Biên dịch mảng `messages` sang chuẩn Gemini
         gemini_contents = []
         for msg in messages:
-            role = "model" if msg["role"] == "assistant" else "user"
-            gemini_contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+            msg_role = msg.get("role", "user")
+            role = "model" if msg_role in {"assistant", "model"} else "user"
+            if "parts" in msg:
+                gemini_contents.append({"role": role, "parts": msg["parts"]})
+            else:
+                gemini_contents.append({
+                    "role": role,
+                    "parts": [{"text": msg.get("content", "")}],
+                })
 
         full_url = f"{self.api_url}/{self.model}:generateContent?key={self.api_key}"
 

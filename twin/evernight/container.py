@@ -130,6 +130,7 @@ class EvernightContainer:
         )
         self.tool_registry = tools.registry
         self.llm_service.set_tool_registry(self.tool_registry)
+        self.llm_service.set_tool_prompt_catalog(tools.tool_prompt_catalog)
 
         self.agent = EvernightAgent(
             memory_manager=self.memory_manager,

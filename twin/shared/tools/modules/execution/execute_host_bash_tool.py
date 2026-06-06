@@ -65,14 +65,7 @@ class ExecuteHostBashTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return (
-            "Chạy lệnh bash trên host machine của bot. "
-            "Dùng để: kiểm tra hệ thống (nhiệt độ, RAM, disk), quản lý Docker, "
-            "đọc file log, restart service, kiểm tra tiến trình.\n\n"
-            "⚠️ YÊU CẦU XÁC NHẬN: Mỗi lần dùng tool này sẽ có popup yêu cầu "
-            "bạn xác nhận trước khi thực thi.\n"
-            "⚠️ Chạy với quyền user thường (KHÔNG phải root)."
-        )
+        return "Chạy bash trên host, cần duyệt."
 
     @property
     def parameters_schema(self) -> Dict[str, Any]:
@@ -81,16 +74,11 @@ class ExecuteHostBashTool(BaseTool):
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": (
-                        "Lệnh bash cần chạy. "
-                        "VD: 'sensors' (nhiệt độ), 'docker ps' (danh sách container), "
-                        "'df -h' (dung lượng disk), 'free -h' (RAM), "
-                        "'systemctl status march7' (trạng thái service)."
-                    )
+                    "description": "Lệnh cần chạy."
                 },
                 "timeout": {
                     "type": "integer",
-                    "description": "Timeout (giây). Mặc định 30, tối đa 120."
+                    "description": "Giây, tối đa 120."
                 }
             },
             "required": ["command"]

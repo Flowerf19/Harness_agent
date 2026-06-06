@@ -25,10 +25,7 @@ class SearchMemoryTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return (
-            "Tìm ký ức T2 timeline. Dùng semantic cho nội dung, topic cho topic_id, "
-            "time/recent cho ký ức gần đây."
-        )
+        return "Tìm ký ức T2."
 
     @property
     def parameters_schema(self) -> dict[str, Any]:
@@ -37,47 +34,44 @@ class SearchMemoryTool(BaseTool):
             "properties": {
                 "user_id": {
                     "type": "string",
-                    "description": (
-                        "Discord user ID (số). Dùng CURRENT USER nếu hỏi về người đang chat; "
-                        "dùng MENTIONED USERS nếu hỏi về người được tag."
-                    ),
+                    "description": "Discord user ID.",
                 },
                 "mode": {
                     "type": "string",
                     "enum": ["auto", "semantic", "time", "topic", "recent"],
                     "default": "auto",
-                    "description": "auto tự chọn; semantic cần query; topic cần topic_id; time/recent dùng hours/days.",
+                    "description": "auto, semantic, time, topic, recent.",
                 },
                 "query": {
                     "type": "string",
-                    "description": "Query cho semantic search. VD: 'sở thích anime'.",
+                    "description": "Truy vấn semantic.",
                 },
                 "topic_id": {
                     "type": "string",
-                    "description": "T2 topic_id để search theo topic.",
+                    "description": "T2 topic_id.",
                 },
                 "topic": {
                     "type": "string",
-                    "description": "Alias tương thích cũ cho topic_id.",
+                    "description": "Alias cho topic_id.",
                 },
                 "hours": {
                     "type": "integer",
                     "default": 24,
-                    "description": "Số giờ nhìn lại cho recent/time.",
+                    "description": "Số giờ nhìn lại.",
                 },
                 "days": {
                     "type": "integer",
-                    "description": "Alias cho time: days * 24 giờ.",
+                    "description": "Số ngày nhìn lại.",
                 },
                 "limit": {
                     "type": "integer",
                     "default": 5,
-                    "description": f"Số memory tối đa, cap {_MAX_LIMIT}.",
+                    "description": f"Số kết quả, tối đa {_MAX_LIMIT}.",
                 },
                 "exclude_superseded": {
                     "type": "boolean",
                     "default": True,
-                    "description": "Loại memory đã bị supersede khi mode hỗ trợ.",
+                    "description": "Loại memory đã supersede.",
                 },
             },
             "required": ["user_id"],

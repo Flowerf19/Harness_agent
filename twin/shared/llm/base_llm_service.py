@@ -34,12 +34,23 @@ class BaseLLMService(abc.ABC):
         # Load file tính cách từ Markdown (Static Persona)
         self.static_identity = self._load_prompt("IDENTITY.md")
         self.static_soul = self._load_prompt("SOUL.md")
-        self.static_tools = self._load_prompt("TOOL.md")
+        self.tool_prompt_catalog = None
+
+    def reload_persona_prompts(self) -> None:
+        """Reload persona Markdown after a runtime persona update."""
+        self.static_identity = self._load_prompt("IDENTITY.md")
+        self.static_soul = self._load_prompt("SOUL.md")
+        self.logger.info("Persona prompts đã được reload")
 
     def set_tool_registry(self, tool_registry) -> None:
         """Inject ToolRegistry vào LLM Service để lấy tool schemas."""
         self.tool_registry = tool_registry
         self.logger.debug("ToolRegistry đã được inject vào LLM Service")
+
+    def set_tool_prompt_catalog(self, tool_prompt_catalog) -> None:
+        """Inject lazy tool prompt catalog for the short system prompt."""
+        self.tool_prompt_catalog = tool_prompt_catalog
+        self.logger.debug("ToolPromptCatalog đã được inject vào LLM Service")
 
     def _load_prompt(self, filename: str) -> str:
         """Load prompt content from persona_path."""
@@ -76,9 +87,11 @@ class BaseLLMService(abc.ABC):
         if self.static_soul:
             parts.append(f"=== HƯỚNG DẪN HỘI THOẠI ===\n{self.static_soul}")
 
-        # 2. Nhét hướng dẫn sử dụng Tool (TOOL.md)
-        if self.static_tools:
-            parts.append(f"=== HƯỚNG DẪN SỬ DỤNG TOOL ===\n{self.static_tools}")
+        # 2. Nhét micro-catalog tool. Full guide chỉ load sau khi chọn tool.
+        if self.tool_prompt_catalog:
+            tool_catalog = self.tool_prompt_catalog.render_catalog()
+            if tool_catalog:
+                parts.append(f"=== CÔNG CỤ ===\n{tool_catalog}")
 
         # 3. Nhét hồ sơ người dùng (Từ Tầng 3 gửi sang) vào sau
         if dynamic_core_prompt:

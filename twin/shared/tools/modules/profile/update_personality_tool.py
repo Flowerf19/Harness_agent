@@ -14,8 +14,7 @@ Auto-routes to correct file based on content keywords.
 
 import logging
 import os
-import asyncio
-from typing import Dict, Any, Literal
+from typing import Any, Dict, Literal
 
 from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
 
@@ -56,8 +55,9 @@ class UpdatePersonalityTool(BaseTool):
         # "Nói ngắn hơn" → SOUL.md
     """
 
-    def __init__(self, base_memory_path: str = "memories"):
+    def __init__(self, base_memory_path: str = "memories", llm_service: Any = None):
         self.base_memory_path = base_memory_path
+        self.llm_service = llm_service
         logger.debug(f"UpdatePersonalityTool initialized with base_path={base_memory_path}")
 
     # ==========================================
@@ -70,7 +70,7 @@ class UpdatePersonalityTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Viết lại IDENTITY.md hoặc SOUL.md. OVERWRITE toàn bộ file. Chi tiết cách dùng xem TOOL.md."
+        return "Viết lại persona."
 
     @property
     def parameters_schema(self) -> Dict[str, Any]:
@@ -79,11 +79,7 @@ class UpdatePersonalityTool(BaseTool):
             "properties": {
                 "instruction": {
                     "type": "string",
-                    "description": (
-                        "NỘI DUNG TOÀN BỘ file mới (Markdown format).\n"
-                        "Bot phải đọc file cũ, merge với info mới, provide full content.\n"
-                        "VD: '# NHÂN CÁCH\\n## Tên: March 7th\\n## Tính cách: ...'"
-                    )
+                    "description": "Markdown thay thế toàn bộ."
                 }
             },
             "required": ["instruction"]
@@ -157,15 +153,12 @@ class UpdatePersonalityTool(BaseTool):
         target = self._classify_instruction(instruction)
         file_path = self._get_file_path(target)
 
-        # Write to file (async) - OVERWRITE mode
-        def write_file():
-            # Ensure directory exists
+        try:
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(instruction)
-
-        try:
-            await asyncio.to_thread(write_file)
+            if self.llm_service and hasattr(self.llm_service, "reload_persona_prompts"):
+                self.llm_service.reload_persona_prompts()
             target_display = "IDENTITY (danh tính)" if target == "identity" else "SOUL (cách nói)"
             logger.info(f"✅ UpdatePersonalityTool: Đã viết lại {target}")
             return f"Đã cập nhật {target_display} thành công. Áp dụng ngay từ tin nhắn tiếp theo."

@@ -1,10 +1,22 @@
 import pytest
 
+from twin.shared.llm.base_llm_service import BaseLLMService
 from twin.shared.tools.registry import ToolExecutionError, build_tool_registry
 
 
 class DummyLLM:
     pass
+
+
+class DummyPersonaLLM(BaseLLMService):
+    async def generate_response(
+        self,
+        messages,
+        system_prompt=None,
+        use_native_tools=False,
+        max_tokens=None,
+    ):
+        return "ok"
 
 
 def _registry_for(agent_name: str):
@@ -43,3 +55,28 @@ async def test_bootstrap_removes_consolidation_tool_execution():
         await march7.execute_tool("consolidate_" + "t2_memory", {})
 
     assert "not found" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_update_personality_reloads_llm_persona_cache(tmp_path):
+    persona_dir = tmp_path / "persona"
+    persona_dir.mkdir()
+    (persona_dir / "IDENTITY.md").write_text("old identity", encoding="utf-8")
+    (persona_dir / "SOUL.md").write_text("old soul", encoding="utf-8")
+
+    llm = DummyPersonaLLM(persona_path=str(persona_dir))
+    result = build_tool_registry(
+        agent_name="march7",
+        core_manager=None,
+        memory_manager=None,
+        llm_service=llm,
+        base_memory_path=str(persona_dir),
+    )
+
+    await result.registry.execute_tool(
+        "update_personality",
+        {"instruction": "Nói ngắn gọn hơn trong mọi câu trả lời."},
+    )
+
+    assert llm.static_soul == "Nói ngắn gọn hơn trong mọi câu trả lời."
+    assert "Nói ngắn gọn hơn" in llm._build_final_system_prompt("")

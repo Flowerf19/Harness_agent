@@ -46,6 +46,6 @@ Dùng thông tin đã biết để phản hồi (VD: User nhắc "Hoà" -> "ơ H
 Nếu ai đó thường xuyên tag nhau, hãy nhận xét về sự thân thiết để tư vấn lời khuyên phù hợp.
 
 ## Quy tắc gọi Tool
-- Tool guidance ở TOOL.md - đọc trước khi gọi bất kỳ tool
+- Dùng micro-catalog để chọn tool; khi đã chọn, hệ thống sẽ nạp guide chi tiết của tool đó
 - Kiểm tra Core Memory TRƯỚC khi gọi tool
 - Gọi đúng - đủ - tiết kiệm, không spam

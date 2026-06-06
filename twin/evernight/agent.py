@@ -1,14 +1,12 @@
 """EvernightAgent - consolidation + chat agent."""
-import asyncio
-import json
 import logging
-import uuid
 from typing import Any, Dict, List, Optional
 
 from langsmith import traceable
 
 from twin.shared.llm.base_llm_service import BaseLLMService, LLM_ERROR_RESPONSES
 from twin.shared.llm.llm_response import LLMResponse
+from twin.shared.llm.tool_loop import run_strict_tool_loop
 from twin.shared.tools.registry import ToolRegistry
 from twin.shared.a2a.types import AgentCard, A2AMessage, Part, TaskStatus
 from twin.shared.memory import SharedMemoryManager
@@ -111,46 +109,18 @@ class EvernightAgent:
                 user_id=user_id, current_query=content
             )
 
-            max_iterations = 10
-            llm_response = None
-            for i in range(max_iterations):
-                llm_response = await self.llm.generate_response(
-                    messages=context_msgs,
-                    system_prompt=sys_prompt,
-                    use_native_tools=self.use_native_tools,
-                )
-
-                if isinstance(llm_response, LLMResponse) and llm_response.has_tool_calls():
-                    tool_calls = llm_response.tool_calls
-                    logger.debug(
-                        f"Evernight wants {len(tool_calls)} tools (iteration {i+1}/{max_iterations})"
-                    )
-
-                    tool_call_msg = self._format_tool_call_message(tool_calls)
-                    context_msgs.append(tool_call_msg)
-
-                    for tc in tool_calls:
-                        tool_name = tc["name"]
-                        tool_args = tc["arguments"]
-                        tool_call_id = tc.get("id", str(uuid.uuid4()))
-
-                        try:
-                            tool_result = await asyncio.wait_for(
-                                self.tool_registry.execute_tool(tool_name, tool_args),
-                                timeout=TOOL_EXECUTION_TIMEOUT,
-                            )
-                        except asyncio.TimeoutError:
-                            tool_result = f"Lỗi: Tool '{tool_name}' timeout."
-                        except Exception as tool_err:
-                            tool_result = f"Lỗi: {tool_err}"
-
-                        tool_result_msg = self._format_tool_result_message(
-                            tool_call_id, tool_name, tool_result
-                        )
-                        context_msgs.append(tool_result_msg)
-                    continue
-                else:
-                    break
+            llm_response = await run_strict_tool_loop(
+                llm=self.llm,
+                tool_registry=self.tool_registry,
+                tool_prompt_catalog=getattr(self.llm, "tool_prompt_catalog", None),
+                messages=context_msgs,
+                system_prompt=sys_prompt,
+                use_native_tools=self.use_native_tools,
+                llm_type=self._llm_type,
+                logger=logger,
+                max_iterations=10,
+                tool_timeout=TOOL_EXECUTION_TIMEOUT,
+            )
 
             bot_response: str
             if isinstance(llm_response, LLMResponse):
@@ -180,44 +150,3 @@ class EvernightAgent:
 
     async def clear_chat_history(self, user_id: str):
         await self.memory.clear_session(user_id)
-
-    def _format_tool_call_message(self, tool_calls: List[Dict[str, Any]]) -> Dict[str, Any]:
-        if self._llm_type == "gemini":
-            parts = []
-            for tc in tool_calls:
-                parts.append({
-                    "functionCall": {"name": tc["name"], "args": tc["arguments"]}
-                })
-            return {"role": "model", "parts": parts}
-        else:
-            formatted = []
-            for tc in tool_calls:
-                formatted.append({
-                    "id": tc.get("id", str(uuid.uuid4())),
-                    "type": "function",
-                    "function": {
-                        "name": tc["name"],
-                        "arguments": json.dumps(tc["arguments"]),
-                    },
-                })
-            return {"role": "assistant", "content": "", "tool_calls": formatted}
-
-    def _format_tool_result_message(
-        self, tool_call_id: str, tool_name: str, result: str
-    ) -> Dict[str, Any]:
-        if self._llm_type == "gemini":
-            return {
-                "role": "user",
-                "parts": [{
-                    "functionResponse": {
-                        "name": tool_name,
-                        "response": {"result": result},
-                    }
-                }],
-            }
-        else:
-            return {
-                "role": "tool",
-                "tool_call_id": tool_call_id,
-                "content": result,
-            }

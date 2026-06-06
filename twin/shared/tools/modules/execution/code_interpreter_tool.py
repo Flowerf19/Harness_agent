@@ -14,7 +14,7 @@ Architecture:
 - Timeout protection (60 seconds default)
 
 Design Philosophy:
-- Clear trigger boundaries defined in TOOL.md
+- Clear trigger boundaries defined in the lazy tool guide.
 - NOT used for: hardware info, web search, simple NLP tasks
 """
 
@@ -64,11 +64,7 @@ class CodeInterpreterTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return (
-            "Thực thi mã Python trong môi trường Sandbox (Jupyter Kernel). "
-            "Dùng cho: Tính toán, phân tích data, test script, tạo file, đọc file. "
-            "Chi tiết cách dùng và khi nào KHÔNG dùng xem TOOL.md."
-        )
+        return "Thực thi code trong Sandbox."
 
     @property
     def parameters_schema(self) -> Dict[str, Any]:
@@ -77,55 +73,32 @@ class CodeInterpreterTool(BaseTool):
             "properties": {
                 "user_id": {
                     "type": "string",
-                    "description": (
-                        "Discord user ID (số) của user đang chat. "
-                        "VD: '726302130318868500'. "
-                        "Biến khai báo sẽ được lưu riêng cho từng user."
-                    )
+                    "description": "Discord user ID."
                 },
                 "code": {
                     "type": "string",
-                    "description": (
-                        "Mã Python cần thực thi. "
-                        "KHÔNG bao gồm markdown ticks (```python). "
-                        "VD: 'x = [1,2,3]\\nprint(sum(x))'"
-                    )
+                    "description": "Code, không bọc markdown fence."
                 },
                 "kernel": {
                     "type": "string",
                     "enum": ["ipython", "bash"],
-                    "description": (
-                        "Kernel type: 'ipython' (Python, default) hoặc 'bash' (shell commands). "
-                        "Dùng bash cho: pip install, ls, mkdir, etc."
-                    )
+                    "description": "ipython hoặc bash."
                 },
                 "cwd": {
                     "type": "string",
-                    "description": (
-                        "Working directory. VD: '/workspace', '/workspace/data'. "
-                        "Default là /workspace."
-                    )
+                    "description": "Thư mục làm việc."
                 },
                 "file_content": {
                     "type": "string",
-                    "description": (
-                        "Nội dung file để upload (base64 encoded). "
-                        "Dùng với filename param để upload file vào workspace."
-                    )
+                    "description": "Nội dung upload dạng base64."
                 },
                 "filename": {
                     "type": "string",
-                    "description": (
-                        "Tên file để upload. VD: 'data.csv', 'script.py'. "
-                        "Dùng cùng với file_content."
-                    )
+                    "description": "Tên file upload."
                 },
                 "download_file_name": {
                     "type": "string",
-                    "description": (
-                        "Tên file cần download từ workspace. VD: 'output.csv', 'plot.png'. "
-                        "File sẽ được trả về dưới dạng base64."
-                    )
+                    "description": "Tên file cần tải về."
                 },
             },
             "required": ["user_id", "code"]

@@ -131,6 +131,7 @@ class March7Container:
         )
         self.tool_registry = tools.registry
         self.llm_service.set_tool_registry(self.tool_registry)
+        self.llm_service.set_tool_prompt_catalog(tools.tool_prompt_catalog)
 
         self.agent = March7Agent(
             memory_manager=self.memory_manager,

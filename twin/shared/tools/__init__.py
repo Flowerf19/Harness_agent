@@ -21,7 +21,6 @@ from .mcp_transport import (
     Transport,
     HTTPTransport,
 )
-from .registry.discovery import ToolDiscovery, discover_and_register_tools
 from .registry.bootstrap import ToolBootstrapResult, build_tool_registry
 
 # Tool implementations
@@ -48,9 +47,6 @@ __all__ = [
     # Transport
     "Transport",
     "HTTPTransport",
-    # Discovery
-    "ToolDiscovery",
-    "discover_and_register_tools",
     "ToolBootstrapResult",
     "build_tool_registry",
     # Implementations

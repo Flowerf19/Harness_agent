@@ -26,7 +26,7 @@ class GetProfileTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Đọc hồ sơ T3 markdown của user, toàn bộ hoặc một section cụ thể."
+        return "Đọc hồ sơ T3."
 
     @property
     def parameters_schema(self) -> dict[str, Any]:
@@ -35,18 +35,12 @@ class GetProfileTool(BaseTool):
             "properties": {
                 "user_id": {
                     "type": "string",
-                    "description": (
-                        "Discord user ID (số). Dùng CURRENT USER nếu hỏi về người đang chat; "
-                        "dùng MENTIONED USERS nếu hỏi về người được tag."
-                    ),
+                    "description": "Discord user ID.",
                 },
                 "section": {
                     "type": "string",
                     "enum": SECTIONS,
-                    "description": (
-                        "Optional section cần đọc: "
-                        + ", ".join(f"{key}={SECTION_HEADERS[key]}" for key in SECTIONS)
-                    ),
+                    "description": "Section T3 tùy chọn.",
                 },
             },
             "required": ["user_id"],

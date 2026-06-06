@@ -14,6 +14,7 @@ from twin.shared.tools.approval_gate import ApprovalGate
 from twin.shared.tools.registry.base import BaseTool
 from twin.shared.tools.declarations.system_tools import SYSTEM_TOOL_SPECS, ToolSpec
 from twin.shared.tools.dm_client import DMClient
+from twin.shared.tools.prompts.catalog import ToolPromptCatalog, read_tool_description
 from twin.shared.tools.registry.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ToolBootstrapResult:
     registry: ToolRegistry
+    tool_prompt_catalog: ToolPromptCatalog
     system_tools: list[BaseTool]
     approval_gate: ApprovalGate
     tavily_client: Optional[TavilyClient]
@@ -34,6 +36,11 @@ class DeclaredToolProxy(BaseTool):
     def __init__(self, tool: BaseTool, spec: ToolSpec):
         self._tool = tool
         self._spec = spec
+        self._description = (
+            read_tool_description(tool.name, spec.guide_path, spec.description_tag)
+            if spec.guide_path
+            else tool.description
+        )
 
     @property
     def name(self) -> str:
@@ -41,7 +48,7 @@ class DeclaredToolProxy(BaseTool):
 
     @property
     def description(self) -> str:
-        return self._tool.description
+        return self._description
 
     @property
     def parameters_schema(self) -> dict[str, Any]:
@@ -108,6 +115,12 @@ def build_tool_registry(
         for spec in SYSTEM_TOOL_SPECS
     ]
     registry.register_tools(system_tools)
+    tool_prompt_catalog = ToolPromptCatalog.from_tools_and_specs(
+        system_tools,
+        SYSTEM_TOOL_SPECS,
+        agent_name=agent_name,
+    )
+    tool_prompt_catalog.render_catalog()
     logger.info(
         "System tools loaded for %s: %s - %s",
         agent_name,
@@ -117,6 +130,7 @@ def build_tool_registry(
 
     return ToolBootstrapResult(
         registry=registry,
+        tool_prompt_catalog=tool_prompt_catalog,
         system_tools=system_tools,
         approval_gate=approval_gate,
         tavily_client=tavily_client,

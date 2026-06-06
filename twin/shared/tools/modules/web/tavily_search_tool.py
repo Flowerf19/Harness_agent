@@ -55,7 +55,7 @@ class TavilySearchTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Tìm tin tức real-time trên internet. Chi tiết cách dùng xem TOOL.md."
+        return "Tìm web hiện tại."
 
     @property
     def parameters_schema(self) -> Dict[str, Any]:
@@ -64,38 +64,38 @@ class TavilySearchTool(BaseTool):
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Từ khóa hoặc câu hỏi để tìm kiếm. VD: 'tin tức AI 2024', 'cách nấu phở'"
+                    "description": "Truy vấn tìm kiếm."
                 },
                 "search_depth": {
                     "type": "string",
                     "enum": ["basic", "advanced"],
-                    "description": "Độ sâu tìm kiếm. 'basic' nhanh, 'advanced' chi tiết hơn. Mặc định: 'basic'"
+                    "description": "basic hoặc advanced."
                 },
                 "max_results": {
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 10,
-                    "description": "Số kết quả tối đa trả về. Mặc định: 5"
+                    "description": "Số kết quả, 1-10."
                 },
                 "topic": {
                     "type": "string",
                     "enum": ["general", "news"],
-                    "description": "Chủ đề tìm kiếm. 'general' cho tìm kiếm chung, 'news' cho tin tức. Mặc định: 'general'"
+                    "description": "general hoặc news."
                 },
                 "include_domains": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Danh sách domain được phép tìm kiếm. VD: ['vnexpress.net', 'tuoitre.vn']"
+                    "description": "Domain được phép."
                 },
                 "exclude_domains": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Danh sách domain bị loại trừ. VD: ['wikipedia.org']"
+                    "description": "Domain loại trừ."
                 },
                 "time_range": {
                     "type": "string",
                     "enum": ["day", "week", "month", "year"],
-                    "description": "Khoảng thời gian tìm kiếm. 'day': hôm nay, 'week': tuần này, 'month': tháng này, 'year': năm nay"
+                    "description": "day, week, month, year."
                 }
             },
             "required": ["query"]
