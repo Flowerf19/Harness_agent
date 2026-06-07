@@ -14,8 +14,12 @@ from typing import TYPE_CHECKING
 from discord.ext import commands
 from underthesea import sent_tokenize
 
+from gateway.adapters.discord.approval import build_discord_approval_context
 from gateway.core.handler import ERROR_MESSAGE, GatewayChatHandler
-from twin.shared.tools.approval_context import clear_current_message, set_current_message
+from twin.shared.tools.approval_context import (
+    clear_current_approval_context,
+    set_current_approval_context,
+)
 
 if TYPE_CHECKING:
     import discord
@@ -43,7 +47,7 @@ class DiscordGatewayHandler(GatewayChatHandler):
     ) -> None:
         """Retry a Discord message from the native Bash Executor retry view."""
         try:
-            set_current_message(raw_message)
+            set_current_approval_context(build_discord_approval_context(raw_message))
             async with raw_message.channel.typing():
                 if self._agent_router:
                     response = await self._agent_router.route(
@@ -63,7 +67,7 @@ class DiscordGatewayHandler(GatewayChatHandler):
             except Exception:
                 logger.exception("Failed to send error message to user")
         finally:
-            clear_current_message()
+            clear_current_approval_context()
 
     async def _send_response(
         self, original_message: discord.Message, response_text: str

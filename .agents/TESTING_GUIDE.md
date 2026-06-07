@@ -31,7 +31,7 @@ Use the conda env interpreter when available:
 ```bash
 conda run -n discord_bot python -m pytest tests/unit -q
 conda run -n discord_bot python -m pytest tests/unit/memory -q
-conda run -n discord_bot python -m pytest tests/gateway/test_gateway.py tests/gateway/test_core_handler.py tests/gateway/test_models.py -q
+conda run -n discord_bot python -m pytest tests/gateway -q
 conda run -n discord_bot python -m pytest tests/services -q
 conda run -n discord_bot python -m pytest tests -q
 ```
@@ -40,9 +40,8 @@ Avoid `conda run -n discord_bot pytest ...`; it may resolve to a different
 pytest executable than the env's Python. If not using conda, `python -m pytest`
 is still preferred over bare `pytest`.
 
-Current `pytest.ini` uses `python_files = *_test.py`, while some gateway tests
-are named `test_*.py`; run gateway tests by explicit file path unless that
-pytest config is changed intentionally.
+`pytest.ini` discovers both legacy `*_test.py` files and gateway-style
+`test_*.py` files.
 
 ## Service Dependencies
 
@@ -61,17 +60,23 @@ pytest config is changed intentionally.
 - T2 timeline/vector → `tests/unit/memory/{timeline_store,search,topic_resolver,consolidator,cleanup}_test.py`
 - T3 profile → `tests/unit/memory/{profile,tools}_test.py` + extraction `extractor_test.py`
 - March7 chat scope / A2A → `tests/unit/march7_handle_chat_scope_test.py`, `a2a_client_test.py`
-- Gateway / Discord → explicit `tests/gateway/test_*.py` files,
+- Gateway / Discord → `tests/gateway -q`,
   `tests/unit/discord_send_response_test.py`
 - External services (codebox/tavily/circuit breaker/retry) → `tests/services/external/*`
 - Tool wrappers → `tests/services/tools/*`
 
 ## Last Verified
 
+- 2026-06-07: `conda run -n discord_bot python -m pytest tests/unit/approval_gate_test.py tests/gateway tests/unit/evernight_discord_adapter_test.py tests/unit/march7_handle_chat_scope_test.py tests/unit/evernight_agent_test.py tests/unit/discord_send_response_test.py tests/unit/tool_bootstrap_test.py tests/unit/memory/manager_test.py -q`
+  → 55 passed.
+- 2026-06-07: Docker rebuild/restart via `docker compose -f docker/docker-compose.yml up -d --build`;
+  `march7`, `evernight`, `bash-executor`, `codebox`, and `redis` healthy. Evernight
+  A2A chat smoke and Chrome snapshot of `http://localhost:8001/.well-known/agent.json`
+  passed; Chrome console only showed favicon 404.
 - 2026-06-07: `conda run -n discord_bot python -m pytest tests/gateway/test_gateway.py tests/gateway/test_models.py tests/gateway/test_core_handler.py tests/unit/march7_handle_chat_scope_test.py tests/unit/evernight_agent_test.py tests/unit/discord_send_response_test.py tests/unit/memory/manager_test.py -q`
   → 44 passed.
-- 2026-06-07: `conda run -n discord_bot python -m pytest tests/gateway/test_gateway.py tests/gateway/test_models.py tests/gateway/test_core_handler.py -q`
-  → 20 passed.
+- 2026-06-07: `conda run -n discord_bot python -m pytest tests/gateway -q`
+  → 22 passed.
 - 2026-05-28: `pytest` → 221 passed, 13 skipped; `docker compose ps` healthy cho
   march7/evernight/redis/codebox/bash-executor.
 - Lưu ý (2026-06-02): chạy lại đầy đủ cần `discord.py` + Redis trong môi trường;

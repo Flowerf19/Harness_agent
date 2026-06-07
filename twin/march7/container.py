@@ -3,33 +3,11 @@ from __future__ import annotations
 
 import logging
 
-import redis.asyncio as aioredis
 from dotenv import load_dotenv
 
 from twin.march7.agent import March7Agent
 from twin.march7.config import March7Config
-from twin.shared.config.settings import Config
-from twin.shared.llm.embedding import create_embedding_service
-from twin.shared.llm.gemini_service import GeminiService
-from twin.shared.llm.openai_service import OpenAIService
-from twin.shared.memory import SharedMemoryManager
-from twin.shared.memory.active import (
-    ActiveMemory,
-    ActiveStore,
-    ActiveSummaryPolicy,
-    ActiveSummaryStateRepository,
-    FastPathDetector,
-)
-from twin.shared.memory.profile import MarkdownProfileStore
-from twin.shared.memory.timeline import (
-    Cleanup,
-    CleanupScheduler,
-    Consolidator,
-    Extractor,
-    TimelineSearch,
-    TimelineStore,
-    TopicResolver,
-)
+from twin.shared.agent.runtime import SharedAgentRuntime, build_shared_agent_runtime
 from twin.shared.tools.registry.bootstrap import build_tool_registry
 
 logger = logging.getLogger(__name__)
@@ -40,6 +18,7 @@ class March7Container:
 
     def __init__(self, config: March7Config):
         self.config = config
+        self.runtime: SharedAgentRuntime | None = None
         self.llm_service = None
         self.embedding_service = None
         self.memory_manager = None
@@ -64,60 +43,21 @@ class March7Container:
         load_dotenv(override=True)
         logger.info("March7Container initializing...")
 
-        self.llm_service = self._build_llm_service()
-        self.embedding_service = create_embedding_service()
-
-        self.redis_client = await self._connect_redis(self.config.redis_db)
-        timeline_db = getattr(Config, "TIMELINE_REDIS_DB", 0)
-        self.timeline_redis_client = await self._connect_redis(timeline_db)
-
-        active = ActiveMemory(
-            store=ActiveStore(self.redis_client),
-            detector=FastPathDetector(),
+        self.runtime = await build_shared_agent_runtime(
+            redis_db=self.config.redis_db,
+            persona_path=self.config.persona_path,
         )
-
-        self.profile_store = MarkdownProfileStore()
-
-        self.timeline_store = TimelineStore(self.timeline_redis_client)
-        await self.timeline_store.initialize()
-        resolver = TopicResolver(self.timeline_store, self.embedding_service, self.llm_service)
-        extractor = Extractor(self.llm_service)
-        cleanup = Cleanup(
-            store=self.timeline_store,
-            embedder=self.embedding_service,
-            llm=self.llm_service,
-            profile_reader=self.profile_store.read_raw,
-            profile_writer=self.profile_store.write_raw,
-        )
-        self.cleanup_scheduler = CleanupScheduler(cleanup.run)
-        consolidator = Consolidator(
-            active=active,
-            store=self.timeline_store,
-            resolver=resolver,
-            extractor=extractor,
-            embedder=self.embedding_service,
-            profile_reader=self.profile_store.read_raw,
-            profile_appender=self.profile_store.append_raw,
-            cleanup_scheduler=self.cleanup_scheduler.schedule,
-        )
-        self.timeline_search = TimelineSearch(
-            store=self.timeline_store,
-            embedder=self.embedding_service,
-        )
-
-        self.memory_manager = SharedMemoryManager(
-            active=active,
-            profile_store=self.profile_store,
-            timeline_search=self.timeline_search,
-            consolidator=consolidator,
-        )
-        active.trigger_callback = self.memory_manager.consolidate_scope
-
-        self.state_repo = ActiveSummaryStateRepository(active)
-        self.summary_policy = ActiveSummaryPolicy(
-            active,
-            self.memory_manager.consolidate_scope,
-        )
+        self.llm_service = self.runtime.llm_service
+        self.embedding_service = self.runtime.embedding_service
+        self.memory_manager = self.runtime.memory_manager
+        self.redis_client = self.runtime.redis_client
+        self.timeline_redis_client = self.runtime.timeline_redis_client
+        self.timeline_store = self.runtime.timeline_store
+        self.timeline_search = self.runtime.timeline_search
+        self.profile_store = self.runtime.profile_store
+        self.cleanup_scheduler = self.runtime.cleanup_scheduler
+        self.state_repo = self.runtime.state_repo
+        self.summary_policy = self.runtime.summary_policy
 
         tools = build_tool_registry(
             agent_name="march7",
@@ -143,29 +83,5 @@ class March7Container:
         logger.info("March7Container initialized")
 
     async def shutdown(self):
-        if self.cleanup_scheduler:
-            await self.cleanup_scheduler.close()
-        if self.llm_service:
-            await self.llm_service.close()
-        if self.redis_client:
-            await self.redis_client.aclose()
-        if self.timeline_redis_client and self.timeline_redis_client is not self.redis_client:
-            await self.timeline_redis_client.aclose()
-
-    def _build_llm_service(self):
-        provider = getattr(Config, "LLM_PROVIDER", "gemini").lower()
-        if provider in {"openai", "openai_compat", "openai-compatible", "openai_compatible"}:
-            return OpenAIService(persona_path=self.config.persona_path)
-        return GeminiService(persona_path=self.config.persona_path)
-
-    async def _connect_redis(self, db: int):
-        if not getattr(Config, "REDIS_ENABLED", False):
-            raise RuntimeError("REDIS_ENABLED=false; shared memory runtime requires Redis Stack")
-        client = aioredis.from_url(
-            Config.REDIS_URL,
-            db=db,
-            password=Config.REDIS_PASSWORD,
-            decode_responses=False,
-        )
-        await client.ping()
-        return client
+        if self.runtime:
+            await self.runtime.close()

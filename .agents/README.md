@@ -79,8 +79,10 @@ Gateway/platform abstraction is partially refactored as of 2026-06-07. See
 [plans/gateway-platform-abstraction.md](plans/gateway-platform-abstraction.md).
 Production `gateway/__main__.py` now boots `gateway.core.GatewayChatHandler`
 and `gateway.core.AgentRouter`; Discord admin-channel/mention/typing behavior
-lives in the Discord adapter. Zalo remains planned but not implemented, and
-approval still has Discord-specific pieces in shared tools.
+lives in the Discord adapter. Evernight Discord DM/tag/`!9` owner chat also
+enters the same unified gateway contract before reaching `EvernightAgent`.
+Zalo remains planned but not implemented. Shared approval uses neutral context;
+the current DM delivery backend is still Evernight's Discord bot.
 
 Memory rewrite is implemented end-to-end. See
 [plans/memory-rewrite.md](plans/memory-rewrite.md) for the final plan. Short

@@ -34,6 +34,7 @@ async def main():
         evernight_adapter = EvernightDiscordAdapter(
             token=discord_token,
             agent=container.agent,
+            owner_user_id=config.owner_user_id,
         )
         await evernight_adapter.connect()
         logger.info("Evernight Discord bot started")
@@ -41,7 +42,12 @@ async def main():
     # Start A2A server with Discord bot reference for approval DM support
     from twin.evernight.server.a2a_server import start_server
     discord_bot = evernight_adapter.bot if evernight_adapter else None
-    server = start_server(container.agent, port=config.port, discord_bot=discord_bot)
+    server = start_server(
+        container.agent,
+        port=config.port,
+        discord_bot=discord_bot,
+        owner_user_id=config.owner_user_id,
+    )
     await server.start()
     logger.info(f"Evernight Agent listening on port {config.port}")
 
@@ -53,6 +59,7 @@ async def main():
             interval=config.self_heal_interval,
             timeout=config.self_heal_timeout,
             discord_adapter=evernight_adapter,
+            notify_user_id=int(config.owner_user_id),
             bash_executor_url=Config.BASH_EXECUTOR_URL,
         )
         await self_heal.start()

@@ -1,18 +1,28 @@
 """Evernight Discord adapter — bot riêng cho Evernight.
 
 Listens to DMs and `!9` prefix in any channel.
-Routes messages directly to the Evernight agent (not through gateway).
+Compiles native Discord messages into the unified gateway contract before
+routing them to Evernight.
 Sends bash approval DMs via the same bot.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import TYPE_CHECKING
 
 import discord
 from discord.ext import commands
 from underthesea import sent_tokenize
+
+from gateway.adapters.discord.approval import build_discord_approval_context
+from gateway.adapters.discord.converter import DiscordMessageConverter
+from gateway.core.handler import GatewayChatHandler
+from twin.shared.tools.approval_context import (
+    clear_current_approval_context,
+    set_current_approval_context,
+)
 
 if TYPE_CHECKING:
     from twin.evernight.agent import EvernightAgent
@@ -21,6 +31,29 @@ logger = logging.getLogger(__name__)
 
 ERROR_MESSAGE = "Hệ thống não bộ của tớ đang bị quá tải xíu, cậu thử lại sau vài giây nhé!"
 EVERNIGHT_PREFIX = "!9"
+DEFAULT_OWNER_USER_ID = "726302130318868500"
+
+
+class _EvernightAgentRouter:
+    """Local router that lets Evernight reuse the core gateway chat handler."""
+
+    march7 = None
+
+    def __init__(self, agent: EvernightAgent) -> None:
+        self.evernight = agent
+
+    async def route(
+        self,
+        agent_name: str,
+        user_id: str,
+        content: str,
+        **_: object,
+    ) -> str:
+        if agent_name != "evernight":
+            logger.error("Evernight adapter received unsupported agent route: %s", agent_name)
+            return ERROR_MESSAGE
+
+        return await self.evernight.handle_chat(user_id=user_id, content=content)
 
 
 class EvernightDiscordAdapter:
@@ -34,10 +67,20 @@ class EvernightDiscordAdapter:
         agent: EvernightAgent,
         *,
         client_id: str | None = None,
+        owner_user_id: str | int | None = None,
+        handler: GatewayChatHandler | None = None,
     ):
         self._token = token
         self._agent = agent
         self._client_id = client_id
+        self._owner_user_id = str(
+            owner_user_id
+            or os.getenv("EVERNIGHT_OWNER_USER_ID")
+            or DEFAULT_OWNER_USER_ID
+        )
+        self._handler = handler or GatewayChatHandler(
+            agent_router=_EvernightAgentRouter(agent)
+        )
         self._task: asyncio.Task | None = None
         self._bot = self._build_bot()
 
@@ -74,7 +117,7 @@ class EvernightDiscordAdapter:
             return
 
         # Owner-only check
-        if str(message.author.id) != "726302130318868500":
+        if str(message.author.id) != self._owner_user_id:
             return
 
         is_dm = message.guild is None
@@ -108,12 +151,41 @@ class EvernightDiscordAdapter:
         logger.info("Evernight routing: user=%s content=%.80s", user_id, content)
 
         try:
-            async with message.channel.typing():
-                response = await self._agent.handle_chat(
-                    user_id=user_id,
-                    content=content,
-                )
-            await self._send_response(message, response)
+            unified = DiscordMessageConverter.to_unified(
+                message,
+                bot_user=self._bot.user,
+                content_override=content,
+            )
+            exts = dict(unified.extensions or {})
+            bot_user = self._bot.user
+            exts.update(
+                {
+                    "agent_name": "evernight",
+                    "assistant_id": str(bot_user.id) if bot_user else None,
+                    "assistant_name": bot_user.display_name if bot_user else None,
+                    "bot_name": "evernight",
+                    "bot_display_name": bot_user.display_name if bot_user else None,
+                    "is_addressed": True,
+                    "is_mentioned": is_mentioned,
+                    "should_respond": True,
+                    "observe": False,
+                    "allow_silence": False,
+                    "respond_mode": "respond",
+                    "conversation_id": str(message.channel.id) if message.guild else None,
+                    "space_id": str(message.guild.id) if message.guild else None,
+                }
+            )
+            object.__setattr__(unified, "extensions", exts)
+
+            set_current_approval_context(build_discord_approval_context(message))
+            try:
+                async with message.channel.typing():
+                    response = await self._handler.handle_message(unified)
+            finally:
+                clear_current_approval_context()
+
+            if response:
+                await self._send_response(message, response)
         except Exception:
             logger.exception("Error processing Evernight message")
             try:

@@ -1,7 +1,7 @@
 # Gateway Platform Abstraction Plan
 
 Status: partially implemented. Phase 2, Phase 3, the first slice of Phase 4,
-and Phase 9 are in code; Zalo remains held.
+Phase 6, Phase 7, Phase 9, and Phase 10 are in code; Zalo remains held.
 
 Date: 2026-06-07.
 
@@ -23,13 +23,17 @@ Known hard dependencies to remove or isolate:
 
 - `gateway/adapters/discord/handler.py` remains as a Discord compatibility
   helper for retry UI and response splitting, not production chat routing.
-- `twin/shared/tools/approval_context.py` stores `discord.Message`.
-- `twin/shared/tools/approval_gate.py` imports Discord button views.
-- `twin/shared/tools/dm_client.py` accepts `discord.Message`.
+- `twin/shared/tools/approval_context.py` now stores a neutral
+  `ApprovalRequestContext`; compatibility helpers may still expose the native
+  object for old call sites.
+- `twin/shared/tools/approval_gate.py` now calls a neutral approval backend
+  protocol instead of importing Discord button views.
+- `twin/shared/tools/dm_client.py` now accepts neutral approval context/fields
+  for Evernight DM approval; legacy native-message input is only a shim.
 - `gateway/adapters/factory.py` still does not implement Zalo; it now fails
   clearly with `NotImplementedError`.
-- `gateway/adapters/discord/evernight_adapter.py` routes owner chat directly to
-  Evernight instead of through the same gate contract.
+- `gateway/adapters/discord/evernight_adapter.py` now compiles owner chat into
+  `UnifiedMessage` before routing through `GatewayChatHandler`.
 
 ## Target Architecture
 
@@ -199,6 +203,10 @@ Goal: March7 does not teach the model that every user is on Discord.
 
 ### Phase 6 - Platform-Neutral Approval
 
+Status: implemented as a narrow Discord-preserving slice. Shared approval code
+uses `ApprovalRequestContext` and an `ApprovalBackend` protocol; Discord button
+rendering lives in `gateway/adapters/discord/approval.py`.
+
 Goal: Bash approval does not depend on Discord globals.
 
 1. Replace `approval_context` with a neutral `ApprovalContext`:
@@ -213,18 +221,27 @@ Goal: Bash approval does not depend on Discord globals.
 
 ### Phase 7 - Evernight Chat Surface Through Gate Contract
 
+Status: implemented as a narrow Discord-preserving slice. Evernight's Discord
+DM/tag/`!9` adapter now compiles native messages into `UnifiedMessage`, sets
+Evernight route hints, and sends them through `GatewayChatHandler` before the
+local Evernight agent is called. The adapter still owns Discord trigger
+parsing, typing, response chunking, and approval context setup.
+
 Goal: Evernight's owner chat is also a compatibility surface.
 
 Short-term acceptable state:
 
 - Evernight can keep a Discord-specific private adapter for approval DMs while
   it is clearly isolated and not used by March7 core/gateway code.
+- `EVERNIGHT_OWNER_USER_ID` configures the owner for Discord private chat,
+  approval DM, and self-heal notifications. The default keeps dev behavior.
 
 Preferred target:
 
 1. Evernight process creates its own `ChatGateway` with a core handler routed
    to `EvernightAgent`, or uses the same core handler with `agent_name`
-   defaults.
+   defaults. Current slice uses the same core handler with a local Evernight
+   router inside the Discord adapter.
 2. Discord `!9`, DM, and mention behavior becomes Discord adapter route hints
    for Evernight instead of direct calls to `EvernightAgent`.
 3. A future Zalo owner/private chat can register another adapter without
@@ -269,6 +286,11 @@ different responsibilities.
    `BaseAgent` with many hooks in the first pass.
 
 ### Phase 10 - Share Container Runtime Builder
+
+Status: implemented. `twin/shared/agent/runtime.py` now builds the shared LLM,
+Redis, memory, timeline, cleanup, and summary runtime used by both containers.
+`March7Container` and `EvernightContainer` still own tool registry options and
+agent-specific constructor wiring.
 
 Goal: reduce duplication between `March7Container` and `EvernightContainer`
 without hiding agent-specific wiring.

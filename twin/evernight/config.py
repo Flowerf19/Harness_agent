@@ -12,6 +12,7 @@ class EvernightConfig:
     march7_url: str = "http://march7:8000"
     poll_interval: int = 60
     discord_evernight_token: str | None = None
+    owner_user_id: str = "726302130318868500"
     self_heal_enabled: bool = True
     self_heal_interval: int = 30
     self_heal_timeout: int = 10
@@ -26,8 +27,8 @@ class EvernightConfig:
             march7_url=os.getenv("MARCH7_URL", "http://march7:8000"),
             poll_interval=int(os.getenv("POLL_INTERVAL", "60")),
             discord_evernight_token=os.getenv("DISCORD_EVERNIGHT_TOKEN") or None,
+            owner_user_id=os.getenv("EVERNIGHT_OWNER_USER_ID", "726302130318868500"),
             self_heal_enabled=os.getenv("SELF_HEAL_ENABLED", "true").lower() == "true",
             self_heal_interval=int(os.getenv("SELF_HEAL_INTERVAL", "30")),
             self_heal_timeout=int(os.getenv("SELF_HEAL_TIMEOUT", "10")),
         )
-

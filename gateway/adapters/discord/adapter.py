@@ -15,8 +15,12 @@ import discord
 
 from gateway.adapters.discord.cogs.admin_channels import ChannelMode
 from gateway.shared.adapter_base import PlatformAdapter
+from gateway.adapters.discord.approval import build_discord_approval_context
 from gateway.adapters.discord.converter import DiscordMessageConverter
-from twin.shared.tools.approval_context import clear_current_message, set_current_message
+from twin.shared.tools.approval_context import (
+    clear_current_approval_context,
+    set_current_approval_context,
+)
 from twin.shared.tools.exceptions import BashExecutorUnavailableError
 
 if TYPE_CHECKING:
@@ -127,7 +131,7 @@ class DiscordPlatformAdapter(PlatformAdapter):
                 )
                 object.__setattr__(unified, "extensions", exts)
 
-                set_current_message(message)
+                set_current_approval_context(build_discord_approval_context(message))
                 try:
                     if should_respond:
                         async with message.channel.typing():
@@ -141,7 +145,7 @@ class DiscordPlatformAdapter(PlatformAdapter):
                 except BashExecutorUnavailableError:
                     await self._handle_bash_executor_unavailable(message, content)
                 finally:
-                    clear_current_message()
+                    clear_current_approval_context()
             except Exception:
                 logger.exception("Error forwarding Discord message to gateway")
 
