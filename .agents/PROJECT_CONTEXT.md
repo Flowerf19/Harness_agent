@@ -52,7 +52,11 @@ unified flow works in either mode.
 
 ## Architecture Boundaries
 
-- `gateway/`: platform adapters and routing, currently focused on Discord. Routes public messages to March7 and handles communication.
+- `gateway/`: platform adapter orchestration and routing. Design intent:
+  Discord, Zalo, and future surfaces are compatibility adapters that compile
+  native events into unified gateway models, then send unified replies back to
+  their native platform. Gateway core must not require native platform message
+  objects.
 - `twin/march7/`: conversational agent, chat/tool loop, A2A server on default port `8000`, and container wiring for the shared memory stack.
 - `twin/evernight/`: background consolidation and self-heal agent. Includes its own Discord bot adapter (`EvernightDiscordAdapter` listening to DMs and `!9` prefix) with chat capability (`handle_chat`), A2A server on default port `8001`, and container wiring for the same shared memory stack.
 - `twin/shared/`: shared A2A, LLM, tool, memory (`active`, `timeline`, `profile`), and transport code.
@@ -60,6 +64,27 @@ unified flow works in either mode.
 Evernight must access March7 session state through A2A skills such as
 `get_snapshot` and `clear_session`; do not couple it directly to March7 Redis
 keys unless the architecture explicitly changes.
+
+### Gateway Status
+
+The gateway is partially refactored toward the platform-agnostic design:
+
+- `gateway/__main__.py` imports `AgentRouter`, `EvernightClient`, and
+  `GatewayChatHandler` from `gateway.core`.
+- `GatewayChatHandler` accepts clean `UnifiedMessage` objects and uses neutral
+  route hints from `msg.extensions` (`is_addressed`, `should_respond`,
+  `respond_mode`, `conversation_id`, `space_id`, `assistant_*`).
+- Discord adapter owns Discord admin-channel mode, mention/reply detection,
+  typing indicator, approval context setup, and Discord send splitting/chunking.
+- `ChatGateway.route_message()` owns generic outbound handoff again on the
+  March7 production path.
+- Shared approval flow stores `discord.Message` in context and imports Discord
+  button views from shared tool code; this is still a known TODO.
+- `gateway/adapters/factory.py` intentionally raises `NotImplementedError` for
+  `zalo`; no Zalo SDK/adapter exists yet.
+
+Before implementing platform features, follow
+[plans/gateway-platform-abstraction.md](plans/gateway-platform-abstraction.md).
 
 ## Current Implementation Status
 
@@ -133,5 +158,7 @@ Discord/Gateway:
 - `DISCORD_GATEWAY_ENABLED` default `true`
 - `DISCORD_MARCH7_TOKEN`
 - `DISCORD_EVERNIGHT_TOKEN`
+- Zalo env placeholders currently exist (`ZALO_ACCESS_TOKEN`, `ZALO_APP_ID`,
+  `ZALO_ENABLED`) but there is no working Zalo adapter package yet.
 
 Do not print `.env` files or token values.

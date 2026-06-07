@@ -140,7 +140,7 @@ async def test_get_context_falls_back_to_id_without_display_name(tmp_path):
 
     system_prompt, _ = await manager.get_context("726", "alo")
 
-    assert "Discord user ID: 726" in system_prompt
+    assert "Platform user ID: 726" in system_prompt
 
 
 async def test_get_context_injects_mentioned_user_identity(tmp_path):
@@ -169,9 +169,9 @@ async def test_get_context_injects_mentioned_user_identity(tmp_path):
     )
 
     assert "=== CURRENT USER ===" in system_prompt
-    assert "Quang (Discord ID: 418621389449199616)" in system_prompt
+    assert "Quang (Platform user ID: 418621389449199616)" in system_prompt
     assert "=== MENTIONED USERS ===" in system_prompt
-    assert "AI đang dùng tài khoản này (Discord ID: 726302130318868500)" in system_prompt
+    assert "AI đang dùng tài khoản này (Platform user ID: 726302130318868500)" in system_prompt
     assert "Tên: Hòa" in system_prompt
 
 
@@ -188,7 +188,7 @@ async def test_get_context_mentioned_user_lookup_does_not_create_profile(tmp_pat
         mentioned_users=[{"user_id": "999", "display_name": "Người lạ"}],
     )
 
-    assert "Người lạ (Discord ID: 999)" in system_prompt
+    assert "Người lạ (Platform user ID: 999)" in system_prompt
     assert not (tmp_path / "999.md").exists()
 
 

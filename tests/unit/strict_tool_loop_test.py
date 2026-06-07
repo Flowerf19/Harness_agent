@@ -56,6 +56,33 @@ def _text_response(text):
 
 
 @pytest.mark.asyncio
+async def test_no_tool_response_returns_after_one_llm_call():
+    llm = FakeLLM([_text_response("plain answer")])
+    registry = FakeRegistry()
+    catalog = FakeCatalog()
+    messages = [{"role": "user", "content": "hello"}]
+
+    response = await run_strict_tool_loop(
+        llm=llm,
+        tool_registry=registry,
+        tool_prompt_catalog=catalog,
+        messages=messages,
+        system_prompt="sys",
+        use_native_tools=True,
+        llm_type="openai",
+        logger=logging.getLogger(__name__),
+    )
+
+    assert isinstance(response, LLMResponse)
+    assert response.content == "plain answer"
+    assert len(llm.calls) == 1
+    assert llm.calls[0]["use_native_tools"] is True
+    assert registry.calls == []
+    assert catalog.loaded == []
+    assert messages == [{"role": "user", "content": "hello"}]
+
+
+@pytest.mark.asyncio
 async def test_strict_loop_executes_only_first_tool_call_and_continues():
     llm = FakeLLM(
         [

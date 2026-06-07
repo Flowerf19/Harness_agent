@@ -126,10 +126,10 @@ class SharedMemoryManager:
             user_id_header = (
                 "=== CURRENT USER ===\n"
                 f"Người đang nói chuyện với bạn ngay lúc này: {user_name} "
-                f"(Discord ID: {user_id})"
+                f"(Platform user ID: {user_id})"
             )
         else:
-            user_id_header = f"=== CURRENT USER ===\nDiscord user ID: {user_id}"
+            user_id_header = f"=== CURRENT USER ===\nPlatform user ID: {user_id}"
         mentioned_context = await self._mentioned_users_context(
             str(user_id),
             mentioned_users,
@@ -240,7 +240,7 @@ class SharedMemoryManager:
         for user in users:
             user_id = user["user_id"]
             display_name = user.get("display_name") or user_id
-            lines.append(f"- {display_name} (Discord ID: {user_id})")
+            lines.append(f"- {display_name} (Platform user ID: {user_id})")
             for bullet in await self._mentioned_user_basic_bullets(user_id):
                 lines.append(f"  - {bullet}")
         return "\n".join(lines)

@@ -115,11 +115,11 @@ class DiscordMessageConverter:
             elif ref.resolved and hasattr(ref.resolved, "author"):
                 is_reply_to_bot = ref.resolved.author.id == bot_user.id
 
-        # Build extensions with platform-specific data
+        # Build route hints. Native Discord objects stay in the Discord adapter;
+        # gateway core only needs normalized metadata.
         extensions = {
             "is_mentioned": is_mentioned,
             "is_reply_to_bot": is_reply_to_bot,
-            "_raw_discord_message": message,
         }
 
         return UnifiedMessage(

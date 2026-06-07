@@ -11,6 +11,10 @@ Rules for coding agents working in this repository.
   requested.
 - Keep the March7/Evernight A2A boundary intact. Evernight must not read or
   clear March7 T1 state by direct Redis key access.
+- Keep the gateway/platform boundary intact. Discord, Zalo, and future chat
+  surfaces are adapters only; core gateway handlers, agents, shared memory, and
+  shared tools must not require `discord.Message`, Discord views, Discord
+  logger names, or Discord-only prompt labels.
 
 ## Working Style
 
@@ -20,6 +24,11 @@ Rules for coding agents working in this repository.
 - Make small, task-scoped changes. Avoid broad refactors, speculative abstractions, unrelated formatting, and new tooling unless requested.
 - If a change affects runtime flow, env vars, Docker, memory schema, or public
   behavior, update relevant docs in this folder and project READMEs.
+- If touching `gateway/`, first check
+  [plans/gateway-platform-abstraction.md](plans/gateway-platform-abstraction.md).
+  Until that plan is implemented, avoid adding new dependencies from
+  `twin/shared/*`, `twin/march7/*`, or gateway core files back into
+  `gateway.adapters.discord`.
 
 ## Skills
 
@@ -52,6 +61,18 @@ Update upstream: `cd ~/.claude/skills && git pull`.
 
 ## Verified Gotchas
 
+- **Gateway abstraction is partially refactored.** Production boot now uses
+  `gateway.core.GatewayChatHandler` and `gateway.core.AgentRouter`; Discord
+  policy/send behavior belongs in `gateway.adapters.discord`. Approval and
+  some tool docs still contain Discord-specific assumptions, so do not copy
+  those into new platforms.
+- **No Zalo adapter implementation exists yet.** `gateway/adapters/factory.py`
+  raises `NotImplementedError` for `zalo`. Treat Zalo as planned/held until the
+  Zalo webhook/token settings and adapter contract are defined.
+- **Run tests through the conda env interpreter.** Use
+  `conda run -n discord_bot python -m pytest ...`, not
+  `conda run -n discord_bot pytest ...`; the latter may resolve to the wrong
+  pytest executable/interpreter.
 - T3 storage is Markdown via `MarkdownProfileStore`, not YAML.
 - `README.md` is the project README filename currently used at repo root.
 - Root lint/format/type-check config is not currently established; do not add

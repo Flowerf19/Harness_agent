@@ -66,10 +66,21 @@ server, agents should fall back to targeted search/read.
 - **Evernight** owns consolidation, background jobs, self-heal, and private owner chat (via DM and `!9` prefix) with its own T1/T3 memory.
 - Evernight must use A2A to interact with March7 session memory; it must not
   bypass the boundary by reading March7 T1 keys directly.
+- **Gateway must be platform-agnostic.** Discord, Zalo, or any future chat
+  surface are compatibility adapters. They translate native events into
+  unified gateway models and send unified replies back out. Core agent,
+  memory, tool, and approval logic must not require Discord native objects.
 - Bash Executor is privileged. Keep approval/audit behavior intact and do not
   log secrets.
 
 ## Current Task Status
+
+Gateway/platform abstraction is partially refactored as of 2026-06-07. See
+[plans/gateway-platform-abstraction.md](plans/gateway-platform-abstraction.md).
+Production `gateway/__main__.py` now boots `gateway.core.GatewayChatHandler`
+and `gateway.core.AgentRouter`; Discord admin-channel/mention/typing behavior
+lives in the Discord adapter. Zalo remains planned but not implemented, and
+approval still has Discord-specific pieces in shared tools.
 
 Memory rewrite is implemented end-to-end. See
 [plans/memory-rewrite.md](plans/memory-rewrite.md) for the final plan. Short

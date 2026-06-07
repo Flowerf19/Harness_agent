@@ -1,14 +1,13 @@
 """EvernightAgent - consolidation + chat agent."""
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from langsmith import traceable
 
-from twin.shared.llm.base_llm_service import BaseLLMService, LLM_ERROR_RESPONSES
-from twin.shared.llm.llm_response import LLMResponse
-from twin.shared.llm.tool_loop import run_strict_tool_loop
+from twin.shared.agent import ChatTurnRunner
+from twin.shared.llm.base_llm_service import BaseLLMService
 from twin.shared.tools.registry import ToolRegistry
-from twin.shared.a2a.types import AgentCard, A2AMessage, Part, TaskStatus
+from twin.shared.a2a.types import AgentCard
 from twin.shared.memory import SharedMemoryManager
 
 logger = logging.getLogger(__name__)
@@ -42,18 +41,16 @@ class EvernightAgent:
         self.use_native_tools = use_native_tools
         self.march7_url = march7_url
 
-        self._llm_type = self._detect_llm_type()
+        self._chat_turn = ChatTurnRunner(
+            llm=self.llm,
+            tool_registry=self.tool_registry,
+            use_native_tools=self.use_native_tools,
+            logger=logger,
+        )
+        self._llm_type = self._chat_turn.llm_type
         self._model_name = getattr(self.llm, "model", "unknown") if self.llm else "unknown"
 
         logger.debug(f"EvernightAgent initialized: model={self._model_name}")
-
-    def _detect_llm_type(self) -> str:
-        if self.llm is None:
-            return "openai"
-        class_name = self.llm.__class__.__name__
-        if "Gemini" in class_name:
-            return "gemini"
-        return "openai"
 
     def get_agent_card(self) -> AgentCard:
         return AgentCard(
@@ -109,35 +106,22 @@ class EvernightAgent:
                 user_id=user_id, current_query=content
             )
 
-            llm_response = await run_strict_tool_loop(
-                llm=self.llm,
-                tool_registry=self.tool_registry,
-                tool_prompt_catalog=getattr(self.llm, "tool_prompt_catalog", None),
+            turn = await self._chat_turn.run(
                 messages=context_msgs,
                 system_prompt=sys_prompt,
-                use_native_tools=self.use_native_tools,
-                llm_type=self._llm_type,
-                logger=logger,
                 max_iterations=10,
                 tool_timeout=TOOL_EXECUTION_TIMEOUT,
             )
 
-            bot_response: str
-            if isinstance(llm_response, LLMResponse):
-                bot_response = llm_response.content
-            else:
-                bot_response = llm_response
+            bot_response = turn.content
 
             # LLM hard-failure sentinel: never relay it to the user or persist it
             # to memory — surface a friendly retry message instead.
-            if isinstance(bot_response, str) and bot_response in LLM_ERROR_RESPONSES:
-                logger.error(
-                    "LLM returned error sentinel for user=%s: %s", user_id, bot_response
-                )
+            if turn.is_failure:
+                logger.error("LLM returned error sentinel for user=%s: %s", user_id, bot_response)
                 return LLM_FAILURE_REPLY
 
-            is_reasoning_only = isinstance(llm_response, LLMResponse) and llm_response.reasoning_only
-            if bot_response and not bot_response.startswith("Error:") and not is_reasoning_only:
+            if bot_response and not bot_response.startswith("Error:") and not turn.reasoning_only:
                 await self.memory.add_message(
                     user_id=user_id, role="assistant", content=bot_response
                 )

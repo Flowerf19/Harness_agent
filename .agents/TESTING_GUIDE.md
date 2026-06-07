@@ -12,7 +12,8 @@ transport, và external services. Dùng file này để chọn test focused; dù
     `tools`.
   - `tests/unit/` (gốc) — `inactivity_trigger`, `a2a_client`, `http_transport`,
     `tool_bootstrap`, `march7_handle_chat_scope`, `discord_send_response`.
-- `tests/gateway/` — gateway adapter + models (`test_gateway`, `test_models`).
+- `tests/gateway/` — gateway core/adapter + models (`test_gateway`,
+  `test_core_handler`, `test_models`).
 - `tests/services/external/` — external I/O clients có circuit breaker / retry /
   search orchestration (`circuit_breaker`, `codebox_client`, `tavily_client`,
   `search_orchestrator`, các `*_integration` cần network).
@@ -25,13 +26,23 @@ transport, và external services. Dùng file này để chọn test focused; dù
 
 ## Common Commands
 
+Use the conda env interpreter when available:
+
 ```bash
-pytest tests/unit -q                 # nhanh nhất, không cần service
-pytest tests/unit/memory -q          # chỉ memory stack
-pytest tests/gateway -q
-pytest tests/services -q             # một số *_integration cần network/Redis
-pytest tests -q                      # toàn bộ
+conda run -n discord_bot python -m pytest tests/unit -q
+conda run -n discord_bot python -m pytest tests/unit/memory -q
+conda run -n discord_bot python -m pytest tests/gateway/test_gateway.py tests/gateway/test_core_handler.py tests/gateway/test_models.py -q
+conda run -n discord_bot python -m pytest tests/services -q
+conda run -n discord_bot python -m pytest tests -q
 ```
+
+Avoid `conda run -n discord_bot pytest ...`; it may resolve to a different
+pytest executable than the env's Python. If not using conda, `python -m pytest`
+is still preferred over bare `pytest`.
+
+Current `pytest.ini` uses `python_files = *_test.py`, while some gateway tests
+are named `test_*.py`; run gateway tests by explicit file path unless that
+pytest config is changed intentionally.
 
 ## Service Dependencies
 
@@ -50,12 +61,17 @@ pytest tests -q                      # toàn bộ
 - T2 timeline/vector → `tests/unit/memory/{timeline_store,search,topic_resolver,consolidator,cleanup}_test.py`
 - T3 profile → `tests/unit/memory/{profile,tools}_test.py` + extraction `extractor_test.py`
 - March7 chat scope / A2A → `tests/unit/march7_handle_chat_scope_test.py`, `a2a_client_test.py`
-- Gateway / Discord → `tests/gateway/*`, `tests/unit/discord_send_response_test.py`
+- Gateway / Discord → explicit `tests/gateway/test_*.py` files,
+  `tests/unit/discord_send_response_test.py`
 - External services (codebox/tavily/circuit breaker/retry) → `tests/services/external/*`
 - Tool wrappers → `tests/services/tools/*`
 
 ## Last Verified
 
+- 2026-06-07: `conda run -n discord_bot python -m pytest tests/gateway/test_gateway.py tests/gateway/test_models.py tests/gateway/test_core_handler.py tests/unit/march7_handle_chat_scope_test.py tests/unit/evernight_agent_test.py tests/unit/discord_send_response_test.py tests/unit/memory/manager_test.py -q`
+  → 44 passed.
+- 2026-06-07: `conda run -n discord_bot python -m pytest tests/gateway/test_gateway.py tests/gateway/test_models.py tests/gateway/test_core_handler.py -q`
+  → 20 passed.
 - 2026-05-28: `pytest` → 221 passed, 13 skipped; `docker compose ps` healthy cho
   march7/evernight/redis/codebox/bash-executor.
 - Lưu ý (2026-06-02): chạy lại đầy đủ cần `discord.py` + Redis trong môi trường;

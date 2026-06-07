@@ -32,8 +32,8 @@ logger = logging.getLogger("gateway.main")
 async def _run_gateway() -> None:
     from gateway.config import GatewayConfig
     from gateway.gateway import ChatGateway
-    from gateway.adapters.discord.agent_router import AgentRouter
-    from gateway.adapters.discord.handler import DiscordGatewayHandler
+    from gateway.core.agent_router import AgentRouter
+    from gateway.core.handler import GatewayChatHandler
     from gateway.adapters.factory import create_adapters
     from twin.march7.container import March7Container
     from twin.march7.config import March7Config
@@ -70,7 +70,7 @@ async def _run_gateway() -> None:
     from twin.shared.config.settings import Config
     evernight_url = getattr(Config, "EVERNIGHT_A2A_URL", None)
     if evernight_url:
-        from gateway.adapters.discord.evernight_client import EvernightClient
+        from gateway.core.evernight_client import EvernightClient
         evernight_client = EvernightClient(base_url=evernight_url)
         logger.info("Evernight A2A client configured: %s", evernight_url)
 
@@ -79,7 +79,7 @@ async def _run_gateway() -> None:
         evernight_client=evernight_client,
     )
 
-    handler = DiscordGatewayHandler(agent_router=agent_router)
+    handler = GatewayChatHandler(agent_router=agent_router)
     gateway = ChatGateway(handler)
 
     # Create and register adapters
