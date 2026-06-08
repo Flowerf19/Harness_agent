@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from twin.shared.memory.timeline.constants import (
     EXTRACT_MAX_TOKENS,
@@ -95,6 +95,15 @@ class CandidateMemory(BaseModel):
     speaker: Literal["user", "bot", "joint"] = "user"
     source_msg_ids: list[str] = Field(default_factory=list)
     change_type_hint: Literal["new", "update", "correction", "reinforcement"] = "new"
+
+    @field_validator("topic_names", "catalogs", "source_msg_ids", mode="before")
+    @classmethod
+    def _coerce_list_fields(cls, value):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value]
+        return value
 
 
 class ExtractResult(BaseModel):

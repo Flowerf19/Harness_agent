@@ -21,8 +21,12 @@ class OpenAIEmbeddingService(BaseEmbeddingService):
         model_name: str = "text-embedding-v3",
         api_key: str | None = None,
         api_url: str | None = None,
+        expected_dim: int | None = None,
     ):
-        super().__init__(model_name=model_name)
+        super().__init__(
+            model_name=model_name,
+            expected_dim=expected_dim or Config.EMBEDDING_VECTOR_SIZE,
+        )
         self.api_key = api_key or Config.EMBEDDING_API_KEY
         self.api_url = (api_url or Config.EMBEDDING_API_URL).rstrip("/")
 
@@ -56,7 +60,7 @@ class OpenAIEmbeddingService(BaseEmbeddingService):
                     return []
 
                 data = await response.json()
-                vector = data["data"][0]["embedding"]
+                vector = self._fit_vector(data["data"][0]["embedding"])
                 self._cache_put(text, vector)
                 return vector
 

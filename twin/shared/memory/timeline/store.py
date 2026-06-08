@@ -31,6 +31,14 @@ def _pack_vec(vec: list[float]) -> bytes:
     return struct.pack(f"{len(vec)}f", *vec)
 
 
+def _fit_embedding(vec: list[float], dim: int) -> list[float]:
+    if not vec or len(vec) == dim:
+        return vec
+    if len(vec) > dim:
+        return vec[:dim]
+    return vec + [0.0] * (dim - len(vec))
+
+
 def _to_ts(dt: datetime | None) -> float:
     if dt is None:
         return 0.0
@@ -173,17 +181,35 @@ class TimelineStore:
     # ------------------------------------------------------------------
     # JSON write helper
     # ------------------------------------------------------------------
-    @staticmethod
-    def _topic_payload(t: T2Topic) -> dict:
+    def _topic_payload(self, t: T2Topic) -> dict:
         data = t.model_dump(mode="json")
+        if data.get("embedding"):
+            original = len(data["embedding"])
+            data["embedding"] = _fit_embedding(data["embedding"], self.dim)
+            if original != len(data["embedding"]):
+                logger.warning(
+                    "T2: topic embedding dim mismatch topic=%s got=%d expected=%d",
+                    t.topic_id,
+                    original,
+                    self.dim,
+                )
         data["created_at_ts"] = _to_ts(t.created_at)
         data["last_accessed_ts"] = _to_ts(t.last_accessed)
         data["expires_at_ts"] = _to_ts(t.expires_at)
         return data
 
-    @staticmethod
-    def _memory_payload(m: T2Memory) -> dict:
+    def _memory_payload(self, m: T2Memory) -> dict:
         data = m.model_dump(mode="json")
+        if data.get("embedding"):
+            original = len(data["embedding"])
+            data["embedding"] = _fit_embedding(data["embedding"], self.dim)
+            if original != len(data["embedding"]):
+                logger.warning(
+                    "T2: memory embedding dim mismatch memory=%s got=%d expected=%d",
+                    m.memory_id,
+                    original,
+                    self.dim,
+                )
         data["created_at_ts"] = _to_ts(m.created_at)
         data["last_accessed_ts"] = _to_ts(m.last_accessed)
         data["expires_at_ts"] = _to_ts(m.expires_at)

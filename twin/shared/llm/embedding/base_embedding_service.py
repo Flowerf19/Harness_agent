@@ -18,8 +18,15 @@ class BaseEmbeddingService(abc.ABC):
     cleanup) live here so providers stay focused on payload shape.
     """
 
-    def __init__(self, model_name: str, *, cache_size: int = 100):
+    def __init__(
+        self,
+        model_name: str,
+        *,
+        expected_dim: int | None = None,
+        cache_size: int = 100,
+    ):
         self.model_name = model_name
+        self.expected_dim = expected_dim
         self._cache: dict[str, List[float]] = {}
         self._cache_size = cache_size
         self._session: aiohttp.ClientSession | None = None
@@ -41,6 +48,27 @@ class BaseEmbeddingService(abc.ABC):
         self._cache[text] = vector
         if len(self._cache) > self._cache_size:
             self._cache.pop(next(iter(self._cache)))
+
+    def _fit_vector(self, vector: List[float]) -> List[float]:
+        """Fit provider output to the configured vector size used by Redis."""
+        expected = self.expected_dim
+        if not expected or not vector or len(vector) == expected:
+            return vector
+        if len(vector) > expected:
+            self.logger.warning(
+                "Embedding dimension mismatch for %s: got %d, trimming to %d",
+                self.model_name,
+                len(vector),
+                expected,
+            )
+            return vector[:expected]
+        self.logger.warning(
+            "Embedding dimension mismatch for %s: got %d, padding to %d",
+            self.model_name,
+            len(vector),
+            expected,
+        )
+        return vector + [0.0] * (expected - len(vector))
 
     async def close(self) -> None:
         if self._session is not None:

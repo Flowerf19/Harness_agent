@@ -44,6 +44,7 @@ def create_embedding_service(
             model_name=model_name or Config.EMBEDDING_MODEL_NAME,
             api_key=api_key or Config.EMBEDDING_API_KEY,
             api_url=api_url or Config.EMBEDDING_API_URL,
+            expected_dim=Config.EMBEDDING_VECTOR_SIZE,
         )
 
     if resolved in _GEMINI_ALIASES:
@@ -55,6 +56,7 @@ def create_embedding_service(
                 "https://generativelanguage.googleapis.com/v1beta/models",
             ),
             output_dimensionality=getattr(Config, "EMBEDDING_VECTOR_SIZE", None),
+            expected_dim=Config.EMBEDDING_VECTOR_SIZE,
         )
 
     raise ValueError(

@@ -35,8 +35,12 @@ class GeminiEmbeddingService(BaseEmbeddingService):
         api_key: str | None = None,
         api_url: str | None = None,
         output_dimensionality: int | None = None,
+        expected_dim: int | None = None,
     ):
-        super().__init__(model_name=model_name)
+        super().__init__(
+            model_name=model_name,
+            expected_dim=expected_dim or output_dimensionality,
+        )
         self.api_key = api_key
         self.api_url = (api_url or _DEFAULT_API_URL).rstrip("/")
         self.output_dimensionality = output_dimensionality
@@ -81,6 +85,7 @@ class GeminiEmbeddingService(BaseEmbeddingService):
                 if self.output_dimensionality and self.output_dimensionality < _NATIVE_DIM:
                     vector = _l2_normalize(vector)
 
+                vector = self._fit_vector(vector)
                 self._cache_put(text, vector)
                 return vector
 

@@ -140,6 +140,19 @@ async def test_upsert_memory_roundtrip(store: TimelineStore):
     assert fetched.catalogs == ["interest"]
 
 
+async def test_upsert_memory_fits_embedding_to_index_dim(store: TimelineStore):
+    mem = T2Memory(
+        user_id="u1",
+        content="vector too long",
+        embedding=[0.1] * (DIM + 2),
+        catalogs=["interest"],
+    )
+    await store.upsert_memory(mem)
+    fetched = await store.get_memory("u1", mem.memory_id)
+    assert fetched is not None
+    assert len(fetched.embedding) == DIM
+
+
 # ---------------------------------------------------------------- alias find
 
 

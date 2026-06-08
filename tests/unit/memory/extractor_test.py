@@ -121,6 +121,16 @@ async def test_extract_caps_catalogs_per_memory():
     assert len(res.memories[0].catalogs) == 2
 
 
+async def test_extract_coerces_string_catalog_to_list():
+    llm = FakeLLM(_payload([
+        _mem(catalogs="emotion"),
+    ]))
+    ex = Extractor(llm)
+    res = await ex.extract("x")
+    assert len(res.memories) == 1
+    assert res.memories[0].catalogs == ["emotion"]
+
+
 async def test_extract_invalid_json_returns_empty():
     llm = FakeLLM("garbage not json")
     ex = Extractor(llm)
