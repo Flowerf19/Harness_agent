@@ -178,7 +178,7 @@ EMBEDDING_PROVIDER=openai_compat
 EMBEDDING_API_URL=http://host.docker.internal:1234/v1
 EMBEDDING_API_KEY=dummy-key
 EMBEDDING_MODEL_NAME=your-embedding-model
-EMBEDDING_VECTOR_SIZE=768
+EMBEDDING_VECTOR_SIZE=1024
 
 # Infrastructure (internal Docker network)
 REDIS_URL=redis://redis:6379

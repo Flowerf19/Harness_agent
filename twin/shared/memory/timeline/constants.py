@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 
 
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_VECTOR_SIZE", "768"))
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_VECTOR_SIZE", "1024"))
 TTL_BY_IMPORTANCE = {5: 90, 4: 60, 3: 30, 2: 14, 1: 7}
 TOPIC_TTL_MULTIPLIER = 2
 TOPIC_MATCH_THRESHOLD_AUTO = 0.92

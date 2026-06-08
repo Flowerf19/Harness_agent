@@ -36,7 +36,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - REDIS_DB=0
       - TIMELINE_REDIS_DB=0
-      - EMBEDDING_VECTOR_SIZE=768
+      - EMBEDDING_VECTOR_SIZE=1024
       - CODEBOX_API_URL=http://codebox:8069
       - BASH_EXECUTOR_URL=http://bash-executor:8374
 
