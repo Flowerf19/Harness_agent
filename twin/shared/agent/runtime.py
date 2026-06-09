@@ -83,8 +83,6 @@ async def build_shared_agent_runtime(*, redis_db: int, persona_path: str) -> Sha
         store=timeline_store,
         embedder=embedding_service,
         llm=llm_service,
-        profile_reader=profile_store.read_raw,
-        profile_writer=profile_store.write_raw,
     )
     cleanup_scheduler = CleanupScheduler(cleanup.run)
     consolidator = Consolidator(

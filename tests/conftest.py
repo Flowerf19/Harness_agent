@@ -347,11 +347,11 @@ def mock_embedding_service():
     """
     Mock embedding service.
 
-    Returns a deterministic 768-dim vector for testing.
+    Returns a deterministic 1024-dim vector for testing.
     """
     service = AsyncMock()
-    # Return a deterministic 768-dim vector.
-    service.get_embedding = AsyncMock(return_value=[0.1] * 768)
+    # Return a deterministic 1024-dim vector.
+    service.get_embedding = AsyncMock(return_value=[0.1] * 1024)
     return service
 
 

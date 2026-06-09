@@ -54,14 +54,15 @@ def _extract_json(text: str) -> str:
 SYSTEM_PROMPT = (
     "Bạn là Memory Extractor. Đọc đoạn hội thoại, rút ra TỐI ĐA 5 ký ức atomic "
     "đáng lưu (mỗi cái 1-3 câu, độc lập). Bỏ qua xã giao, đùa, spam.\n\n"
-    "Transcript có nhiều người, mỗi dòng có dạng `Tên: nội dung`. Dòng `Bot:` là "
-    "của chính trợ lý (bot) — xem mục === BOT ===. Người dùng có thể gọi bot bằng "
-    "biệt danh; ĐỪNG coi biệt danh đó là một người dùng và ĐỪNG tạo ký ức nhận dạng "
-    "(identity) cho bot.\n\n"
+    "Transcript có nhiều người. Mỗi dòng người dùng có dạng "
+    "`Tên [user_id=ID]: nội dung`. Dòng `Bot:` là của chính trợ lý (bot) — xem "
+    "mục === BOT ===. Người dùng có thể gọi bot bằng biệt danh; ĐỪNG coi biệt "
+    "danh đó là một người dùng và ĐỪNG tạo ký ức nhận dạng (identity) cho bot.\n\n"
     "Mỗi ký ức phải có:\n"
     "- content: 1-3 câu, atomic, viết ở ngôi thứ 3 (\"Hoà thích phim Pháp\")\n"
-    "- subject: tên người mà ký ức NÓI VỀ — phải đúng một tên đứng trước dấu \":\" "
-    "trong transcript (== một người trong === NGƯỜI THAM GIA ===). Không phải bot.\n"
+    "- subject_user_id: Platform user ID CHÍNH XÁC của người mà ký ức NÓI VỀ — "
+    "phải chọn từ === NGƯỜI THAM GIA ===. Không phải bot.\n"
+    "- subject: nhãn/tên đọc được của subject_user_id đó, chỉ để debug.\n"
     "- topic_names: 1-3 tên topic (tiếng Việt, danh từ ngắn). Ví dụ \"phim ảnh\", "
     "\"công việc dev\", \"gia đình\"\n"
     "- catalogs: 1-2 từ danh sách:\n"
@@ -71,6 +72,13 @@ SYSTEM_PROMPT = (
     "- confidence: 0.0-1.0 mức độ chắc chắn của trích xuất\n"
     "- speaker: \"user\" / \"bot\" / \"joint\" (cả 2 đóng góp)\n"
     "- change_type_hint: \"new\" / \"update\" / \"correction\" / \"reinforcement\"\n\n"
+    "Quy tắc định danh:\n"
+    "- Với thông tin tự nói về bản thân, subject_user_id là ID của người đứng đầu dòng.\n"
+    "- Với thông tin nói về người khác, chỉ lưu nếu xác định được rõ người đó là một "
+    "participant bằng ID. Nếu chỉ thấy biệt danh/tên mơ hồ như \"Hoà\" mà không khớp "
+    "chắc với participant nào, bỏ qua ký ức đó.\n"
+    "- Không suy diễn rằng một display name được bot gọi bằng biệt danh là cùng người, "
+    "trừ khi hội thoại nói rõ đó là biệt danh/tên của participant đó.\n\n"
     "Cũng trả thêm primary_catalog (đại diện chính cho transcript này, 1 catalog) "
     "và primary_confidence.\n\n"
     "Nếu không có gì đáng lưu → memories: [], primary_catalog: \"discussion\", "
@@ -87,6 +95,7 @@ STRICT_JSON_SUFFIX = (
 
 class CandidateMemory(BaseModel):
     content: str
+    subject_user_id: str = ""
     subject: str = ""
     topic_names: list[str] = Field(default_factory=list)
     catalogs: list[str] = Field(default_factory=list)
@@ -120,6 +129,16 @@ def format_glossary(topics: list[T2Topic] | None) -> str:
         aliases = f" (aliases: {', '.join(t.aliases)})" if t.aliases else ""
         cats = ",".join(t.catalogs) if t.catalogs else "none"
         lines.append(f"- {t.name}{aliases} [catalogs: {cats}]")
+    return "\n".join(lines)
+
+
+def format_participants(participants: dict[str, str] | None) -> str:
+    if not participants:
+        return "(chưa rõ)"
+    lines: list[str] = []
+    for user_id, name in sorted(participants.items(), key=lambda item: item[1] or item[0]):
+        label = name or user_id
+        lines.append(f"- {label} (Platform user ID: {user_id})")
     return "\n".join(lines)
 
 
@@ -163,8 +182,7 @@ class Extractor:
                 "",
             ]
         if participants:
-            names = ", ".join(sorted({n for n in participants.values() if n}))
-            sections += ["=== NGƯỜI THAM GIA ===", names or "(chưa rõ)", ""]
+            sections += ["=== NGƯỜI THAM GIA ===", format_participants(participants), ""]
         sections += ["=== TRANSCRIPT ===", transcript]
         user_prompt = "\n".join(sections)
 

@@ -121,9 +121,6 @@ async def test_scheduler_swallows_callable_errors():
     await sched.close()
 
 
-# ---------------------------------------------------------------- T3 cleanup
-
-
 class StubStore:
     """Minimal store surface for non-redis cleanup tests."""
 
@@ -150,73 +147,46 @@ class StubStore:
         pass
 
 
-async def test_t3_cleanup_dedupes_bullets():
-    profile = {"u1": "- Likes coffee\n- Likes coffee\n- Lives in Hanoi\n"}
-    new_md = "- Likes coffee\n- Lives in Hanoi\n"
-
-    async def reader(user_id):
-        return profile.get(user_id, "")
-
-    written = {}
-
-    async def writer(user_id, content):
-        written[user_id] = content
-
-    cleanup = Cleanup(
-        store=StubStore(),
-        embedder=FakeEmbedder(),
-        llm=FakeLLM(new_md),
-        profile_reader=reader,
-        profile_writer=writer,
-    )
-    report = await cleanup.run("u1")
-    assert report.t3_updated is True
-    assert written["u1"].strip() == new_md.strip()
-    assert report.t3_diff_ratio > 0.0
+def test_cleanup_rejects_legacy_t3_rewrite_dependencies():
+    with pytest.raises(TypeError):
+        Cleanup(
+            store=StubStore(),
+            embedder=FakeEmbedder(),
+            llm=FakeLLM("{}"),
+            profile_reader=lambda user_id: "",
+            profile_writer=lambda user_id, content: None,
+        )
 
 
-async def test_t3_cleanup_rejects_aggressive_diff():
-    profile = {"u1": "- Likes coffee\n- Lives in Hanoi\n- Works as engineer\n"}
-
-    async def reader(user_id):
-        return profile.get(user_id, "")
-
-    written = {}
-
-    async def writer(user_id, content):
-        written[user_id] = content
+async def test_run_never_raises_on_supersede_llm_error():
+    store = StubStore()
+    store.recent_memories = [
+        T2Memory(
+            user_id="u1",
+            content="Người dùng sống ở Hà Nội.",
+            embedding=_vec_mix(0, 1, weight_b=0.02),
+            topic_ids=[],
+            catalogs=["identity"],
+            importance=4,
+        ),
+        T2Memory(
+            user_id="u1",
+            content="Người dùng đã chuyển sang Đà Nẵng.",
+            embedding=_vec_mix(0, 1, weight_b=0.04),
+            topic_ids=[],
+            catalogs=["identity"],
+            importance=4,
+        ),
+    ]
 
     cleanup = Cleanup(
-        store=StubStore(),
-        embedder=FakeEmbedder(),
-        llm=FakeLLM("- ok\n"),
-        profile_reader=reader,
-        profile_writer=writer,
-    )
-    report = await cleanup.run("u1")
-    assert report.t3_updated is False
-    assert "u1" not in written
-    assert any("t3_diff_too_large" in e for e in report.errors)
-
-
-async def test_run_never_raises_on_embedder_error():
-    async def reader(user_id):
-        return "- bullet\n"
-
-    async def writer(user_id, content):
-        pass
-
-    cleanup = Cleanup(
-        store=StubStore(),
+        store=store,
         embedder=FakeEmbedder(),
         llm=FakeLLM(RuntimeError("llm down")),
-        profile_reader=reader,
-        profile_writer=writer,
     )
     report = await cleanup.run("u1")
     assert isinstance(report, CleanupReport)
-    assert any("t3_llm" in e for e in report.errors)
-    assert report.t3_updated is False
+    assert any("supersede_llm" in e for e in report.errors)
 
 
 # ---------------------------------------------------------------- redis fixture

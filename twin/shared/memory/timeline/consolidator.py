@@ -53,6 +53,8 @@ def _format_transcript(entries) -> str:
             label = "Bot"
         else:
             label = e.author_name or e.author_id or e.role
+            if e.author_id:
+                label = f"{label} [user_id={e.author_id}]"
         lines.append(f"{label}: {e.content}")
     return "\n".join(lines)
 
@@ -176,20 +178,18 @@ class Consolidator:
 
             # Route each memory to the participant it is ABOUT. Drop memories
             # about the bot or whose subject matches no participant.
-            name_to_id = {
-                (name or "").strip().lower(): author_id
-                for author_id, name in participants_map.items()
-            }
+            participant_ids = set(participants_map)
             bot_key = (bot_name or "").strip().lower()
             routed: list[tuple[str, CandidateMemory]] = []
             for cand in extract_result.memories:
                 target_id = self._route_subject(
-                    scope, user_id, cand, name_to_id, bot_key
+                    scope, user_id, cand, participant_ids, bot_key
                 )
                 if target_id is None:
                     self.logger.info(
-                        "T2:consolidator: drop memory subject=%r (bot/unmatched) "
-                        "scope=%s/%s", cand.subject, scope, scope_id,
+                        "T2:consolidator: drop memory subject=%r subject_user_id=%r "
+                        "(bot/unmatched) scope=%s/%s",
+                        cand.subject, cand.subject_user_id, scope, scope_id,
                     )
                     continue
                 routed.append((target_id, cand))
@@ -243,21 +243,26 @@ class Consolidator:
         scope: str,
         user_id: str | None,
         cand: CandidateMemory,
-        name_to_id: dict[str, str],
+        participant_ids: set[str],
         bot_key: str,
     ) -> str | None:
         """Return the user_id a memory belongs to, or None to drop it.
 
         ``user`` scope → always the single user. ``channel`` scope → the
-        participant whose display name matches ``cand.subject``; None for the
-        bot or an unknown subject (prevents cross-profile contamination).
+        participant id explicitly selected by the extractor; None for the bot,
+        an unknown subject, or legacy name-only candidates. Routing by display
+        name is intentionally avoided because display names/nicknames are not
+        stable identifiers and can describe a different participant.
         """
         if scope == "user":
             return user_id
-        subject = (cand.subject or "").strip().lower()
-        if not subject or subject == bot_key:
+        subject_label = (cand.subject or "").strip().lower()
+        if subject_label and subject_label == bot_key:
             return None
-        return name_to_id.get(subject)
+        subject_user_id = (cand.subject_user_id or "").strip()
+        if not subject_user_id or subject_user_id not in participant_ids:
+            return None
+        return subject_user_id
 
     async def _process_candidate(
         self,

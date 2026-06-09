@@ -36,20 +36,20 @@ KNN thật, topic resolution, lifecycle pointers, T3 promotion theo enum cứng.
   `SharedMemoryManager` từ `twin/shared/memory/`.
 - T3 migration đã chạy cho Hoà + Quang bằng `scripts/migrate_t3_5to8.py`,
   giữ backup `.bak5` và render đúng 8 section.
-- Docker compose set `TIMELINE_REDIS_DB=0` và `EMBEDDING_VECTOR_SIZE=768` để
+- Docker compose set `TIMELINE_REDIS_DB=0` và `EMBEDDING_VECTOR_SIZE=1024` để
   RediSearch VECTOR HNSW hoạt động đúng trên Redis Stack.
 - Verification: `pytest` pass, Docker services healthy, A2A health endpoints
-  trả agent card, `FT.INFO idx:t2:mem` có `VECTOR HNSW` dim `768`.
+  trả agent card, `FT.INFO idx:t2:mem` có `VECTOR HNSW` dim `1024`.
 
 ## Success Criteria
 
 - T1 + T2 chỉ tồn tại 1 lần ở `twin/shared/memory/`. Container march7 và
   evernight cùng import. `twin/march7/memories/`, `twin/evernight/memories/`,
   `twin/shared/memories/` xóa hoàn toàn.
-- T2 dùng `FT.CREATE ... VECTOR HNSW 768 COSINE` thật. `search_similar` gọi
+- T2 dùng `FT.CREATE ... VECTOR HNSW 1024 COSINE` thật. `search_similar` gọi
   `FT.SEARCH ... =>[KNN ...]`, không Python loop.
 - Consolidate transcript có info đáng lưu → tạo memory thành công, status=ok,
-  có vector ở Redis (`JSON.GET t2:mem:{user}:{id} $.embedding` trả 768 float).
+  có vector ở Redis (`JSON.GET t2:mem:{user}:{id} $.embedding` trả 1024 float).
 - Topic "phim", "phim ảnh", "film" → 1 topic_id duy nhất (alias merge sau lần
   gặp đầu).
 - User đổi ý ("Hoà chuyển sang thích phim tâm lý") → memory mới có
@@ -67,7 +67,7 @@ KNN thật, topic resolution, lifecycle pointers, T3 promotion theo enum cứng.
 - Topic-level vector search expose ra ngoài (chỉ dùng internal cho resolver).
 - Commitment / promise tracking với target_date (defer v2).
 - Soft delete `archived=True` field (defer v2).
-- Multi-language embedding routing (Gemini text-embedding-004 cố định 768-d).
+- Multi-language embedding routing (Gemini embedding output cố định 1024-d).
 - Rewrite T1 evaluation pipeline cũ (semantic_engine) — bỏ hẳn, thay bằng
   FastPathDetector cheap regex.
 
@@ -78,7 +78,7 @@ KNN thật, topic resolution, lifecycle pointers, T3 promotion theo enum cứng.
 | Tier | Storage | Trigger ghi | Trigger đọc |
 |---|---|---|---|
 | T1 | Redis JSON `active:*` | Mỗi message | `get_context()` mỗi turn |
-| T2 | Redis Stack `t2:mem:*` + `t2:topic:*` VECTOR HNSW 768 | T1 đạt 2000 token | Pre-flight + `search_memory` tool |
+| T2 | Redis Stack `t2:mem:*` + `t2:topic:*` VECTOR HNSW 1024 | T1 đạt 2000 token | Pre-flight + `search_memory` tool |
 | T3 | Markdown `memories/{user_id}.md` 8 section | T2 promote (auto append) + cleanup pass | Full read mỗi turn |
 
 ### T2 catalogs (12)
@@ -128,7 +128,7 @@ class T2Topic(BaseModel):
     name: str                          # canonical, lowercase, snake_case
     aliases: list[str]
     catalogs: list[str]                # auto-union từ member memories
-    embedding: list[float]             # 768
+    embedding: list[float]             # 1024
     created_at: datetime
     last_accessed: datetime
     access_count: int
@@ -141,7 +141,7 @@ class T2Memory(BaseModel):
     memory_id: str                     # uuid4
     user_id: str
     content: str                       # 1-3 câu atomic
-    embedding: list[float]             # 768
+    embedding: list[float]             # 1024
     topic_ids: list[str]
     catalogs: list[str]                # max 2, từ CATALOGS
     speaker: Literal["user","bot","joint"] = "user"
@@ -171,7 +171,7 @@ FT.CREATE idx:t2:topic ON JSON PREFIX 1 "t2:topic:" SCHEMA
   $.importance       AS importance       NUMERIC
   $.expires_at_ts    AS expires_at       NUMERIC
   $.embedding        AS embedding
-    VECTOR HNSW 6 TYPE FLOAT32 DIM 768 DISTANCE_METRIC COSINE
+    VECTOR HNSW 6 TYPE FLOAT32 DIM 1024 DISTANCE_METRIC COSINE
 
 FT.CREATE idx:t2:mem ON JSON PREFIX 1 "t2:mem:" SCHEMA
   $.user_id          AS user_id          TAG
@@ -185,7 +185,7 @@ FT.CREATE idx:t2:mem ON JSON PREFIX 1 "t2:mem:" SCHEMA
   $.last_accessed_ts AS last_accessed    NUMERIC SORTABLE
   $.expires_at_ts    AS expires_at       NUMERIC
   $.embedding        AS embedding
-    VECTOR HNSW 6 TYPE FLOAT32 DIM 768 DISTANCE_METRIC COSINE
+    VECTOR HNSW 6 TYPE FLOAT32 DIM 1024 DISTANCE_METRIC COSINE
 ```
 
 ### Pipeline 2-pass
@@ -198,7 +198,7 @@ Pass 1 — hot (sync, mỗi lần T1 đạt threshold):
      max 5 candidates / transcript
   2. for each candidate:
      a. resolve topics (3-stage: exact alias / KNN ≥0.92 / LLM borderline)
-     b. embed content (Gemini 768)
+     b. embed content (1024)
      c. write T2Memory với change_type=new (KHÔNG judge supersede inline)
      d. if catalog ∈ T3_PROMOTABLE AND importance ≥ 4 AND confidence ≥ 0.8:
           section = CATALOG_TO_T3[catalog]
@@ -252,7 +252,7 @@ system_prompt = base_prompt + t3_context + format(relevant_t2)
 
 ```python
 # twin/shared/memory/timeline/constants.py
-EMBEDDING_DIM = 768
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_VECTOR_SIZE", "1024"))
 TTL_BY_IMPORTANCE = {5: 90, 4: 60, 3: 30, 2: 14, 1: 7}
 TOPIC_TTL_MULTIPLIER = 2
 TOPIC_MATCH_THRESHOLD_AUTO = 0.92
@@ -352,7 +352,7 @@ Tay verify Hoà + Quang trước khi auto-apply cho user khác.
 - [ ] Branch `feature/memory-rewrite` từ `feature/twin-soul-agents`
 - [ ] Backup `memories/` + Redis RDB snapshot DB 0 và DB 1
 - [ ] Add Gemini text-embedding-004 config check ở `.env` (`EMBEDDING_PROVIDER=gemini`,
-      `EMBEDDING_MODEL=text-embedding-004`, `EMBEDDING_VECTOR_SIZE=768`)
+      `EMBEDDING_MODEL=text-embedding-004`, `EMBEDDING_VECTOR_SIZE=1024`)
 - [ ] Confirm `LLM service` đang chạy có hỗ trợ structured output (Pydantic) —
       cần cho extract_and_classify
 
@@ -398,7 +398,7 @@ Tay verify Hoà + Quang trước khi auto-apply cho user khác.
   - alias add → find_by_alias hit
   - TTL set + expire_at calculation
   - filter -superseded_by hoạt động
-- [ ] Smoke: write 1 topic + 1 memory tay, query `JSON.GET` thấy embedding 768 float,
+- [ ] Smoke: write 1 topic + 1 memory tay, query `JSON.GET` thấy embedding 1024 float,
       `FT.SEARCH ...=>[KNN 5 @embedding $vec]` trả về
 
 ### Phase 3 — Topic resolver (½ ngày)
@@ -549,7 +549,7 @@ Tay verify Hoà + Quang trước khi auto-apply cho user khác.
   curl -sf http://localhost:8000/.well-known/agent.json
   curl -sf http://localhost:8001/.well-known/agent.json
   docker exec march7-redis redis-cli FT.INFO idx:t2:mem
-  # → idx:t2:mem có VECTOR HNSW dim 768
+  # → idx:t2:mem có VECTOR HNSW dim 1024
   ```
   Live Discord DM/channel smoke chưa chạy trong local verification vì cần bot
   token thật và gateway event.

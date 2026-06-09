@@ -5,6 +5,7 @@ import logging
 from typing import Any, Optional
 
 from twin.shared.memory.profile import SECTION_HEADERS, SECTIONS
+from twin.shared.memory.profile.markdown_store import profile_hash
 from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,8 @@ class GetProfileTool(BaseTool):
         try:
             if section is None:
                 raw = await self.profile_store.read_raw(user_id)
-                return f"Hồ sơ user {user_id}:\n{raw}".rstrip()
+                digest = profile_hash(raw)
+                return f"Hồ sơ user {user_id}:\nProfile hash: {digest}\n{raw}".rstrip()
 
             bullets = await self.profile_store.read_section(user_id, section)
             if not bullets:

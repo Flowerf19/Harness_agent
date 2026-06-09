@@ -52,7 +52,7 @@ Evernight truy cập memory của March7 qua A2A (`get_snapshot`, `clear_session
 
 ### Plan trạng thái
 
-- [Memory Rewrite](.agents/plans/memory-rewrite.md) — T1/T2/T3 chạy qua `twin/shared/memory/`, T2 dùng Redis Stack VECTOR HNSW 768, T3 là Markdown 8 section. **Tiến độ: Phase 11/11 ✓**.
+- [Memory Rewrite](.agents/plans/memory-rewrite.md) — T1/T2/T3 chạy qua `twin/shared/memory/`, T2 dùng Redis Stack VECTOR HNSW 1024, T3 là Markdown 8 section. **Tiến độ: Phase 11/11 ✓**.
 - Unified Discussion Memory: đã được hấp thụ vào memory rewrite; flow hiện tại là `ActiveMemory → SharedMemoryManager → Consolidator → CleanupScheduler`.
 
 ### Gotcha runtime (dễ quên)

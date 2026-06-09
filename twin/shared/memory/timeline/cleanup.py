@@ -1,14 +1,12 @@
-"""T2/T3 background cleanup: profile dedupe, supersede detection, topic merge."""
+"""T2 background cleanup: supersede detection and topic merge."""
 from __future__ import annotations
 
-import asyncio
-import difflib
 import json
 import logging
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
 
 from twin.shared.memory.timeline.constants import (
     CLEANUP_SUPERSEDE_THRESHOLD,
@@ -39,16 +37,6 @@ def _extract_json(text: str) -> str:
     raise ValueError("no JSON object")
 
 
-def _strip_fences(text: str) -> str:
-    s = (text or "").strip()
-    if s.startswith("```"):
-        # Drop opening fence + optional language tag.
-        s = re.sub(r"^```[a-zA-Z0-9_-]*\s*\n?", "", s)
-        if s.endswith("```"):
-            s = s[: -3]
-    return s.strip()
-
-
 def _cosine(a: list[float], b: list[float]) -> float:
     if not a or not b or len(a) != len(b):
         return 0.0
@@ -64,32 +52,7 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (math.sqrt(na) * math.sqrt(nb))
 
 
-def _diff_ratio(old: str, new: str) -> float:
-    if not old and not new:
-        return 0.0
-    return 1.0 - difflib.SequenceMatcher(None, old, new).ratio()
-
-
-async def _maybe_await(value: Any) -> Any:
-    if asyncio.iscoroutine(value) or isinstance(value, asyncio.Future):
-        return await value
-    return value
-
-
 # ---------------------------------------------------------------- prompts
-
-
-_T3_SYSTEM_PROMPT = (
-    "Return raw markdown. No code fences. No commentary."
-)
-
-_T3_USER_PROMPT = (
-    "Bạn là memory janitor. Merge duplicate bullets, resolve conflicts "
-    "(giữ thông tin mới nhất khi mâu thuẫn), preserve markdown structure. "
-    "Return ONLY the cleaned markdown, no commentary, no fences.\n\n"
-    "=== HỒ SƠ ===\n"
-    "{markdown}"
-)
 
 
 _SUPERSEDE_SYSTEM_PROMPT = (
@@ -107,8 +70,6 @@ _TOPIC_MERGE_SYSTEM_PROMPT = (
 
 @dataclass
 class CleanupReport:
-    t3_updated: bool = False
-    t3_diff_ratio: float = 0.0
     supersedes_applied: int = 0
     topics_merged: int = 0
     errors: list[str] = field(default_factory=list)
@@ -118,7 +79,7 @@ class CleanupReport:
 
 
 class Cleanup:
-    """Three-step background cleanup. Never raises."""
+    """Shared T2 cleanup. T3 curation belongs to manage_user_profile."""
 
     def __init__(
         self,
@@ -126,35 +87,21 @@ class Cleanup:
         store: TimelineStore,
         embedder,
         llm,
-        profile_reader: Callable[[str], Awaitable[str] | str] | None = None,
-        profile_writer: Callable[[str, str], Awaitable[None]] | None = None,
         supersede_threshold: float = CLEANUP_SUPERSEDE_THRESHOLD,
         topic_merge_threshold: float = CLEANUP_TOPIC_MERGE_THRESHOLD,
         recent_window_hours: int = 24,
         recent_limit: int = 100,
-        max_diff_ratio: float = 0.5,
     ) -> None:
         self.store = store
         self.embedder = embedder
         self.llm = llm
-        self.profile_reader = profile_reader
-        self.profile_writer = profile_writer
         self.supersede_threshold = supersede_threshold
         self.topic_merge_threshold = topic_merge_threshold
         self.recent_window_hours = recent_window_hours
         self.recent_limit = recent_limit
-        self.max_diff_ratio = max_diff_ratio
 
     async def run(self, user_id: str) -> CleanupReport:
         report = CleanupReport()
-        try:
-            await self._t3_cleanup(user_id, report)
-        except Exception as exc:
-            logger.warning(
-                "T2:cleanup: T3 step crashed for %s: %s", user_id, exc,
-                exc_info=True,
-            )
-            report.errors.append(f"t3_step: {exc}")
         try:
             await self._t2_supersede(user_id, report)
         except Exception as exc:
@@ -173,60 +120,7 @@ class Cleanup:
             report.errors.append(f"topic_merge_step: {exc}")
         return report
 
-    # ----------------------------------------------------- step 1: T3
-
-    async def _t3_cleanup(self, user_id: str, report: CleanupReport) -> None:
-        if self.profile_reader is None or self.profile_writer is None:
-            return
-        try:
-            old = await _maybe_await(self.profile_reader(user_id)) or ""
-        except Exception as exc:
-            report.errors.append(f"t3_read: {exc}")
-            return
-        if not old.strip():
-            return
-
-        try:
-            response = await self.llm.generate_response(
-                messages=[{
-                    "role": "user",
-                    "content": _T3_USER_PROMPT.format(markdown=old),
-                }],
-                system_prompt=_T3_SYSTEM_PROMPT,
-                use_native_tools=False,
-            )
-        except Exception as exc:
-            report.errors.append(f"t3_llm: {exc}")
-            return
-
-        text = getattr(response, "content", None)
-        if not isinstance(text, str):
-            text = str(response) if response is not None else ""
-        new = _strip_fences(text)
-        if not new.strip():
-            report.errors.append("t3_llm: empty response")
-            return
-
-        ratio = _diff_ratio(old, new)
-        report.t3_diff_ratio = ratio
-        if ratio > self.max_diff_ratio:
-            logger.warning(
-                "T2:cleanup: T3 diff %.2f > %.2f for %s — skipping write",
-                ratio, self.max_diff_ratio, user_id,
-            )
-            report.errors.append(
-                f"t3_diff_too_large: {ratio:.2f} > {self.max_diff_ratio:.2f}"
-            )
-            return
-        if ratio == 0.0:
-            return
-        try:
-            await _maybe_await(self.profile_writer(user_id, new))
-            report.t3_updated = True
-        except Exception as exc:
-            report.errors.append(f"t3_write: {exc}")
-
-    # ----------------------------------------------------- step 2: supersede
+    # ----------------------------------------------------- supersede
 
     async def _t2_supersede(self, user_id: str, report: CleanupReport) -> None:
         recent = await self.store.list_recent(
@@ -314,7 +208,7 @@ class Cleanup:
             return []
         return [p for p in pairs if isinstance(p, dict)]
 
-    # ----------------------------------------------------- step 3: topic merge
+    # ----------------------------------------------------- topic merge
 
     async def _topic_merge(self, user_id: str, report: CleanupReport) -> None:
         topics = await self.store.recent_topics(user_id, k=50)

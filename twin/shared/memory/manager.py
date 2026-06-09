@@ -118,10 +118,8 @@ class SharedMemoryManager:
         messages = self._entries_to_messages(entries)
 
         # Anchor WHO is speaking right now. In a channel the transcript carries
-        # many authors (each line prefixed "name: ..."), so a bare numeric ID
-        # leaves the model guessing — it would grab whatever name is salient and
-        # mis-attribute the turn. The display name ties the ID to the live
-        # speaker and matches the transcript's author prefix.
+        # many authors, so every author line includes both display name and
+        # stable platform ID. The header pins the current speaker explicitly.
         if user_name:
             user_id_header = (
                 "=== CURRENT USER ===\n"
@@ -288,7 +286,10 @@ class SharedMemoryManager:
             role = "assistant" if entry.role == "assistant" else "user"
             content = entry.content
             if entry.scope == "channel" and entry.role == "user" and entry.author_name:
-                content = f"{entry.author_name}: {content}"
+                label = entry.author_name
+                if entry.author_id:
+                    label = f"{label} [user_id={entry.author_id}]"
+                content = f"{label}: {content}"
             messages.append({"role": role, "content": content})
         return messages
 

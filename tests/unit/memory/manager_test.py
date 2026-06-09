@@ -123,13 +123,50 @@ async def test_get_context_anchors_current_speaker_display_name(tmp_path):
     await manager.observe_channel_message("g1", "c1", "418", "Quang", "m1", "alo")
     await manager.observe_channel_message("g1", "c1", "726", "Hoà", "m2", "bảy ơi")
 
-    system_prompt, _ = await manager.get_context(
+    system_prompt, messages = await manager.get_context(
         "726", "bảy ơi", channel_id="c1", user_name="Hoà"
     )
 
     assert "=== CURRENT USER ===" in system_prompt
     assert "Hoà" in system_prompt
     assert "726" in system_prompt
+    assert messages == [
+        {"role": "user", "content": "Quang [user_id=418]: alo"},
+        {"role": "user", "content": "Hoà [user_id=726]: bảy ơi"},
+    ]
+
+
+async def test_get_context_channel_history_uses_stable_user_ids(tmp_path):
+    active = _active()
+    profile = MarkdownProfileStore(base_path=str(tmp_path))
+    manager = SharedMemoryManager(active=active, profile_store=profile)
+
+    await manager.observe_channel_message(
+        "g1", "c1", "726302130318868500", "AI đang dùng tài khoản này", "m1",
+        "mình là Hoà",
+    )
+    await manager.observe_channel_message(
+        "g1", "c1", "481133373117693953", "Melatonin need Coffee", "m2",
+        "chào Hoà",
+    )
+
+    _system_prompt, messages = await manager.get_context(
+        "481133373117693953",
+        "chào Hoà",
+        channel_id="c1",
+        user_name="Melatonin need Coffee",
+    )
+
+    assert messages == [
+        {
+            "role": "user",
+            "content": "AI đang dùng tài khoản này [user_id=726302130318868500]: mình là Hoà",
+        },
+        {
+            "role": "user",
+            "content": "Melatonin need Coffee [user_id=481133373117693953]: chào Hoà",
+        },
+    ]
 
 
 async def test_get_context_falls_back_to_id_without_display_name(tmp_path):

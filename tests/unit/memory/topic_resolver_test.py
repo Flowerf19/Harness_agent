@@ -15,7 +15,7 @@ from twin.shared.memory.timeline import T2Topic, TimelineStore, TopicResolver
 
 
 REDIS_URL = "redis://localhost:6379"
-DIM = 768  # match production; needed for the dim==768 acceptance test
+DIM = 1024  # match production; needed for the dim==1024 acceptance test
 
 
 def _vec(*components: float) -> list[float]:
@@ -278,9 +278,9 @@ async def test_alias_not_duplicated(env):
 # ---------------------------------------------------------------- new topic dim
 
 
-async def test_create_new_attaches_embedding_dim_768(env):
+async def test_create_new_attaches_embedding_dim_1024(env):
     store, resolver, embedder, llm = env
     embedder.vectors["novel topic xyz"] = _vec(1.0)
 
     got = await resolver.resolve("u1", "novel topic xyz")
-    assert len(got.embedding) == 768
+    assert len(got.embedding) == 1024

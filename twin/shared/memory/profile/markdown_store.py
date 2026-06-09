@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
+import fcntl
+import hashlib
 import logging
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 from twin.shared.memory.profile.constants import (
     DEFAULT_PROFILE_DIR,
@@ -80,21 +84,55 @@ def _render_markdown(sections: dict[str, list[str]]) -> str:
     return "\n".join(parts) + "\n"
 
 
+def profile_hash(text: str) -> str:
+    """SHA256 of the raw profile markdown."""
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+
+
 def _default_skeleton() -> str:
     return _render_markdown(_empty_section_map())
+
+
+def _sanitize_bullets(bullets: list[str]) -> list[str]:
+    if not isinstance(bullets, list):
+        raise ValueError("bullets must be a list")
+
+    cleaned: list[str] = []
+    for idx, bullet in enumerate(bullets):
+        if not isinstance(bullet, str):
+            raise ValueError(f"bullet #{idx + 1} must be a string")
+        value = bullet.strip()
+        if not value:
+            raise ValueError(f"bullet #{idx + 1} must not be empty")
+        if "\n" in value or "\r" in value:
+            raise ValueError(f"bullet #{idx + 1} must be a single line")
+        if value.startswith("- "):
+            raise ValueError(f"bullet #{idx + 1} must not include '- ' prefix")
+        cleaned.append(value)
+    return cleaned
 
 
 class MarkdownProfileStore:
     """Per-user markdown profile store (T3).
 
     File: ``<base_path>/<user_id>.md`` with 8 fixed sections.
-    Reads are unlocked; writes for the same user are serialized via
-    a per-user ``asyncio.Lock``.
+    Per-user read/create and write operations are serialized both within the
+    current event loop and across processes sharing the same profile directory.
     """
 
-    def __init__(self, base_path: str = DEFAULT_PROFILE_DIR) -> None:
+    def __init__(
+        self,
+        base_path: str = DEFAULT_PROFILE_DIR,
+        *,
+        enable_file_lock: bool = True,
+        file_lock_poll_seconds: float = 0.05,
+    ) -> None:
         self._base_path = Path(base_path)
         self._base_path.mkdir(parents=True, exist_ok=True)
+        self._lock_path = self._base_path / ".locks"
+        self._lock_path.mkdir(parents=True, exist_ok=True)
+        self._enable_file_lock = enable_file_lock
+        self._file_lock_poll_seconds = file_lock_poll_seconds
         self._locks: dict[str, asyncio.Lock] = {}
 
     # ------------------------------------------------------------------ helpers
@@ -110,6 +148,35 @@ class MarkdownProfileStore:
             lock = asyncio.Lock()
             self._locks[cleaned] = lock
         return lock
+
+    def _file_lock_path_for(self, user_id: str) -> Path:
+        cleaned = _sanitize_user_id(user_id)
+        return self._lock_path / f"{cleaned}.lock"
+
+    @asynccontextmanager
+    async def _profile_file_lock(self, user_id: str):
+        """Per-user lock shared by March7/Evernight processes."""
+        async_lock = self._lock_for(user_id)
+        async with async_lock:
+            if not self._enable_file_lock:
+                yield
+                return
+
+            lock_path = self._file_lock_path_for(user_id)
+            with open(lock_path, "a", encoding="utf-8") as lock_file:
+                while True:
+                    try:
+                        fcntl.flock(
+                            lock_file.fileno(),
+                            fcntl.LOCK_EX | fcntl.LOCK_NB,
+                        )
+                        break
+                    except BlockingIOError:
+                        await asyncio.sleep(self._file_lock_poll_seconds)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     @staticmethod
     def _read_text_sync(path: Path) -> str | None:
@@ -143,7 +210,12 @@ class MarkdownProfileStore:
     async def read_raw(self, user_id: str) -> str:
         """Return full markdown text. Auto-creates default skeleton on first read."""
         path = self._path_for(user_id)
-        return await self._ensure_file(path)
+        async with self._profile_file_lock(user_id):
+            return await self._ensure_file(path)
+
+    async def read_raw_hash(self, user_id: str) -> str:
+        """Return SHA256 hash of the current raw markdown profile."""
+        return profile_hash(await self.read_raw(user_id))
 
     async def read_section(self, user_id: str, section: str) -> list[str]:
         """Return bullets for a section, excluding the empty-placeholder."""
@@ -205,8 +277,7 @@ class MarkdownProfileStore:
         if not bullet:
             return False
 
-        lock = self._lock_for(user_id)
-        async with lock:
+        async with self._profile_file_lock(user_id):
             text = await self._ensure_file(path)
             parsed = _parse_markdown(text)
             existing = parsed.get(section, [])
@@ -230,8 +301,7 @@ class MarkdownProfileStore:
     async def write_raw(self, user_id: str, new_content: str) -> bool:
         """Overwrite full file atomically. Caller owns diff/validation gate."""
         path = self._path_for(user_id)
-        lock = self._lock_for(user_id)
-        async with lock:
+        async with self._profile_file_lock(user_id):
             try:
                 self._atomic_write_sync(path, new_content)
             except OSError as exc:
@@ -242,3 +312,61 @@ class MarkdownProfileStore:
             )
             return True
 
+    async def replace_section(
+        self,
+        user_id: str,
+        section: str,
+        bullets: list[str],
+        expected_profile_hash: str | None = None,
+    ) -> dict[str, Any]:
+        """Replace exactly one canonical section with clean bullets.
+
+        ``expected_profile_hash`` is the SHA256 of the raw current profile.
+        When provided and stale, no write occurs and the result reports a
+        conflict with the current hash.
+        """
+        if section not in SECTIONS:
+            raise ValueError(f"invalid section: {section!r}")
+        cleaned_bullets = _sanitize_bullets(bullets)
+        expected = (expected_profile_hash or "").strip() or None
+        path = self._path_for(user_id)
+
+        async with self._profile_file_lock(user_id):
+            text = await self._ensure_file(path)
+            current_hash = profile_hash(text)
+            if expected is not None and expected != current_hash:
+                return {
+                    "ok": False,
+                    "conflict": True,
+                    "section": section,
+                    "profile_hash": current_hash,
+                    "expected_profile_hash": expected,
+                    "written": False,
+                }
+
+            parsed = _parse_markdown(text)
+            before = list(parsed.get(section, []))
+            parsed[section] = cleaned_bullets
+            new_text = _render_markdown(parsed)
+            new_hash = profile_hash(new_text)
+            if new_text != text:
+                try:
+                    self._atomic_write_sync(path, new_text)
+                except OSError as exc:
+                    logger.warning("profile section replace failed for %s: %s", path, exc)
+                    raise
+
+            logger.debug(
+                "profile section replace: user=%s section=%s before=%d after=%d",
+                user_id, section, len(before), len(cleaned_bullets),
+            )
+            return {
+                "ok": True,
+                "conflict": False,
+                "section": section,
+                "profile_hash": new_hash,
+                "previous_profile_hash": current_hash,
+                "written": new_text != text,
+                "old_count": len(before),
+                "new_count": len(cleaned_bullets),
+            }

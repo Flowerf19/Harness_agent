@@ -36,6 +36,13 @@ SYSTEM_TOOL_SPECS: tuple[ToolSpec, ...] = (
         guide_path="guides/update_user_profile.md",
     ),
     ToolSpec(
+        module="twin.shared.tools.modules.profile.manage_profile_tool",
+        class_name="ManageUserProfileTool",
+        visible_to=frozenset({"evernight"}),
+        allowed_to=frozenset({"evernight"}),
+        guide_path="guides/manage_user_profile.md",
+    ),
+    ToolSpec(
         module="twin.shared.tools.modules.profile.update_personality_tool",
         class_name="UpdatePersonalityTool",
         guide_path="guides/update_personality.md",

@@ -76,7 +76,7 @@ class FakeEmbedder:
 
     async def get_embedding(self, text):
         self.calls.append(text)
-        return [0.1] * 768
+        return [0.1] * 1024
 
 
 class FakeExtractor:
@@ -358,10 +358,14 @@ async def test_consolidate_channel_routes_memory_by_subject():
     ]
     extract_result = ExtractResult(
         memories=[
-            _cand(content="Hoà đi làm hôm nay.", subject="Hoà"),
-            _cand(content="Quang thích game.", subject="Quang"),
+            _cand(content="Hoà đi làm hôm nay.", subject="Hoà", subject_user_id="u1"),
+            _cand(content="Quang thích game.", subject="Quang", subject_user_id="u2"),
             _cand(content="Bé Bảy là trợ lý.", subject="Bé Bảy"),  # bot → dropped
-            _cand(content="Ai đó nói gì đó.", subject="NgườiLạ"),  # unmatched → dropped
+            _cand(
+                content="Ai đó nói gì đó.",
+                subject="NgườiLạ",
+                subject_user_id="unknown",
+            ),  # unmatched → dropped
         ],
         primary_catalog="interest", primary_confidence=0.8,
     )
@@ -377,6 +381,72 @@ async def test_consolidate_channel_routes_memory_by_subject():
     assert "Ai đó nói gì đó." not in by_user
 
 
+async def test_consolidate_channel_drops_name_only_subject_to_avoid_cross_profile_contamination():
+    entries = [
+        _entry("mình là Hoà", author_id="u1", author_name="AI đang dùng tài khoản này"),
+        _entry("chào Hoà", author_id="u2", author_name="Melatonin need Coffee"),
+    ]
+    extract_result = ExtractResult(
+        memories=[
+            _cand(
+                content="Melatonin need Coffee được gọi là Hoà.",
+                subject="Melatonin need Coffee",
+                subject_user_id="",
+                catalogs=["identity"],
+                importance=5,
+                confidence=0.95,
+            ),
+        ],
+        primary_catalog="identity",
+        primary_confidence=0.95,
+    )
+    cons, store, *_ = _build(active_entries=entries, extract_result=extract_result)
+
+    res = await cons.consolidate(scope="channel", scope_id="ch1")
+
+    assert res.status == "skipped"
+    assert store.memories == {}
+
+
+async def test_consolidate_channel_routes_by_subject_user_id_not_display_name():
+    entries = [
+        _entry("mình là Hoà", author_id="u1", author_name="AI đang dùng tài khoản này"),
+        _entry("tớ nghe rồi", author_id="u2", author_name="Melatonin need Coffee"),
+    ]
+    extract_result = ExtractResult(
+        memories=[
+            _cand(
+                content="AI đang dùng tài khoản này 24 tuổi.",
+                subject="AI đang dùng tài khoản này",
+                subject_user_id="u1",
+                catalogs=["identity"],
+                importance=5,
+                confidence=0.95,
+            ),
+            _cand(
+                content="Melatonin need Coffee nhắc tới Hoà nhưng chưa xác nhận là Hoà.",
+                subject="Melatonin need Coffee",
+                subject_user_id="u2",
+                catalogs=["discussion"],
+                importance=2,
+                confidence=0.7,
+            ),
+        ],
+        primary_catalog="identity",
+        primary_confidence=0.95,
+    )
+    cons, store, *_ = _build(active_entries=entries, extract_result=extract_result)
+
+    res = await cons.consolidate(scope="channel", scope_id="ch1")
+
+    assert res.status == "ok"
+    by_content = {m.content: m.user_id for m in store.memories.values()}
+    assert by_content["AI đang dùng tài khoản này 24 tuổi."] == "u1"
+    assert by_content[
+        "Melatonin need Coffee nhắc tới Hoà nhưng chưa xác nhận là Hoà."
+    ] == "u2"
+
+
 async def test_consolidate_channel_extracts_once_with_bot_name():
     """Channel consolidation makes a single extraction call and passes the bot name."""
     entries = [
@@ -390,6 +460,7 @@ async def test_consolidate_channel_extracts_once_with_bot_name():
     await cons.consolidate(scope="channel", scope_id="ch1")
     assert len(extractor.calls) == 1
     # extract() call tuple: (transcript, t3_snapshot, topic_glossary, participants, bot_name)
+    assert "Hoà [user_id=u1]: hi" in extractor.calls[0][0]
     assert extractor.calls[0][4] == "Bé Bảy"
     assert extractor.calls[0][3] == {"u1": "Hoà"}
 
@@ -397,7 +468,13 @@ async def test_consolidate_channel_extracts_once_with_bot_name():
 async def test_consolidate_channel_no_match_skipped():
     entries = [_entry("hi", author_id="u1", author_name="Hoà")]
     extract_result = ExtractResult(
-        memories=[_cand(content="về người khác", subject="KhôngAi")],
+        memories=[
+            _cand(
+                content="về người khác",
+                subject="KhôngAi",
+                subject_user_id="unknown",
+            )
+        ],
         primary_catalog="interest", primary_confidence=0.6,
     )
     cons, store, *_ = _build(active_entries=entries, extract_result=extract_result)

@@ -180,10 +180,11 @@ async def test_extract_gives_up_after_retry():
 
 
 async def test_extract_keeps_subject_field():
-    llm = FakeLLM(_payload([_mem(subject="Hoà")]))
+    llm = FakeLLM(_payload([_mem(subject="Hoà", subject_user_id="726")]))
     ex = Extractor(llm)
     res = await ex.extract("x")
     assert res.memories[0].subject == "Hoà"
+    assert res.memories[0].subject_user_id == "726"
 
 
 async def test_extract_prompt_includes_bot_and_participants():
@@ -196,7 +197,23 @@ async def test_extract_prompt_includes_bot_and_participants():
     )
     user_msg = llm.calls[0][0][0]["content"]
     assert "Bé Bảy" in user_msg
-    assert "Hoà" in user_msg and "Quang" in user_msg
+    assert "Hoà (Platform user ID: 726)" in user_msg
+    assert "Quang (Platform user ID: 418)" in user_msg
+
+
+async def test_extract_prompt_requires_subject_user_id():
+    llm = FakeLLM(_payload([]))
+    ex = Extractor(llm)
+    await ex.extract(
+        "Melatonin need Coffee [user_id=481]: chào Hoà",
+        participants={"481": "Melatonin need Coffee", "726": "AI đang dùng tài khoản này"},
+    )
+    system_prompt = llm.calls[0][1]
+    user_msg = llm.calls[0][0][0]["content"]
+    assert "subject_user_id" in system_prompt
+    assert "chọn từ === NGƯỜI THAM GIA ===" in system_prompt
+    assert "Melatonin need Coffee (Platform user ID: 481)" in user_msg
+    assert "AI đang dùng tài khoản này (Platform user ID: 726)" in user_msg
 
 
 async def test_extract_passes_generous_max_tokens():

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 
 import pytest
 
@@ -17,6 +18,7 @@ from twin.shared.memory.profile.constants import (
     PROFILE_FOOTER_HINT,
     PROFILE_HEADER,
 )
+from twin.shared.memory.profile.markdown_store import profile_hash
 
 
 USER = "user_123"
@@ -99,6 +101,71 @@ async def test_write_raw_overwrites_atomically(tmp_path):
     assert await store.read_raw(USER) == custom
 
 
+async def test_replace_section_rewrites_only_one_canonical_section(tmp_path):
+    store = _store(tmp_path)
+    await store.append_raw(USER, "basic", "Tên: Quang")
+    await store.append_raw(USER, "interest", "Cờ vua")
+    current = await store.read_raw(USER)
+
+    result = await store.replace_section(
+        USER,
+        "basic",
+        ["Tên: Q", "Sống ở Hà Nội"],
+        expected_profile_hash=profile_hash(current),
+    )
+
+    assert result["ok"] is True
+    assert result["conflict"] is False
+    assert result["old_count"] == 1
+    assert result["new_count"] == 2
+    assert await store.read_section(USER, "basic") == ["Tên: Q", "Sống ở Hà Nội"]
+    assert await store.read_section(USER, "interest") == ["Cờ vua"]
+
+    raw = await store.read_raw(USER)
+    for header in SECTION_HEADERS.values():
+        assert raw.count(f"## {header}") == 1
+
+
+async def test_replace_section_detects_expected_hash_conflict_without_write(tmp_path):
+    store = _store(tmp_path)
+    await store.append_raw(USER, "basic", "Tên: Quang")
+    before = await store.read_raw(USER)
+
+    result = await store.replace_section(
+        USER,
+        "basic",
+        ["Tên: Q"],
+        expected_profile_hash="stale",
+    )
+
+    assert result["ok"] is False
+    assert result["conflict"] is True
+    assert result["profile_hash"] == profile_hash(before)
+    assert await store.read_raw(USER) == before
+
+
+async def test_replace_section_accepts_empty_bullets_as_section_clear(tmp_path):
+    store = _store(tmp_path)
+    await store.append_raw(USER, "rules", "Không ping khuya")
+    result = await store.replace_section(USER, "rules", [])
+
+    assert result["ok"] is True
+    assert await store.read_section(USER, "rules") == []
+    raw = await store.read_raw(USER)
+    rules_block = raw.split(f"## {SECTION_HEADERS['rules']}", 1)[1]
+    assert f"- {EMPTY_PLACEHOLDER}" in rules_block
+
+
+async def test_replace_section_rejects_dirty_bullets(tmp_path):
+    store = _store(tmp_path)
+    with pytest.raises(ValueError):
+        await store.replace_section(USER, "basic", ["- already prefixed"])
+    with pytest.raises(ValueError):
+        await store.replace_section(USER, "basic", ["two\nlines"])
+    with pytest.raises(ValueError):
+        await store.replace_section(USER, "not_a_section", ["x"])
+
+
 async def test_get_system_prompt_context_skips_empty_sections(tmp_path):
     store = _store(tmp_path)
     await store.append_raw(USER, "interest", "Phim tâm lý")
@@ -134,6 +201,23 @@ async def test_concurrent_appends_serialize(tmp_path):
     # File well-formed: each section header appears exactly once.
     for header in SECTION_HEADERS.values():
         assert raw.count(f"## {header}") == 1
+
+
+async def test_append_raw_waits_for_cross_process_file_lock(tmp_path):
+    store = _store(tmp_path)
+    lock_path = tmp_path / ".locks" / f"{USER}.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(lock_path, "a", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        task = asyncio.create_task(store.append_raw(USER, "interest", "Cờ vua"))
+        await asyncio.sleep(0.1)
+        assert task.done() is False
+
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+    assert await task is True
+    assert await store.read_section(USER, "interest") == ["Cờ vua"]
 
 
 async def test_section_order_is_canonical(tmp_path):
