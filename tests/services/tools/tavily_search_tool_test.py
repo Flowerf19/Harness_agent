@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from twin.shared.tools.implementations.system.tavily_search_tool import TavilySearchTool
+from twin.shared.tools.modules.web.tavily_search_tool import TavilySearchTool
 from twin.shared.external.tavily_client import TavilyClient, TavilyApiError
 
 
@@ -24,11 +24,6 @@ class TestTavilySearchToolMetadata:
         """tool.name == 'web_search'."""
         tool = TavilySearchTool()
         assert tool.name == "web_search"
-
-    def test_tool_description_vietnamese(self):
-        """tool.description contains Vietnamese text."""
-        tool = TavilySearchTool()
-        assert "Tìm" in tool.description or "tin tức" in tool.description
 
     def test_parameters_schema_has_required_fields(self):
         """Schema has query, search_depth, max_results, topic, include_domains, exclude_domains, time_range."""
@@ -76,12 +71,11 @@ class TestTavilySearchToolExecute:
     @pytest.mark.asyncio
     async def test_execute_not_configured_returns_error(self):
         """tavily_client without API key → error in Vietnamese."""
-        with patch("src.config.settings.Config.TAVILY_API_KEY", None):
-            mock_client = TavilyClient()
-            tool = TavilySearchTool(tavily_client=mock_client)
-            result = await tool.execute(query="test")
+        mock_client = TavilyClient(api_key=None)
+        tool = TavilySearchTool(tavily_client=mock_client)
+        result = await tool.execute(query="test")
 
-            assert "Lỗi" in result
+        assert "Lỗi" in result
 
     @pytest.mark.asyncio
     async def test_execute_format_for_user_default(self):

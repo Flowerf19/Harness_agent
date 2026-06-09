@@ -13,8 +13,15 @@ from typing import TYPE_CHECKING
 
 import discord
 
+from gateway.adapters.discord.cogs.admin_channels import ChannelMode
 from gateway.shared.adapter_base import PlatformAdapter
+from gateway.adapters.discord.approval import build_discord_approval_context
 from gateway.adapters.discord.converter import DiscordMessageConverter
+from twin.shared.tools.approval_context import (
+    clear_current_approval_context,
+    set_current_approval_context,
+)
+from twin.shared.tools.exceptions import BashExecutorUnavailableError
 
 if TYPE_CHECKING:
     from gateway.gateway import ChatGateway
@@ -61,29 +68,132 @@ class DiscordPlatformAdapter(PlatformAdapter):
             if ctx.valid:
                 return
 
-            content = message.content
+            # clean_content resolves mentions to readable "@name"/"#channel"
+            # (guild-nick aware) so the model knows who a message refers to,
+            # instead of seeing raw "<@id>". Does not touch markdown.
+            content = message.clean_content
 
             # Ignore !9 prefix — let Evernight bot handle it directly
             if content.strip().lower().startswith("!9"):
                 return
 
-            is_mentioned = self._bot.user in message.mentions
+            bot_user = self._bot.user
+            is_mentioned = bot_user in message.mentions if bot_user else False
             if is_mentioned:
-                content = content.replace(f"<@{self._bot.user.id}>", "")
-                content = content.replace(f"<@!{self._bot.user.id}>", "")
+                # The bot's own mention is now "@<display name>"; strip it so the
+                # message reads naturally. Other users' mentions stay resolved.
+                bot_names = {bot_user.display_name} if bot_user else set()
+                if message.guild and message.guild.me:
+                    bot_names.add(message.guild.me.display_name)
+                for name in bot_names:
+                    content = content.replace(f"@{name}", "")
 
             try:
+                mode = self._channel_mode(message)
+                is_reply_to_bot = self._is_reply_to_bot(message)
+                is_dm = message.guild is None
+
+                if not is_dm and mode is None:
+                    if is_mentioned or is_reply_to_bot:
+                        await message.channel.send(
+                            "Kênh này tớ chưa được cấu hình hoạt động á. "
+                            "Cậu dùng `/addbotchannel` hoặc qua kênh đã set giúp tớ nhé!"
+                        )
+                    return
+
+                is_respond_channel = mode == ChannelMode.RESPOND_ALLOWED
+                is_addressed = is_dm or is_mentioned or is_reply_to_bot
+                should_respond = is_addressed or is_respond_channel
+
                 unified = DiscordMessageConverter.to_unified(
                     message,
-                    bot_user=self._bot.user,
+                    bot_user=bot_user,
                     content_override=content.strip(),
                 )
                 exts = dict(unified.extensions or {})
-                exts["bot_name"] = self._bot_name
+                exts.update(
+                    {
+                        "agent_name": "march7",
+                        "assistant_id": str(bot_user.id) if bot_user else None,
+                        "assistant_name": bot_user.display_name if bot_user else None,
+                        "bot_name": self._bot_name,
+                        "bot_display_name": bot_user.display_name if bot_user else None,
+                        "is_addressed": is_addressed,
+                        "is_mentioned": is_mentioned,
+                        "is_reply_to_bot": is_reply_to_bot,
+                        "should_respond": should_respond,
+                        "allow_silence": is_respond_channel and not is_addressed,
+                        "respond_mode": "respond" if is_respond_channel else "observe",
+                        "channel_mode": mode.value if mode else None,
+                        "conversation_id": str(message.channel.id) if message.guild else None,
+                        "space_id": str(message.guild.id) if message.guild else None,
+                    }
+                )
                 object.__setattr__(unified, "extensions", exts)
-                await self._gateway.route_message(f"discord_{self._bot_name}", unified)
+
+                set_current_approval_context(build_discord_approval_context(message))
+                try:
+                    if should_respond:
+                        async with message.channel.typing():
+                            await self._gateway.route_message(
+                                f"discord_{self._bot_name}", unified
+                            )
+                    else:
+                        await self._gateway.route_message(
+                            f"discord_{self._bot_name}", unified
+                        )
+                except BashExecutorUnavailableError:
+                    await self._handle_bash_executor_unavailable(message, content)
+                finally:
+                    clear_current_approval_context()
             except Exception:
                 logger.exception("Error forwarding Discord message to gateway")
+
+    def _channel_mode(self, message: discord.Message) -> ChannelMode | None:
+        if not message.guild:
+            return None
+
+        admin_cog = self._bot.get_cog("AdminChannels")
+        if not admin_cog:
+            return None
+        return admin_cog.get_mode(message.guild.id, message.channel.id)
+
+    def _is_reply_to_bot(self, message: discord.Message) -> bool:
+        bot_user = self._bot.user
+        if bot_user is None or message.reference is None:
+            return False
+
+        ref = message.reference
+        if ref.cached_message:
+            return ref.cached_message.author.id == bot_user.id
+        if ref.resolved and hasattr(ref.resolved, "author"):
+            return ref.resolved.author.id == bot_user.id
+        return False
+
+    async def _handle_bash_executor_unavailable(
+        self,
+        message: discord.Message,
+        content: str,
+    ) -> None:
+        from gateway.adapters.discord.handler import DiscordGatewayHandler
+        from gateway.adapters.discord.views.bash_executor_start import (
+            BashExecutorStartView,
+        )
+
+        handler = DiscordGatewayHandler(
+            agent_router=getattr(self._gateway._handler, "_agent_router", None)
+        )
+        view = BashExecutorStartView(
+            handler=handler,
+            raw_message=message,
+            user_id=str(message.author.id),
+            content=content,
+        )
+        await message.channel.send(
+            "⚠️ **Host tool chưa sẵn sàng.**\n"
+            "Nếu bạn vừa khởi động lại hệ thống, hãy đợi Docker khởi động xong rồi bấm thử lại.",
+            view=view,
+        )
 
     async def _gateway_setup_hook(self):
         """Override CoreBot.setup_hook - load cogs only, no AppContainer init."""
@@ -171,8 +281,6 @@ class DiscordPlatformAdapter(PlatformAdapter):
 
     async def send_message(self, msg: UnifiedMessage) -> str:
         """Send *msg* back to the Discord channel it came from."""
-        kwargs = DiscordMessageConverter.from_unified(msg)
-
         channel_id = int(msg.channel.channel_id)
         channel = self._bot.get_channel(channel_id)
         if channel is None:
@@ -189,8 +297,27 @@ class DiscordPlatformAdapter(PlatformAdapter):
             return ""
 
         try:
-            sent_msg = await channel.send(**kwargs)
-            return str(sent_msg.id)
+            from gateway.adapters.discord.handler import DiscordGatewayHandler, split_response_text
+            from twin.shared.config.settings import Config
+
+            base_kwargs = DiscordMessageConverter.from_unified(msg)
+            sent_id = ""
+            parts = split_response_text(msg.content)
+            for index, part in enumerate(parts):
+                kwargs = {**base_kwargs, "content": part}
+                if len(part) <= 2000:
+                    sent_msg = await channel.send(**kwargs)
+                    sent_id = str(sent_msg.id)
+                else:
+                    for chunk in DiscordGatewayHandler._chunk_text(part, limit=1900):
+                        sent_msg = await channel.send(**{**kwargs, "content": chunk})
+                        sent_id = str(sent_msg.id)
+
+                if index < len(parts) - 1:
+                    async with channel.typing():
+                        await asyncio.sleep(Config.PART_BREAK_DELAY)
+
+            return sent_id
         except discord.HTTPException:
             logger.exception("Failed to send Discord message to channel %s", channel_id)
             return ""

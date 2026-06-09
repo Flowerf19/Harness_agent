@@ -48,13 +48,18 @@ class DiscordChannelConverter:
         else:
             channel_type = "guild"
 
+        guild = getattr(channel, "guild", None)
+        guild_id = str(guild.id) if guild is not None else None
+
         return UnifiedChannel(
             channel_id=str(channel.id),
             platform_name="discord",
             channel_type=channel_type,
             name=getattr(channel, "name", None),
+            guild_id=guild_id,
             raw_data={
                 "id": channel.id,
+                "guild_id": guild_id,
                 "type": str(getattr(channel, "type", "unknown")),
             },
         )
@@ -102,10 +107,19 @@ class DiscordMessageConverter:
         if bot_user is not None:
             is_mentioned = bot_user in message.mentions
 
-        # Build extensions with platform-specific data
+        is_reply_to_bot = False
+        if bot_user is not None and message.reference:
+            ref = message.reference
+            if ref.cached_message:
+                is_reply_to_bot = ref.cached_message.author.id == bot_user.id
+            elif ref.resolved and hasattr(ref.resolved, "author"):
+                is_reply_to_bot = ref.resolved.author.id == bot_user.id
+
+        # Build route hints. Native Discord objects stay in the Discord adapter;
+        # gateway core only needs normalized metadata.
         extensions = {
             "is_mentioned": is_mentioned,
-            "_raw_discord_message": message,
+            "is_reply_to_bot": is_reply_to_bot,
         }
 
         return UnifiedMessage(

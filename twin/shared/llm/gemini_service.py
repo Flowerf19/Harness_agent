@@ -6,7 +6,11 @@ import aiohttp
 from langsmith import traceable
 
 from twin.shared.config.settings import Config
-from .base_llm_service import BaseLLMService
+from .base_llm_service import (
+    BaseLLMService,
+    LLM_ERROR_BAD_FORMAT,
+    LLM_ERROR_RESPONSE,
+)
 from .llm_response import LLMResponse
 
 
@@ -18,7 +22,7 @@ class GeminiService(BaseLLMService):
         self.api_url = os.getenv(
             "GEMINI_API_URL", "https://generativelanguage.googleapis.com/v1beta/models"
         )
-        self.model = Config.LLM_MODEL
+        self.model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         self.session = None
         self.logger = logging.getLogger("discord_bot.GeminiService")
 
@@ -53,7 +57,8 @@ class GeminiService(BaseLLMService):
         self,
         messages: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
-        use_native_tools: bool = False
+        use_native_tools: bool = False,
+        max_tokens: Optional[int] = None,
     ) -> Union[str, LLMResponse]:
         """
         Generate response from Gemini API.
@@ -79,8 +84,15 @@ class GeminiService(BaseLLMService):
         # 2. Biên dịch mảng `messages` sang chuẩn Gemini
         gemini_contents = []
         for msg in messages:
-            role = "model" if msg["role"] == "assistant" else "user"
-            gemini_contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+            msg_role = msg.get("role", "user")
+            role = "model" if msg_role in {"assistant", "model"} else "user"
+            if "parts" in msg:
+                gemini_contents.append({"role": role, "parts": msg["parts"]})
+            else:
+                gemini_contents.append({
+                    "role": role,
+                    "parts": [{"text": msg.get("content", "")}],
+                })
 
         full_url = f"{self.api_url}/{self.model}:generateContent?key={self.api_key}"
 
@@ -89,7 +101,7 @@ class GeminiService(BaseLLMService):
             "contents": gemini_contents,
             "generationConfig": {
                 "temperature": Config.LLM_TEMPERATURE,
-                "maxOutputTokens": Config.LLM_MAX_TOKENS,
+                "maxOutputTokens": max_tokens or Config.LLM_MAX_TOKENS,
                 "topP": Config.LLM_TOP_P,
                 "topK": Config.LLM_TOP_K,
             },
@@ -112,7 +124,7 @@ class GeminiService(BaseLLMService):
                 if response.status != 200:
                     error_text = await response.text()
                     self.logger.error(f"Gemini API error: {error_text}")
-                    return "Error generating response."
+                    return LLM_ERROR_RESPONSE
 
                 response_data = await response.json()
 
@@ -168,11 +180,11 @@ class GeminiService(BaseLLMService):
                             tool_calls=tool_calls,
                         )
 
-                return "Error: Unexpected response format."
+                return LLM_ERROR_BAD_FORMAT
 
         except Exception as e:
             self.logger.error(f"Error communicating with Gemini API: {e}")
-            return "Error generating response."
+            return LLM_ERROR_RESPONSE
 
     async def close(self):
         if self.session:

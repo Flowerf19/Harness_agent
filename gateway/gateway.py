@@ -11,6 +11,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from twin.shared.tools.exceptions import BashExecutorUnavailableError
+
 if TYPE_CHECKING:
     from gateway.shared.adapter_base import PlatformAdapter
     from gateway.shared.handler_base import GatewayHandler
@@ -144,8 +146,9 @@ class ChatGateway:
         """Route a unified message from *platform_name* through the handler.
 
         The handler produces a response string, which is sent back through
-        the same adapter.  All errors are caught and logged — they never
-        propagate to other adapters.
+        the same adapter.  Errors are caught and logged, except for explicit
+        platform-capability control-flow exceptions that adapters can render
+        with native UI.
         """
         adapter = self._adapters.get(platform_name)
         if adapter is None:
@@ -179,6 +182,8 @@ class ChatGateway:
                     timestamp=datetime.now(timezone.utc),
                 )
                 await adapter.send_message(reply_msg)
+        except BashExecutorUnavailableError:
+            raise
         except Exception:
             logger.exception(
                 "Error routing message from platform %s", platform_name

@@ -1,8 +1,8 @@
-"""Discord-specific gateway handler.
+"""Discord compatibility helpers for gateway response/retry behavior.
 
-Receives :class:`UnifiedMessage` objects from the Discord adapter,
-applies Discord-specific filtering (DMs, mentions, admin channels),
-routes the content to the appropriate A2A agent, and returns the response.
+Production chat routing uses :class:`gateway.core.handler.GatewayChatHandler`.
+This module remains in the Discord adapter layer for native Discord concerns:
+message splitting, retry UI callbacks, and access to the live discord.py bot.
 """
 
 from __future__ import annotations
@@ -14,122 +14,30 @@ from typing import TYPE_CHECKING
 from discord.ext import commands
 from underthesea import sent_tokenize
 
-from gateway.shared.handler_base import GatewayHandler
-from gateway.shared.model import UnifiedEvent, UnifiedMessage
-from twin.shared.tools.exceptions import BashExecutorUnavailableError
-from twin.shared.tools.approval_context import set_current_message, clear_current_message
+from gateway.adapters.discord.approval import build_discord_approval_context
+from gateway.core.handler import ERROR_MESSAGE, GatewayChatHandler
+from twin.shared.tools.approval_context import (
+    clear_current_approval_context,
+    set_current_approval_context,
+)
 
 if TYPE_CHECKING:
     import discord
-    from gateway.adapters.discord.agent_router import AgentRouter
+    from gateway.core.agent_router import AgentRouter
 
 logger = logging.getLogger(__name__)
 
-ERROR_MESSAGE = "Hệ thống não bộ của tớ đang bị quá tải xíu, cậu thử lại sau vài giây nhé!"
+# Cap reply parts so a degenerate (looping) LLM response can't flood a channel.
+MAX_REPLY_PARTS = 5
 
 
-class DiscordGatewayHandler(GatewayHandler):
-    """Handles unified messages from the Discord adapter."""
+class DiscordGatewayHandler(GatewayChatHandler):
+    """Compatibility wrapper for Discord-specific helper methods."""
 
     _bot: commands.Bot | None = None
 
-    def __init__(self, agent_router: AgentRouter | None = None):
-        self._agent_router = agent_router
-
-    async def handle_message(self, msg: UnifiedMessage) -> str:
-        raw_message: discord.Message | None = None
-        is_mentioned = False
-        if msg.extensions:
-            raw_message = msg.extensions.get("_raw_discord_message")
-            is_mentioned = msg.extensions.get("is_mentioned", False)
-
-        if raw_message is None:
-            logger.warning("No raw Discord message in extensions")
-            return ""
-
-        # Channel/DM/Mention filtering
-        is_dm = msg.channel.channel_type == "dm"
-
-        is_allowed_channel = False
-        if raw_message.guild:
-            admin_cog = self._get_bot().get_cog("AdminChannels")
-            if admin_cog:
-                is_allowed_channel = admin_cog.is_bot_channel(
-                    raw_message.guild.id, raw_message.channel.id
-                )
-            else:
-                is_allowed_channel = True
-
-        if not (is_dm or is_mentioned or is_allowed_channel):
-            return ""
-
-        # Content check
-        content = msg.content.strip()
-        if not content:
-            return ""
-
-        user_id = msg.user.platform_id
-
-        # Route to March7 agent (all messages here are non-!9)
-        try:
-            set_current_message(raw_message)
-            logger.info("Routing to march7 agent: user=%s content=%.80s", user_id, content)
-            async with raw_message.channel.typing():
-                if self._agent_router:
-                    response = await self._agent_router.route(
-                        agent_name="march7",
-                        user_id=user_id,
-                        content=content,
-                    )
-                else:
-                    response = await self._legacy_process(user_id, content)
-
-            logger.info("Got response from march7: %.80s", response)
-            await self._send_response(raw_message, response)
-        except BashExecutorUnavailableError:
-            await self._handle_bash_executor_unavailable(raw_message, user_id, content)
-        except Exception:
-            logger.exception("Error processing message")
-            try:
-                await raw_message.channel.send(ERROR_MESSAGE)
-            except Exception:
-                logger.exception("Failed to send error message to user")
-        finally:
-            clear_current_message()
-
-        return ""
-
-    async def _legacy_process(self, user_id: str, content: str) -> str:
-        return ERROR_MESSAGE
-
-    async def handle_event(self, event: UnifiedEvent, msg: UnifiedMessage) -> None:
-        logger.debug("Discord event %s for message %s (no-op)", event, msg.message_id)
-
-    # ------------------------------------------------------------------
-    # Bash Executor unavailable handling
-    # ------------------------------------------------------------------
-
-    async def _handle_bash_executor_unavailable(
-        self,
-        raw_message: discord.Message,
-        user_id: str,
-        content: str,
-    ) -> None:
-        from gateway.adapters.discord.views.bash_executor_start import (
-            BashExecutorStartView,
-        )
-
-        view = BashExecutorStartView(
-            handler=self,
-            raw_message=raw_message,
-            user_id=user_id,
-            content=content,
-        )
-        await raw_message.channel.send(
-            "⚠️ **Host tool chưa sẵn sàng.**\n"
-            "Nếu bạn vừa khởi động lại hệ thống, hãy đợi Docker khởi động xong rồi bấm thử lại.",
-            view=view,
-        )
+    def __init__(self, agent_router: AgentRouter | None = None) -> None:
+        super().__init__(agent_router=agent_router)
 
     async def retry_process_message(
         self,
@@ -137,18 +45,19 @@ class DiscordGatewayHandler(GatewayHandler):
         user_id: str,
         content: str,
     ) -> None:
-        bot_name = "march7"
+        """Retry a Discord message from the native Bash Executor retry view."""
         try:
-            set_current_message(raw_message)
+            set_current_approval_context(build_discord_approval_context(raw_message))
             async with raw_message.channel.typing():
                 if self._agent_router:
                     response = await self._agent_router.route(
-                        agent_name=bot_name,
+                        agent_name="march7",
                         user_id=user_id,
                         content=content,
+                        user_name=raw_message.author.display_name,
                     )
                 else:
-                    response = await self._legacy_process(user_id, content)
+                    response = ERROR_MESSAGE
 
             await self._send_response(raw_message, response)
         except Exception:
@@ -158,11 +67,7 @@ class DiscordGatewayHandler(GatewayHandler):
             except Exception:
                 logger.exception("Failed to send error message to user")
         finally:
-            clear_current_message()
-
-    # ------------------------------------------------------------------
-    # Response sending
-    # ------------------------------------------------------------------
+            clear_current_approval_context()
 
     async def _send_response(
         self, original_message: discord.Message, response_text: str
@@ -170,27 +75,22 @@ class DiscordGatewayHandler(GatewayHandler):
         if not response_text:
             return
 
-        clean_text = response_text.replace("\\n", "\n")
-        messages_to_send = [
-            msg.strip() for msg in clean_text.split("\n") if msg.strip()
-        ]
-
         from twin.shared.config.settings import Config
 
-        for i, msg_text in enumerate(messages_to_send):
+        parts = split_response_text(response_text)
+        for i, msg_text in enumerate(parts):
             if len(msg_text) <= 2000:
                 await original_message.channel.send(msg_text)
             else:
-                chunks = self._chunk_text(msg_text, limit=1900)
-                for chunk in chunks:
+                for chunk in self._chunk_text(msg_text, limit=1900):
                     await original_message.channel.send(chunk)
 
-            if i < len(messages_to_send) - 1:
+            if i < len(parts) - 1:
                 async with original_message.channel.typing():
                     await asyncio.sleep(Config.PART_BREAK_DELAY)
 
     @staticmethod
-    def _chunk_text(text: str, limit: int = 1900) -> list:
+    def _chunk_text(text: str, limit: int = 1900) -> list[str]:
         lines = text.split("\n")
         chunks = []
         current_chunk = ""
@@ -235,3 +135,19 @@ class DiscordGatewayHandler(GatewayHandler):
     @classmethod
     def _get_bot(cls) -> commands.Bot | None:
         return cls._bot
+
+
+def split_response_text(response_text: str) -> list[str]:
+    """Split a Discord response into flood-guarded message parts."""
+    clean_text = response_text.replace("\\n", "\n")
+    messages_to_send = [msg.strip() for msg in clean_text.split("\n") if msg.strip()]
+
+    if len(messages_to_send) > MAX_REPLY_PARTS:
+        logger.warning(
+            "Reply has %d parts, capping to %d (possible degenerate output)",
+            len(messages_to_send),
+            MAX_REPLY_PARTS,
+        )
+        messages_to_send = messages_to_send[:MAX_REPLY_PARTS]
+
+    return messages_to_send

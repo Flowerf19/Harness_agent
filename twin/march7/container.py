@@ -1,34 +1,14 @@
-"""March7Container - simplified DI container."""
+"""March7Container - DI container for shared memory runtime."""
+from __future__ import annotations
+
 import logging
 
 from dotenv import load_dotenv
 
-from twin.shared.config.settings import Config
-from twin.shared.llm.gemini_service import GeminiService
-from twin.shared.llm.openai_service import OpenAIService
-from twin.shared.tools.tool_registry import ToolRegistry
-from twin.shared.tools.tool_discovery import discover_and_register_tools
-from twin.shared.tools.approval_gate import ApprovalGate
-from twin.shared.tools.dm_client import DMClient
-from twin.shared.memories.t2 import MemoryJobQueue, T2Memory, T2Store
-from twin.shared.llm.openai_embedding_service import OpenAIEmbeddingService
-from twin.shared.external.tavily_client import TavilyClient
-from twin.shared.external.codebox_client import CodeBoxClient
-
-from twin.march7.memories.memory_manager import MemoryManager
-from twin.march7.memories.activate_memory.activate_memory_service import ActiveMemoryService
-from twin.march7.memories.activate_memory.events.event_dispatcher import EventDispatcher
-from twin.march7.memories.activate_memory.management.context_builder import ContextBuilder
-from twin.march7.memories.activate_memory.management.smart_cleanup import SmartCleanup
-from twin.march7.memories.activate_memory.management.token_counter import TokenCounter
-from twin.march7.memories.activate_memory.storage.ram_storage import LocalMemoryDB
-from twin.march7.memories.activate_memory.storage.redis_storage import create_redis_storage
-from twin.march7.memories.activate_memory.storage.redis_stack_storage import RedisStackStorage
-from twin.march7.memories.activate_memory.storage.base_storage import BaseStorage
-from twin.march7.memories.core_memory.core_manager import CoreManager
-from twin.march7.memories.core_memory import MarkdownStorage
 from twin.march7.agent import March7Agent
 from twin.march7.config import March7Config
+from twin.shared.agent.runtime import SharedAgentRuntime, build_shared_agent_runtime
+from twin.shared.tools.registry.bootstrap import build_tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +18,20 @@ class March7Container:
 
     def __init__(self, config: March7Config):
         self.config = config
+        self.runtime: SharedAgentRuntime | None = None
         self.llm_service = None
+        self.embedding_service = None
         self.memory_manager = None
         self.agent = None
         self.tool_registry = None
-        self.redis_storage = None
         self.redis_client = None
+        self.timeline_redis_client = None
+        self.timeline_store = None
+        self.timeline_search = None
+        self.profile_store = None
+        self.cleanup_scheduler = None
+        self.state_repo = None
+        self.summary_policy = None
 
     @classmethod
     def get_instance(cls, config: March7Config = None):
@@ -55,177 +43,45 @@ class March7Container:
         load_dotenv(override=True)
         logger.info("March7Container initializing...")
 
-        # LLM Service
-        provider = getattr(Config, "LLM_PROVIDER", "gemini").lower()
-        if provider in {"openai", "openai_compat", "openai-compatible", "openai_compatible"}:
-            # OpenAI-compatible covers OpenAI, OpenRouter, LM Studio, Qwen compatible-mode, etc.
-            self.llm_service = OpenAIService(persona_path=self.config.persona_path)
-        else:
-            self.llm_service = GeminiService(persona_path=self.config.persona_path)
-
-        # Embedding Service
-        embedding_provider = getattr(Config, "EMBEDDING_PROVIDER", "openai_compat").lower()
-        if embedding_provider in {"openai", "openai_compat", "openai-compatible", "openai_compatible", "qwen"}:
-            self.embedding_service = OpenAIEmbeddingService(
-                model_name=Config.EMBEDDING_MODEL_NAME,
-                api_key=Config.EMBEDDING_API_KEY,
-                api_url=Config.EMBEDDING_API_URL,
-            )
-        else:
-            raise ValueError(
-                f"Unsupported embedding provider: {embedding_provider}. "
-                "Local embeddings removed. Use 'openai_compat' (or alias 'qwen')."
-            )
-
-        # T1 Active Memory
-        event_bus = EventDispatcher()
-        t1_storage = await self._get_t1_storage()
-
-        t1_token_counter = TokenCounter()
-        t1_smart_cleanup = SmartCleanup(storage=t1_storage)
-        t1_context_builder = ContextBuilder()
-
-        t1_service = ActiveMemoryService(
-            storage=t1_storage,
-            token_counter=t1_token_counter,
-            smart_cleanup=t1_smart_cleanup,
-            context_builder=t1_context_builder,
-            event_dispatcher=event_bus,
+        self.runtime = await build_shared_agent_runtime(
+            redis_db=self.config.redis_db,
+            persona_path=self.config.persona_path,
         )
+        self.llm_service = self.runtime.llm_service
+        self.embedding_service = self.runtime.embedding_service
+        self.memory_manager = self.runtime.memory_manager
+        self.redis_client = self.runtime.redis_client
+        self.timeline_redis_client = self.runtime.timeline_redis_client
+        self.timeline_store = self.runtime.timeline_store
+        self.timeline_search = self.runtime.timeline_search
+        self.profile_store = self.runtime.profile_store
+        self.cleanup_scheduler = self.runtime.cleanup_scheduler
+        self.state_repo = self.runtime.state_repo
+        self.summary_policy = self.runtime.summary_policy
 
-        # T3 Core Memory
-        t3_storage = MarkdownStorage()
-        # SmartUpdater removed - agent handles merge
-        t3_manager = CoreManager(storage=t3_storage)
-
-        # T2 semantic memory (Redis Stack, shared)
-        t2_store = await self._get_t2_store()
-        t2_memory = T2Memory(
-            store=t2_store,
-            embedding_service=self.embedding_service,
+        tools = build_tool_registry(
+            agent_name="march7",
+            core_manager=None,
+            memory_manager=self.memory_manager,
+            timeline_search=self.timeline_search,
+            profile_store=self.profile_store,
+            llm_service=self.llm_service,
+            base_memory_path=self.config.persona_path,
+            use_evernight_dm_approval=True,
         )
-        overflow_queue = MemoryJobQueue(self.redis_client) if self.redis_client else None
+        self.tool_registry = tools.registry
+        self.llm_service.set_tool_registry(self.tool_registry)
+        self.llm_service.set_tool_prompt_catalog(tools.tool_prompt_catalog)
 
-        # Memory Manager (no overflow, no evernight)
-        self.memory_manager = MemoryManager(
-            active_memory=t1_service,
-            core_memory=t3_manager,
-            event_dispatcher=event_bus,
-            overflow_queue=overflow_queue,
-        )
-
-        # Tool Registry
-        tavily_client = self._init_tavily_client()
-        codebox_client = self._init_codebox_client()
-
-        # Approval Gate with DM support via Evernight
-        dm_client = None
-        evernight_url = getattr(Config, "EVERNIGHT_A2A_URL", None)
-        if evernight_url:
-            dm_client = DMClient(evernight_url=evernight_url)
-            logger.info("DM client configured: %s", evernight_url)
-
-        approval_gate = ApprovalGate(dm_client=dm_client)
-
-        tool_registry = ToolRegistry(agent_name="march7")
-        tool_dependencies = {
-            "core_manager": t3_manager,
-            "memory_manager": t2_memory,
-            "llm_service": self.llm_service,
-            "base_memory_path": self.config.persona_path,
-            "tavily_client": tavily_client,
-            "codebox_client": codebox_client,
-            "approval_gate": approval_gate,
-            "executor_url": Config.BASH_EXECUTOR_URL,
-            "timeout": Config.BASH_EXECUTOR_TIMEOUT,
-        }
-
-        system_tools = discover_and_register_tools(
-            tools_dir="twin/shared/tools/implementations/system",
-            registry=tool_registry,
-            dependencies=tool_dependencies,
-        )
-        logger.info(f"✅ System tools loaded: {len(system_tools)} - {[t.name for t in system_tools]}")
-
-        mcp_tools = discover_and_register_tools(
-            tools_dir="twin/shared/tools/implementations/mcp",
-            registry=tool_registry,
-            dependencies=tool_dependencies,
-        )
-        logger.info(f"✅ MCP tools loaded: {len(mcp_tools)} - {[t.name for t in mcp_tools]}")
-
-        self.llm_service.set_tool_registry(tool_registry)
-
-        # March7 Agent
         self.agent = March7Agent(
             memory_manager=self.memory_manager,
             llm_service=self.llm_service,
-            tool_registry=tool_registry,
+            tool_registry=self.tool_registry,
             redis_client=self.redis_client,
         )
 
-        self.tool_registry = tool_registry
         logger.info("March7Container initialized")
 
     async def shutdown(self):
-        if self.llm_service:
-            await self.llm_service.close()
-        if self.redis_storage:
-            await self.redis_storage.close()
-
-    async def _get_t1_storage(self) -> BaseStorage:
-        redis_enabled = getattr(Config, "REDIS_ENABLED", False)
-        if not redis_enabled:
-            return LocalMemoryDB()
-
-        try:
-            storage = create_redis_storage(
-                redis_url=Config.REDIS_URL,
-                redis_password=Config.REDIS_PASSWORD,
-                redis_db=self.config.redis_db,
-            )
-            if await storage.health_check():
-                self.redis_storage = storage
-                self.redis_client = storage.redis
-                phase = getattr(Config, "T1_STORAGE_PHASE", "legacy")
-                if phase == "redis_stack":
-                    stack_storage = RedisStackStorage(self.redis_client)
-                    try:
-                        await stack_storage.initialize()
-                    except Exception as e:
-                        logger.warning("T1 Redis Stack init failed, fallback legacy: %s", e)
-                        return storage
-
-                    logger.info("T1 Redis Stack phase=redis_stack (read=redis_stack, write=redis_stack)")
-                    return stack_storage
-                return storage
-            else:
-                await storage.close()
-                return LocalMemoryDB()
-        except Exception as e:
-            logger.warning(f"Redis connection failed, using RAM: {e}")
-            return LocalMemoryDB()
-
-    async def _get_t2_store(self):
-        try:
-            storage = T2Store(redis_client=self.redis_client)
-            await storage.initialize()
-            return storage
-        except Exception as e:
-            raise RuntimeError(f"T2 storage init failed: {e}")
-
-    def _init_tavily_client(self):
-        if not Config.TAVILY_API_KEY:
-            return None
-        try:
-            return TavilyClient()
-        except Exception as e:
-            logger.warning(f"Tavily init failed: {e}")
-            return None
-
-    def _init_codebox_client(self):
-        try:
-            return CodeBoxClient()
-        except Exception as e:
-            logger.warning(f"CodeBox init failed: {e}")
-            return None
+        if self.runtime:
+            await self.runtime.close()

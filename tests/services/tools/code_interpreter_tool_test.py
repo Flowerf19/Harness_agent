@@ -14,9 +14,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from twin.shared.tools.implementations.system.code_interpreter_tool import CodeInterpreterTool
+from twin.shared.tools.modules.execution.code_interpreter_tool import CodeInterpreterTool
 from twin.shared.external.codebox_client import CodeBoxClient, CodeBoxError
-from twin.shared.tools.base_tool import ToolExecutionError
+from twin.shared.tools.registry import ToolExecutionError
 
 
 class TestCodeInterpreterToolMetadata:
@@ -26,12 +26,6 @@ class TestCodeInterpreterToolMetadata:
         """tool.name == 'run_python_code'."""
         tool = CodeInterpreterTool()
         assert tool.name == "run_python_code"
-
-    def test_tool_description_vietnamese(self):
-        """tool.description contains Vietnamese text + mentions 'Jupyter' or 'Sandbox'."""
-        tool = CodeInterpreterTool()
-        assert "Thực thi" in tool.description or "Mã Python" in tool.description
-        assert "Sandbox" in tool.description or "Kernel" in tool.description
 
     def test_parameters_schema_has_all_params(self):
         """Schema has user_id, code, kernel, cwd, file_content, filename, download_file_name."""

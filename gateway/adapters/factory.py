@@ -108,12 +108,8 @@ def _create_discord_adapter(
 
 
 def _create_zalo_adapter(config: GatewayConfig) -> PlatformAdapter:
-    from gateway.adapters.zalo.adapter import ZaloPlatformAdapter
-
-    if not config.zalo_access_token:
-        logger.warning("Zalo adapter requested but ZALO_ACCESS_TOKEN is not set")
-
-    return ZaloPlatformAdapter(
-        access_token=config.zalo_access_token,
-        app_id=config.zalo_app_id,
+    raise NotImplementedError(
+        "Zalo adapter is planned but not implemented yet. "
+        "Keep GATEWAY_ENABLED_PLATFORMS without 'zalo' until Zalo settings "
+        "and adapter contract are defined."
     )

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-PROJECT_ROOT = Path("/home/flowerf/Projects/discord-bot-v1")
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from twin.shared.external.tavily_client import TavilyClient, TavilyApiError

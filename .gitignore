@@ -41,6 +41,11 @@ src/data/relationships/
 src/data/server_relationships.txt
 data/
 memories/
+# Allow source code under twin/**/memories/ — these are Python packages, not data dirs
+!twin/**/memories/
+!twin/**/memories/**
+# Re-ignore caches that may sit inside source packages
+twin/**/memories/**/__pycache__/
 
 # Model Cache
 models/
@@ -61,8 +66,15 @@ docker/volumes/**
 **/.codebuddy/
 **/.cursor/
 **/.continue/
+.codegraph/
+.codex/
+.github/
+
+# Generated/temp test reports (keep the rest of .agents/ as docs)
+.agents/E2E_TEST_REPORT.md
+.agents/FINAL_TEST_REPORT.md
 
 # Conda environment cache (mounted from Docker)
 docker/volumes/conda_envs/
-
+.playwright-cli
 

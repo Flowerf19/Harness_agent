@@ -74,6 +74,9 @@ class UnifiedChannel:
     name: Optional[str] = None
     """Human-readable channel name (``None`` for DMs)."""
 
+    guild_id: Optional[str] = None
+    """Guild/server identifier for guild channels; ``None`` for DMs."""
+
     raw_data: Optional[dict] = None
     """Platform-specific channel payload preserved for advanced use-cases."""
 

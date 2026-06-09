@@ -1,44 +1,5 @@
-"""Agent Router - routes Discord messages to the correct agent in-process.
+"""Compatibility import for the platform-neutral gateway AgentRouter."""
 
-March7 runs in-process; Evernight is reached via A2A HTTP through
-EvernightClient. This keeps the two containers decoupled while
-allowing the gateway to route to either one.
-"""
-from __future__ import annotations
+from gateway.core.agent_router import AgentRouter
 
-import logging
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from twin.march7.agent import March7Agent
-    from gateway.adapters.discord.evernight_client import EvernightClient
-
-logger = logging.getLogger(__name__)
-
-
-class AgentRouter:
-    """Routes messages to the appropriate agent (march7 or evernight)."""
-
-    def __init__(
-        self,
-        march7: March7Agent,
-        evernight_client: EvernightClient | None = None,
-    ):
-        self.march7 = march7
-        self.evernight_client = evernight_client
-
-    async def route(self, agent_name: str, user_id: str, content: str) -> str:
-        """Route message to the specified agent."""
-        if agent_name == "evernight":
-            if self.evernight_client is None:
-                logger.error("Evernight client not configured — cannot route to Evernight")
-                return "Xin lỗi, Evernight hiện chưa được cấu hình."
-            return await self.evernight_client.send_chat(user_id=user_id, content=content)
-        else:
-            # Default to march7
-            return await self.march7.handle_chat(user_id=user_id, content=content)
-
-    async def close(self):
-        """Shutdown resources."""
-        if self.evernight_client:
-            await self.evernight_client.close()
+__all__ = ["AgentRouter"]

@@ -178,18 +178,19 @@ EMBEDDING_PROVIDER=openai_compat
 EMBEDDING_API_URL=http://host.docker.internal:1234/v1
 EMBEDDING_API_KEY=dummy-key
 EMBEDDING_MODEL_NAME=your-embedding-model
+EMBEDDING_VECTOR_SIZE=1024
 
 # Infrastructure (internal Docker network)
 REDIS_URL=redis://redis:6379
+TIMELINE_REDIS_DB=0
 CODEBOX_API_URL=http://codebox:8069
 ```
 
-## T1 Redis Stack knobs
+## Redis Stack Notes
 
-`march7` chọn storage T1 qua biến môi trường `T1_STORAGE_PHASE`:
-
-- `redis_stack`: dùng Redis Stack cho T1.
-- `legacy`: fallback Redis HASH cũ nếu cần rollback.
+T1 active memory can use each agent's own Redis DB (`MARCH7_REDIS_DB`,
+`EVERNIGHT_REDIS_DB`). T2 timeline memory uses RediSearch indexes and must run
+on Redis DB 0, so compose sets `TIMELINE_REDIS_DB=0` for both agents.
 
 > [!TIP]
-> Chi tiết provider và mapping endpoint xem `README_LLM_PROVIDERS.md`.
+> Chi tiết provider và mapping endpoint xem `../twin/shared/llm/README.md`.

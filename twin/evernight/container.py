@@ -1,32 +1,14 @@
-"""EvernightContainer - simplified DI container."""
+"""EvernightContainer - DI container for shared memory runtime."""
+from __future__ import annotations
+
 import logging
 
 from dotenv import load_dotenv
 
-from twin.shared.config.settings import Config
-from twin.shared.llm.gemini_service import GeminiService
-from twin.shared.llm.openai_service import OpenAIService
-from twin.shared.llm.openai_embedding_service import OpenAIEmbeddingService
-from twin.shared.tools.tool_registry import ToolRegistry
-from twin.shared.tools.tool_discovery import discover_and_register_tools
-from twin.shared.tools.approval_gate import ApprovalGate
-from twin.shared.memories.t2 import T2Memory, T2Store
-from twin.shared.external.tavily_client import TavilyClient
-from twin.shared.external.codebox_client import CodeBoxClient
-
-from twin.evernight.memories.memory_manager import MemoryManager
-from twin.evernight.memories.activate_memory.activate_memory_service import ActiveMemoryService
-from twin.evernight.memories.activate_memory.events.event_dispatcher import EventDispatcher
-from twin.evernight.memories.activate_memory.management.context_builder import ContextBuilder
-from twin.evernight.memories.activate_memory.management.smart_cleanup import SmartCleanup
-from twin.evernight.memories.activate_memory.management.token_counter import TokenCounter
-from twin.evernight.memories.activate_memory.storage.ram_storage import LocalMemoryDB
-from twin.evernight.memories.activate_memory.storage.redis_storage import create_redis_storage
-from twin.evernight.memories.activate_memory.storage.base_storage import BaseStorage
-from twin.evernight.memories.core_memory.core_manager import CoreManager
-from twin.evernight.memories.core_memory import MarkdownStorage
 from twin.evernight.agent import EvernightAgent
 from twin.evernight.config import EvernightConfig
+from twin.shared.agent.runtime import SharedAgentRuntime, build_shared_agent_runtime
+from twin.shared.tools.registry.bootstrap import build_tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +18,20 @@ class EvernightContainer:
 
     def __init__(self, config: EvernightConfig):
         self.config = config
+        self.runtime: SharedAgentRuntime | None = None
         self.llm_service = None
+        self.embedding_service = None
         self.memory_manager = None
         self.agent = None
         self.tool_registry = None
-        self.redis_storage = None
         self.redis_client = None
+        self.timeline_redis_client = None
+        self.timeline_store = None
+        self.timeline_search = None
+        self.profile_store = None
+        self.cleanup_scheduler = None
+        self.state_repo = None
+        self.summary_policy = None
 
     @classmethod
     def get_instance(cls, config: EvernightConfig = None):
@@ -53,153 +43,46 @@ class EvernightContainer:
         load_dotenv(override=True)
         logger.info("EvernightContainer initializing...")
 
-        # LLM Service
-        provider = getattr(Config, "LLM_PROVIDER", "gemini").lower()
-        if provider in {"openai", "openai_compat", "openai-compatible", "openai_compatible"}:
-            # OpenAI-compatible covers OpenAI, OpenRouter, LM Studio, Qwen compatible-mode, etc.
-            self.llm_service = OpenAIService(persona_path=self.config.persona_path)
-        else:
-            self.llm_service = GeminiService(persona_path=self.config.persona_path)
-
-        # Embedding Service
-        embedding_provider = getattr(Config, "EMBEDDING_PROVIDER", "openai_compat").lower()
-        if embedding_provider in {"openai", "openai_compat", "openai-compatible", "openai_compatible", "qwen"}:
-            self.embedding_service = OpenAIEmbeddingService(
-                model_name=Config.EMBEDDING_MODEL_NAME,
-                api_key=Config.EMBEDDING_API_KEY,
-                api_url=Config.EMBEDDING_API_URL,
-            )
-        else:
-            raise ValueError(
-                f"Unsupported embedding provider: {embedding_provider}. "
-                "Local embeddings removed. Use 'openai_compat' (or alias 'qwen')."
-            )
-
-        # T1 Active Memory
-        event_bus = EventDispatcher()
-        t1_storage = await self._get_t1_storage()
-        t1_token_counter = TokenCounter()
-        t1_smart_cleanup = SmartCleanup(storage=t1_storage)
-        t1_context_builder = ContextBuilder()
-
-        t1_service = ActiveMemoryService(
-            storage=t1_storage,
-            token_counter=t1_token_counter,
-            smart_cleanup=t1_smart_cleanup,
-            context_builder=t1_context_builder,
-            event_dispatcher=event_bus,
+        self.runtime = await build_shared_agent_runtime(
+            redis_db=self.config.redis_db,
+            persona_path=self.config.persona_path,
         )
+        self.llm_service = self.runtime.llm_service
+        self.embedding_service = self.runtime.embedding_service
+        self.memory_manager = self.runtime.memory_manager
+        self.redis_client = self.runtime.redis_client
+        self.timeline_redis_client = self.runtime.timeline_redis_client
+        self.timeline_store = self.runtime.timeline_store
+        self.timeline_search = self.runtime.timeline_search
+        self.profile_store = self.runtime.profile_store
+        self.cleanup_scheduler = self.runtime.cleanup_scheduler
+        self.state_repo = self.runtime.state_repo
+        self.summary_policy = self.runtime.summary_policy
 
-        # T3 Core Memory
-        t3_storage = MarkdownStorage()
-        # SmartUpdater removed - agent handles merge
-        t3_manager = CoreManager(storage=t3_storage)
-
-        # Memory Manager
-        self.memory_manager = MemoryManager(
-            active_memory=t1_service,
-            core_memory=t3_manager,
-            event_dispatcher=event_bus,
+        tools = build_tool_registry(
+            agent_name="evernight",
+            core_manager=None,
+            memory_manager=self.memory_manager,
+            timeline_search=self.timeline_search,
+            profile_store=self.profile_store,
+            llm_service=self.llm_service,
+            base_memory_path=self.config.persona_path,
         )
+        self.tool_registry = tools.registry
+        self.llm_service.set_tool_registry(self.tool_registry)
+        self.llm_service.set_tool_prompt_catalog(tools.tool_prompt_catalog)
 
-        # T2 semantic memory (Redis Stack, shared)
-        t2_store = await self._get_t2_store()
-        episodic_memory = T2Memory(
-            store=t2_store,
-            embedding_service=self.embedding_service,
-        )
-
-        # Tool Registry
-        tavily_client = self._init_tavily_client()
-        codebox_client = self._init_codebox_client()
-        approval_gate = ApprovalGate()
-
-        tool_registry = ToolRegistry(agent_name="evernight")
-        tool_dependencies = {
-            "core_manager": t3_manager,
-            "memory_manager": episodic_memory,
-            "llm_service": self.llm_service,
-            "base_memory_path": self.config.persona_path,
-            "tavily_client": tavily_client,
-            "codebox_client": codebox_client,
-            "approval_gate": approval_gate,
-            "executor_url": Config.BASH_EXECUTOR_URL,
-            "timeout": Config.BASH_EXECUTOR_TIMEOUT,
-        }
-
-        discover_and_register_tools(
-            tools_dir="twin/shared/tools/implementations/system",
-            registry=tool_registry,
-            dependencies=tool_dependencies,
-        )
-        discover_and_register_tools(
-            tools_dir="twin/shared/tools/implementations/mcp",
-            registry=tool_registry,
-            dependencies=tool_dependencies,
-        )
-
-        self.llm_service.set_tool_registry(tool_registry)
-
-        # Evernight Agent
         self.agent = EvernightAgent(
             memory_manager=self.memory_manager,
-            episodic_memory=episodic_memory,
+            episodic_memory=self.timeline_search,
             llm_service=self.llm_service,
-            tool_registry=tool_registry,
+            tool_registry=self.tool_registry,
             march7_url=self.config.march7_url,
+            consolidator=self.memory_manager,
         )
 
-        self.tool_registry = tool_registry
         logger.info("EvernightContainer initialized")
 
     async def shutdown(self):
-        if self.llm_service:
-            await self.llm_service.close()
-        if self.redis_storage:
-            await self.redis_storage.close()
-
-    async def _get_t1_storage(self) -> BaseStorage:
-        redis_enabled = getattr(Config, "REDIS_ENABLED", False)
-        if not redis_enabled:
-            return LocalMemoryDB()
-
-        try:
-            storage = create_redis_storage(
-                redis_url=Config.REDIS_URL,
-                redis_password=Config.REDIS_PASSWORD,
-                redis_db=self.config.redis_db,
-            )
-            if await storage.health_check():
-                self.redis_storage = storage
-                self.redis_client = storage.redis
-                return storage
-            else:
-                await storage.close()
-                return LocalMemoryDB()
-        except Exception as e:
-            logger.warning(f"Redis connection failed, using RAM: {e}")
-            return LocalMemoryDB()
-
-    async def _get_t2_store(self):
-        try:
-            storage = T2Store(redis_client=self.redis_client)
-            await storage.initialize()
-            return storage
-        except Exception as e:
-            raise RuntimeError(f"T2 storage init failed: {e}")
-
-    def _init_tavily_client(self):
-        if not Config.TAVILY_API_KEY:
-            return None
-        try:
-            return TavilyClient()
-        except Exception as e:
-            logger.warning(f"Tavily init failed: {e}")
-            return None
-
-    def _init_codebox_client(self):
-        try:
-            return CodeBoxClient()
-        except Exception as e:
-            logger.warning(f"CodeBox init failed: {e}")
-            return None
+        if self.runtime:
+            await self.runtime.close()

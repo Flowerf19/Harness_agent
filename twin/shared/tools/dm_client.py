@@ -1,22 +1,24 @@
 """DMClient — HTTP client from March7 to send DMs via Evernight bot.
 
 Used by ApprovalGate and other components that need to send direct messages
-to users through Evernight's Discord bot.
+to users through Evernight's owner bot.
 Supports both general messages and approval requests (with buttons).
 """
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+import os
+from typing import Optional
 
 import aiohttp
 
-if TYPE_CHECKING:
-    import discord
+from twin.shared.tools.approval_context import ApprovalRequestContext
 
 logger = logging.getLogger(__name__)
 
-# Default user ID for DM (the main user)
+# Default owner ID for DM approval. Today this is a Discord user ID because the
+# Evernight DM backend is Discord-based; callers should treat it as a platform
+# user ID.
 DEFAULT_USER_ID = 726302130318868500
 
 
@@ -52,7 +54,7 @@ class DMClient:
         """Send a general DM via Evernight bot.
 
         Args:
-            user_id: Discord user ID to send DM to
+            user_id: platform user ID to send DM to
             content: Message content
 
         Returns:
@@ -109,46 +111,54 @@ class DMClient:
     async def request_approval(
         self,
         command: str,
-        original_message: "discord.Message",
-        user_id: int = DEFAULT_USER_ID,
+        context: ApprovalRequestContext | None = None,
+        user_id: int | None = None,
+        *,
+        original_message: object | None = None,
+        channel_id: str | int | None = None,
+        message_id: str | int | None = None,
+        channel_name: str | None = None,
     ) -> bool:
         """Request approval DM via Evernight bot.
 
         Args:
             command: The bash command to approve
-            original_message: The original Discord message that triggered this
-            user_id: Discord user ID to send DM to
+            context: Neutral approval context for the triggering message.
+            user_id: Platform owner ID to send DM to.
+            original_message: Legacy native message shim.
+            channel_id: Optional source channel/conversation ID override.
+            message_id: Optional source message ID override.
+            channel_name: Optional display label for the source conversation.
 
         Returns:
             True if approved, False if rejected or timeout
         """
         session = await self._get_session()
         url = f"{self.base_url}/dm"
+        target_user_id = user_id or _default_owner_user_id()
 
-        # Extract channel info
-        channel = original_message.channel
-        channel_id = channel.id
-        message_id = original_message.id
+        if context is None and original_message is not None:
+            context = _context_from_native_message(original_message)
 
-        # Build channel name for display in DM
-        channel_name = str(channel)
-        if hasattr(channel, "name") and channel.name:
-            channel_name = f"#{channel.name}"
-        if original_message.guild:
-            channel_name = f"{original_message.guild.name}/{channel_name}"
+        if context is not None:
+            channel_id = channel_id or context.channel_id or context.conversation_id
+            message_id = message_id or context.message_id
+            channel_name = channel_name or context.channel_name
+
+        channel_name = channel_name or "unknown"
 
         payload = {
-            "user_id": user_id,
+            "user_id": target_user_id,
             "command": command,
-            "channel_id": channel_id,
-            "message_id": message_id,
+            "channel_id": _coerce_int_if_numeric(channel_id),
+            "message_id": _coerce_int_if_numeric(message_id),
             "channel_name": channel_name,
             "type": "approval",
         }
 
         logger.info(
             "Requesting approval DM: user=%s channel=%s command=%.60s",
-            user_id, channel_id, command,
+            target_user_id, channel_id, command,
         )
 
         try:
@@ -191,6 +201,44 @@ class DMClient:
         """Close the underlying HTTP session."""
         if self._session and not self._session.closed:
             await self._session.close()
+
+
+def _context_from_native_message(message: object) -> ApprovalRequestContext:
+    """Build neutral context from a legacy native message object."""
+    channel = getattr(message, "channel", None)
+    guild = getattr(message, "guild", None)
+    author = getattr(message, "author", None)
+    channel_name = str(channel) if channel is not None else None
+    if channel is not None and getattr(channel, "name", None):
+        channel_name = f"#{channel.name}"
+    if guild is not None and channel_name:
+        channel_name = f"{getattr(guild, 'name', guild)}/{channel_name}"
+
+    channel_id = str(getattr(channel, "id", "")) if channel is not None else None
+    return ApprovalRequestContext(
+        platform="discord",
+        user_id=str(getattr(author, "id", "")),
+        conversation_id=channel_id,
+        channel_id=channel_id,
+        message_id=str(getattr(message, "id", "")),
+        channel_name=channel_name,
+        space_id=str(getattr(guild, "id", "")) if guild is not None else None,
+        user_name=getattr(author, "display_name", None),
+        native_message=message,
+    )
+
+
+def _coerce_int_if_numeric(value: str | int | None) -> str | int | None:
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return value
+
+
+def _default_owner_user_id() -> int:
+    raw = os.getenv("EVERNIGHT_OWNER_USER_ID")
+    if raw and raw.isdigit():
+        return int(raw)
+    return DEFAULT_USER_ID
 
 
 # Backward compatibility alias

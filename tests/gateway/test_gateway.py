@@ -12,6 +12,7 @@ from gateway.gateway import ChatGateway
 from gateway.shared.adapter_base import PlatformAdapter
 from gateway.shared.handler_base import GatewayHandler
 from gateway.shared.model import UnifiedChannel, UnifiedEvent, UnifiedMessage, UnifiedUser
+from twin.shared.tools.exceptions import BashExecutorUnavailableError
 
 
 def _make_user() -> UnifiedUser:
@@ -145,6 +146,19 @@ class TestChatGateway:
         # Should not propagate the exception.
         await gateway.route_message("mock", msg)
         # Adapter should not have sent a message since handler failed.
+        assert len(adapter.sent_messages) == 0
+
+    @pytest.mark.asyncio
+    async def test_route_message_propagates_platform_capability_error(
+        self, gateway: ChatGateway, handler: MockHandler
+    ):
+        adapter = MockAdapter()
+        gateway.register_adapter("mock", adapter)
+        handler._raise = BashExecutorUnavailableError("http://bash-executor")
+
+        with pytest.raises(BashExecutorUnavailableError):
+            await gateway.route_message("mock", _make_message())
+
         assert len(adapter.sent_messages) == 0
 
     @pytest.mark.asyncio

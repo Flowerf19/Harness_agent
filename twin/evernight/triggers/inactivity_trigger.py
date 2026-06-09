@@ -1,7 +1,17 @@
-"""Inactivity trigger for Evernight consolidation."""
+"""Inactivity trigger — periodic scanner that drives SummaryPolicy.
+
+Each agent (March7 and Evernight) runs its own instance against its own
+``SummaryStateRepository`` so the unified summary flow fires even when no
+new message arrives (idle channel / quiet user 1-1 chat).
+
+Design rationale: ``SummaryPolicy.evaluate`` already inspects all three
+trigger conditions (token / message_count / idle). This trigger is just a
+periodic poller — for every active scope, ask the policy to evaluate.
+"""
+from __future__ import annotations
+
 import asyncio
 import logging
-import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -10,25 +20,30 @@ logger = logging.getLogger(__name__)
 class InactivityTrigger:
     def __init__(
         self,
-        redis_client: Any,
-        consolidation_runner: Any,
-        inactivity_seconds: int = 1800,
+        state_repo: Any,
+        summary_policy: Any,
+        scopes: tuple[str, ...] = ("user", "channel"),
         poll_interval: int = 60,
     ):
-        self.redis = redis_client
-        self.runner = consolidation_runner
-        self.inactivity_seconds = inactivity_seconds
+        self.state_repo = state_repo
+        self.summary_policy = summary_policy
+        self.scopes = scopes
         self.poll_interval = poll_interval
-        self._processed: set = set()
         self._running = False
         self._task: asyncio.Task | None = None
 
-    async def start(self):
+    async def start(self) -> None:
+        if self._running:
+            return
         self._running = True
         self._task = asyncio.create_task(self._poll_loop())
-        logger.info(f"InactivityTrigger started (inactivity={self.inactivity_seconds}s, poll={self.poll_interval}s)")
+        logger.info(
+            "InactivityTrigger started (poll=%ss, scopes=%s)",
+            self.poll_interval,
+            self.scopes,
+        )
 
-    async def stop(self):
+    async def stop(self) -> None:
         self._running = False
         if self._task:
             self._task.cancel()
@@ -38,57 +53,31 @@ class InactivityTrigger:
                 pass
         logger.info("InactivityTrigger stopped")
 
-    async def _poll_loop(self):
+    async def _poll_loop(self) -> None:
         while self._running:
             try:
                 await asyncio.sleep(self.poll_interval)
-                await self._scan_inactive_users()
+                await self.scan()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.error(f"InactivityTrigger poll error: {e}")
+            except Exception:
+                logger.exception("InactivityTrigger poll error")
 
-    async def _scan_inactive_users(self):
-        try:
-            keys = await self.redis.keys("conversation:*:last_active")
-            now = time.time()
-            for key in keys:
-                key_str = key.decode() if isinstance(key, bytes) else key
-                user_id = key_str.split(":")[1]
-                if user_id in self._processed:
-                    continue
-
-                last_active_str = await self.redis.get(key)
-                if not last_active_str:
-                    continue
-
-                last_active = float(last_active_str)
-                if (now - last_active) > self.inactivity_seconds:
-                    self._processed.add(user_id)
-                    await self._trigger_consolidation(user_id, key)
-        except Exception as e:
-            logger.error(f"InactivityTrigger scan error: {e}")
-
-    async def _trigger_consolidation(self, user_id: str, key: Any):
-        try:
-            logger.info(f"InactivityTrigger: user {user_id} inactive, triggering consolidation")
-
-            result = await self.runner.run_for_user(user_id, reason="inactivity")
-            if result.success:
-                await self.redis.delete(key)
-                logger.info(
-                    "InactivityTrigger: consolidation complete user=%s snapshot=%s cleared=%s",
-                    user_id,
-                    result.snapshot_count,
-                    result.cleared,
+    async def scan(self) -> None:
+        """Iterate active scope_ids and ask SummaryPolicy to re-evaluate."""
+        for scope in self.scopes:
+            try:
+                scope_ids = await self.state_repo.list_active(scope)
+            except Exception:
+                logger.exception(
+                    "InactivityTrigger: list_active failed scope=%s", scope
                 )
-            else:
-                logger.warning(
-                    "InactivityTrigger: consolidation failed user=%s error=%s",
-                    user_id,
-                    result.error,
-                )
-        except Exception as e:
-            logger.error(f"InactivityTrigger: consolidation failed for {user_id}: {e}")
-        finally:
-            self._processed.discard(user_id)
+                continue
+
+            for scope_id in scope_ids:
+                try:
+                    await self.summary_policy.evaluate(scope, scope_id)
+                except Exception:
+                    logger.exception(
+                        "InactivityTrigger: evaluate failed %s:%s", scope, scope_id
+                    )

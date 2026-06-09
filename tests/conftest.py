@@ -107,34 +107,18 @@ def sample_t1_snapshot(
 @pytest.fixture
 def sample_t2_page(sample_user_id: str):
     """Sample T2 page for tests."""
-    from twin.shared.memories.t2.models import T2Page, generate_topic_id
+    from twin.shared.memory.timeline import T2Memory
 
     now = datetime.now(timezone.utc)
-    topic_id = generate_topic_id(sample_user_id, "Evangelion_Anime")
-    return T2Page(
-        page_id=topic_id,
+    return T2Memory(
+        memory_id="sample-evangelion",
         user_id=sample_user_id,
-        topic_id=topic_id,
-        canonical_topic="Evangelion_Anime",
-        category="entertainment",
-        current_summary="User is watching Neon Genesis Evangelion and finds it intense and mind-blowing.",
-        key_points=[
-            "Started watching Evangelion in January 2025",
-            "Currently on episode 14",
-            "Finds the story psychological and intense",
-            "Finished the series and found the ending mind-blowing",
-        ],
+        content="User is watching Neon Genesis Evangelion and finds it intense and mind-blowing.",
+        topic_ids=["topic-evangelion"],
+        catalogs=["interest"],
         importance=4,
-        ttl_days=60,
         created_at=datetime(2025, 1, 10, 8, 0, 0, tzinfo=timezone.utc),
-        updated_at=now,
         last_accessed=now,
-        access_count=3,
-        history_log=[
-            "added: started watching Evangelion",
-            "updated: episode 14 reached",
-            "updated: finished series",
-        ],
         confidence=0.95,
     )
 
@@ -154,7 +138,7 @@ def mock_redis():
     """
     Mock Redis client using AsyncMock.
 
-    Provides common Redis operations used by MemoryJobQueue:
+    Provides common Redis operations used by Redis-backed components:
     - lpush, rpop, llen, lrange (queue operations)
     - hset, hget, hdel (checkpoint operations)
     - delete (clear operations)
@@ -248,14 +232,6 @@ def redis_client(mock_redis):
     return mock_redis
 
 
-@pytest.fixture
-def overflow_queue(mock_redis):
-    """MemoryJobQueue instance with mock Redis."""
-    from twin.shared.memories.t2.queue import MemoryJobQueue
-
-    return MemoryJobQueue(mock_redis)
-
-
 # ============================================================
 # LLM Fixtures
 # ============================================================
@@ -340,7 +316,7 @@ def mock_llm_client(llm_response):
     client._responses = []
     client._response_index = 0
 
-    async def mock_generate_response(messages, system_prompt=None, use_native_tools=False):
+    async def mock_generate_response(messages, system_prompt=None, use_native_tools=False, max_tokens=None):
         if client._response_index < len(client._responses):
             response = client._responses[client._response_index]
             client._response_index += 1
@@ -395,13 +371,6 @@ def mock_token_counter():
 # Cleanup Fixtures
 # ============================================================
 
-@pytest.fixture
-def mock_smart_cleanup():
-    """Mock SmartCleanup for T1 memory management."""
-    cleanup = AsyncMock()
-    cleanup.execute = AsyncMock()
-    return cleanup
-
 
 @pytest.fixture
 def mock_context_builder():
@@ -414,5 +383,7 @@ def mock_context_builder():
 @pytest.fixture
 def mock_event_dispatcher():
     """Mock EventDispatcher for T1 events."""
-    from twin.march7.memories.activate_memory.events.event_dispatcher import EventDispatcher
-    return EventDispatcher()
+    dispatcher = MagicMock()
+    dispatcher.subscribe = MagicMock()
+    dispatcher.emit = MagicMock()
+    return dispatcher

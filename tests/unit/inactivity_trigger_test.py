@@ -1,55 +1,109 @@
-import time
+"""Unit tests for InactivityTrigger (new unified-flow polling)."""
+from __future__ import annotations
+
 from unittest.mock import AsyncMock
 
 import pytest
 
-from twin.evernight.consolidation_runner import ConsolidationRunResult
 from twin.evernight.triggers.inactivity_trigger import InactivityTrigger
 
 
-class FakeRedis:
-    def __init__(self, last_active: float):
-        self.key = "conversation:u1:last_active"
-        self.last_active = last_active
-        self.deleted = []
-        self.lrange = AsyncMock()
+@pytest.mark.asyncio
+async def test_scan_calls_evaluate_for_every_active_scope_id():
+    state_repo = AsyncMock()
+    state_repo.list_active = AsyncMock(
+        side_effect=lambda scope: {"user": ["u1", "u2"], "channel": ["c1"]}[scope]
+    )
+    policy = AsyncMock()
+    policy.evaluate = AsyncMock()
 
-    async def keys(self, pattern):
-        return [self.key]
+    trigger = InactivityTrigger(
+        state_repo=state_repo,
+        summary_policy=policy,
+        scopes=("user", "channel"),
+        poll_interval=60,
+    )
+    await trigger.scan()
 
-    async def get(self, key):
-        return str(self.last_active)
-
-    async def delete(self, key):
-        self.deleted.append(key)
+    assert policy.evaluate.await_count == 3
+    awaited = {(call.args[0], call.args[1]) for call in policy.evaluate.await_args_list}
+    assert awaited == {("user", "u1"), ("user", "u2"), ("channel", "c1")}
 
 
 @pytest.mark.asyncio
-async def test_inactivity_trigger_calls_runner_and_deletes_marker_on_success():
-    redis = FakeRedis(last_active=time.time() - 100)
-    runner = AsyncMock()
-    runner.run_for_user = AsyncMock(
-        return_value=ConsolidationRunResult(success=True, user_id="u1", snapshot_count=2, cleared=True)
+async def test_scan_skips_failed_scope_listing():
+    state_repo = AsyncMock()
+
+    async def _list_active(scope):
+        if scope == "user":
+            raise RuntimeError("redis down")
+        return ["c1"]
+
+    state_repo.list_active = AsyncMock(side_effect=_list_active)
+    policy = AsyncMock()
+    policy.evaluate = AsyncMock()
+
+    trigger = InactivityTrigger(
+        state_repo=state_repo,
+        summary_policy=policy,
+        scopes=("user", "channel"),
     )
-    trigger = InactivityTrigger(redis, runner, inactivity_seconds=10, poll_interval=60)
+    await trigger.scan()
 
-    await trigger._scan_inactive_users()
-
-    runner.run_for_user.assert_awaited_once_with("u1", reason="inactivity")
-    assert redis.deleted == [redis.key]
-    redis.lrange.assert_not_called()
+    # Should still evaluate the channel scope despite user-scope failure
+    policy.evaluate.assert_awaited_once_with("channel", "c1")
 
 
 @pytest.mark.asyncio
-async def test_inactivity_trigger_keeps_marker_on_failure():
-    redis = FakeRedis(last_active=time.time() - 100)
-    runner = AsyncMock()
-    runner.run_for_user = AsyncMock(
-        return_value=ConsolidationRunResult(success=False, user_id="u1", error="failed")
+async def test_scan_continues_after_individual_evaluate_failure():
+    state_repo = AsyncMock()
+    state_repo.list_active = AsyncMock(return_value=["u1", "u2", "u3"])
+    policy = AsyncMock()
+    # Second evaluate raises; the trigger should swallow and continue.
+    policy.evaluate = AsyncMock(side_effect=[None, RuntimeError("boom"), None])
+
+    trigger = InactivityTrigger(
+        state_repo=state_repo,
+        summary_policy=policy,
+        scopes=("user",),
     )
-    trigger = InactivityTrigger(redis, runner, inactivity_seconds=10, poll_interval=60)
+    await trigger.scan()
 
-    await trigger._scan_inactive_users()
+    assert policy.evaluate.await_count == 3
 
-    runner.run_for_user.assert_awaited_once_with("u1", reason="inactivity")
-    assert redis.deleted == []
+
+@pytest.mark.asyncio
+async def test_scan_with_empty_state_does_nothing():
+    state_repo = AsyncMock()
+    state_repo.list_active = AsyncMock(return_value=[])
+    policy = AsyncMock()
+    policy.evaluate = AsyncMock()
+
+    trigger = InactivityTrigger(
+        state_repo=state_repo,
+        summary_policy=policy,
+        scopes=("user", "channel"),
+    )
+    await trigger.scan()
+
+    policy.evaluate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_scopes_filter_restricts_iteration():
+    """When only ('user',) is configured, channel scope must not be listed."""
+    state_repo = AsyncMock()
+    state_repo.list_active = AsyncMock(return_value=["u1"])
+    policy = AsyncMock()
+    policy.evaluate = AsyncMock()
+
+    trigger = InactivityTrigger(
+        state_repo=state_repo,
+        summary_policy=policy,
+        scopes=("user",),  # channel intentionally omitted (Evernight use case)
+    )
+    await trigger.scan()
+
+    # list_active called only for "user", never "channel"
+    assert state_repo.list_active.await_count == 1
+    state_repo.list_active.assert_awaited_with("user")
