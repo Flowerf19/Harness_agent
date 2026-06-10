@@ -116,6 +116,7 @@ class CandidateMemory(BaseModel):
 
 
 class ExtractResult(BaseModel):
+    ok: bool = True  # False only when extraction FAILED (LLM/parse error)
     memories: list[CandidateMemory] = Field(default_factory=list)
     primary_catalog: str | None = None
     primary_confidence: float = 0.0
@@ -142,8 +143,8 @@ def format_participants(participants: dict[str, str] | None) -> str:
     return "\n".join(lines)
 
 
-def _empty_result() -> ExtractResult:
-    return ExtractResult(memories=[], primary_catalog="discussion", primary_confidence=0.0)
+def _empty_result(*, ok: bool = True) -> ExtractResult:
+    return ExtractResult(ok=ok, memories=[], primary_catalog="discussion", primary_confidence=0.0)
 
 
 class Extractor:
@@ -201,7 +202,7 @@ class Extractor:
                 )
             except Exception as exc:
                 self.logger.warning("T2:extractor: LLM call failed: %s", exc, exc_info=True)
-                return _empty_result()
+                return _empty_result(ok=False)
 
             text = getattr(response, "content", None)
             if not isinstance(text, str):
@@ -222,10 +223,10 @@ class Extractor:
                     "T2:extractor: JSON parse/validate failed: %s | raw=%r",
                     exc, text[:300],
                 )
-                return _empty_result()
+                return _empty_result(ok=False)
 
         if result is None:  # defensive; loop either breaks or returns
-            return _empty_result()
+            return _empty_result(ok=False)
 
         # Filter + cap memories.
         cleaned: list[CandidateMemory] = []

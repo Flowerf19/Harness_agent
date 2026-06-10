@@ -174,6 +174,18 @@ class Consolidator:
             result.primary_catalog = extract_result.primary_catalog
             result.primary_confidence = extract_result.primary_confidence
 
+            if not extract_result.ok:
+                # Extraction FAILED (LLM/parse error), not "nothing to save". Do
+                # NOT populate summarized_entry_ids → _trim_if_complete sees
+                # status="failed" and preserves T1 for retry next cycle.
+                self.logger.warning(
+                    "T2:consolidator: extraction FAILED scope=%s/%s — preserving T1 for retry",
+                    scope, scope_id,
+                )
+                result.status = "failed"
+                result.error = "extraction_failed"
+                return result
+
             summarized_ids = [e.entry_id for e in entries]
 
             # Route each memory to the participant it is ABOUT. Drop memories
@@ -193,6 +205,13 @@ class Consolidator:
                     )
                     continue
                 routed.append((target_id, cand))
+
+            dropped = len(extract_result.memories) - len(routed)
+            if dropped:
+                self.logger.warning(
+                    "T2:consolidator: dropped %d/%d candidate(s) (bot/unmatched subject) "
+                    "scope=%s/%s", dropped, len(extract_result.memories), scope, scope_id,
+                )
 
             if not routed:
                 self.logger.info(
@@ -292,7 +311,8 @@ class Consolidator:
             embedding = await self.embedder.get_embedding(cand.content)
         except Exception as exc:
             self.logger.warning(
-                "T2:consolidator: embed failed: %s", exc,
+                "T2:consolidator: embed failed, writing memory WITHOUT vector "
+                "(not retrievable by KNN) scope-user=%s: %s", user_id, exc,
             )
             embedding = []
 

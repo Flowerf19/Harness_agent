@@ -66,6 +66,7 @@ async def test_extract_empty_transcript_returns_empty():
     res = await ex.extract("")
     assert isinstance(res, ExtractResult)
     assert res.memories == []
+    assert res.ok is True  # empty input is genuine-empty, not a failure
     # No LLM call for empty transcript.
     assert llm.calls == []
 
@@ -137,6 +138,7 @@ async def test_extract_invalid_json_returns_empty():
     res = await ex.extract("x")
     assert res.memories == []
     assert res.primary_catalog == "discussion"
+    assert res.ok is False  # parse failure → ok=False
 
 
 async def test_extract_llm_raises_returns_empty():
@@ -145,6 +147,7 @@ async def test_extract_llm_raises_returns_empty():
     res = await ex.extract("x")
     assert res.memories == []
     assert res.primary_catalog == "discussion"
+    assert res.ok is False  # LLM call failure → ok=False
 
 
 async def test_extract_parses_json_amid_reasoning_prose():
@@ -176,7 +179,29 @@ async def test_extract_gives_up_after_retry():
     res = await ex.extract("x")
     assert res.memories == []
     assert res.primary_catalog == "discussion"
+    assert res.ok is False  # give-up after retry → ok=False
     assert len(llm.calls) == 2
+
+
+async def test_extract_success_sets_ok_true():
+    """Valid payload with memories → ok stays True."""
+    llm = FakeLLM(_payload([_mem(content="kept")]))
+    ex = Extractor(llm)
+    res = await ex.extract("x")
+    assert res.ok is True
+    assert len(res.memories) == 1
+
+
+async def test_extract_genuine_empty_sets_ok_true():
+    """Valid JSON saying 'nothing worth saving' → ok=True, memories empty.
+
+    Pins the failure-vs-genuine-empty distinction at the extractor boundary.
+    """
+    llm = FakeLLM(_payload([], primary_catalog="discussion", primary_confidence=0.3))
+    ex = Extractor(llm)
+    res = await ex.extract("nói chuyện phiếm")
+    assert res.ok is True
+    assert res.memories == []
 
 
 async def test_extract_keeps_subject_field():

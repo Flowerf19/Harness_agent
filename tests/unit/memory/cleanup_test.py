@@ -121,6 +121,39 @@ async def test_scheduler_swallows_callable_errors():
     await sched.close()
 
 
+async def test_scheduler_logs_report_summary(caplog):
+    """When the cleanup callable returns a non-trivial CleanupReport, the
+    scheduler surfaces a one-line INFO summary (the report is otherwise discarded)."""
+    async def cb(user_id):
+        return CleanupReport(supersedes_applied=1)
+
+    sched = CleanupScheduler(cb, debounce_seconds=0.01)
+    with caplog.at_level("INFO", logger="twin.shared.memory.timeline.cleanup_scheduler"):
+        sched.schedule("u1")
+        await sched.flush("u1")
+    await sched.close()
+    assert any(
+        rec.levelname == "INFO" and "supersedes=1" in rec.getMessage()
+        for rec in caplog.records
+    )
+
+
+async def test_scheduler_no_summary_when_callable_returns_none(caplog):
+    """Test callables returning None (the typed contract) must stay quiet — no
+    summary line is emitted because there is no report."""
+    async def cb(user_id):
+        return None
+
+    sched = CleanupScheduler(cb, debounce_seconds=0.01)
+    with caplog.at_level("INFO", logger="twin.shared.memory.timeline.cleanup_scheduler"):
+        sched.schedule("u1")
+        await sched.flush("u1")
+    await sched.close()
+    assert not any(
+        "supersedes=" in rec.getMessage() for rec in caplog.records
+    )
+
+
 class StubStore:
     """Minimal store surface for non-redis cleanup tests."""
 
@@ -187,6 +220,42 @@ async def test_run_never_raises_on_supersede_llm_error():
     report = await cleanup.run("u1")
     assert isinstance(report, CleanupReport)
     assert any("supersede_llm" in e for e in report.errors)
+
+
+async def test_supersede_parse_failure_logs_warning(caplog):
+    """A non-JSON supersede verdict must be VISIBLE (WARNING) and non-fatal:
+    run() still returns a CleanupReport and records no error for the parse-fail."""
+    store = StubStore()
+    store.recent_memories = [
+        T2Memory(
+            user_id="u1",
+            content="Người dùng sống ở Hà Nội.",
+            embedding=_vec_mix(0, 1, weight_b=0.02),
+            topic_ids=[],
+            catalogs=["identity"],
+            importance=4,
+        ),
+        T2Memory(
+            user_id="u1",
+            content="Người dùng đã chuyển sang Đà Nẵng.",
+            embedding=_vec_mix(0, 1, weight_b=0.04),
+            topic_ids=[],
+            catalogs=["identity"],
+            importance=4,
+        ),
+    ]
+    cleanup = Cleanup(
+        store=store,
+        embedder=FakeEmbedder(),
+        llm=FakeLLM("not json at all"),
+    )
+    with caplog.at_level("WARNING", logger="twin.shared.memory.timeline.cleanup"):
+        report = await cleanup.run("u1")
+    assert isinstance(report, CleanupReport)
+    assert any(
+        rec.levelname == "WARNING" and "supersede JSON parse failed" in rec.getMessage()
+        for rec in caplog.records
+    )
 
 
 # ---------------------------------------------------------------- redis fixture

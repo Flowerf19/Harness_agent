@@ -57,7 +57,7 @@ class CleanupScheduler:
     async def _run_now(self, user_id: str) -> None:
         async with self._lock_for(user_id):
             try:
-                await self._callable(user_id)
+                report = await self._callable(user_id)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -65,6 +65,21 @@ class CleanupScheduler:
                     "T2:cleanup_scheduler: cleanup failed for %s: %s",
                     user_id, exc, exc_info=True,
                 )
+            else:
+                # cleanup.run returns a CleanupReport; test callables return None.
+                # Surface a summary line only when something happened or errored.
+                if report is not None and (
+                    getattr(report, "supersedes_applied", 0)
+                    or getattr(report, "topics_merged", 0)
+                    or getattr(report, "errors", None)
+                ):
+                    logger.info(
+                        "T2:cleanup_scheduler: user=%s supersedes=%s topics_merged=%s errors=%s",
+                        user_id,
+                        getattr(report, "supersedes_applied", 0),
+                        getattr(report, "topics_merged", 0),
+                        getattr(report, "errors", []),
+                    )
             finally:
                 # Drop the pending entry only if it's still ours.
                 current = self._pending.get(user_id)
