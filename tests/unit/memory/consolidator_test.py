@@ -6,6 +6,7 @@ import pytest
 from twin.shared.memory.active.models import ActiveEntry
 from twin.shared.memory.timeline import (
     CandidateMemory,
+    ConsolidationResult,
     Consolidator,
     ExtractResult,
     T2Memory,
@@ -518,3 +519,127 @@ async def test_consolidate_channel_no_match_skipped():
     assert store.memories == {}
     # T1 still flushed so the channel doesn't get stuck re-processing.
     assert len(res.summarized_entry_ids) == 1
+
+
+# -------------------------------- bot-sourced identity/contact gating (fix B)
+
+
+@pytest.mark.parametrize("catalog", ["identity", "contact"])
+async def test_consolidate_drops_bot_sourced_identity(catalog):
+    """(a) A bot uttering a user's identity/contact is not evidence: the candidate
+    is dropped before T2 (never written), so the whole batch is 0-routable →
+    status=skipped with T1 flushed."""
+    cons, store, *_ = _build(
+        active_entries=[_entry("Flowerf có tên là Quang")],
+        extract_result=ExtractResult(
+            memories=[_cand(
+                catalogs=[catalog], speaker="bot", importance=5, confidence=0.9,
+            )],
+            primary_catalog=catalog, primary_confidence=0.9,
+        ),
+    )
+    res = await cons.consolidate(scope="user", scope_id="u1")
+    assert res.status == "skipped"
+    assert res.memory_ids == []
+    assert store.memories == {}
+    # All candidates dropped → existing 0-routable path still flushes T1.
+    assert len(res.summarized_entry_ids) == 1
+
+
+async def test_consolidate_drops_bot_sourced_identity_logged(caplog):
+    """(a') The policy drop reuses the per-drop INFO line and is counted by the
+    existing aggregate dropped-candidate WARNING."""
+    cons, *_ = _build(
+        active_entries=[_entry("Flowerf có tên là Quang")],
+        extract_result=ExtractResult(
+            memories=[_cand(
+                catalogs=["identity"], speaker="bot", importance=5, confidence=0.9,
+            )],
+            primary_catalog="identity", primary_confidence=0.9,
+        ),
+    )
+    with caplog.at_level("INFO", logger="twin.shared.memory.timeline.consolidator"):
+        res = await cons.consolidate(scope="user", scope_id="u1")
+    assert res.status == "skipped"
+    assert any(
+        rec.levelname == "INFO" and "drop bot-sourced identity/contact" in rec.getMessage()
+        for rec in caplog.records
+    )
+    assert any(
+        rec.levelname == "WARNING" and "dropped" in rec.getMessage()
+        for rec in caplog.records
+    )
+
+
+@pytest.mark.parametrize("speaker", ["user", "joint"])
+async def test_consolidate_keeps_and_promotes_user_identity(speaker):
+    """(b) User- (and joint-) sourced identity is kept, written to T2, and eligible
+    for T3 promotion."""
+    recorder = []
+    cons, store, *_ = _build(
+        active_entries=[_entry("Tên người dùng là Hoà")],
+        extract_result=ExtractResult(
+            memories=[_cand(
+                content="Tên người dùng là Hoà.",
+                catalogs=["identity"],
+                speaker=speaker,
+                importance=5,
+                confidence=0.9,
+            )],
+            primary_catalog="identity", primary_confidence=0.9,
+        ),
+        appender_recorder=recorder,
+    )
+    res = await cons.consolidate(scope="user", scope_id="u1")
+    assert res.status == "ok"
+    assert len(store.memories) == 1
+    assert len(recorder) == 1
+    assert recorder[0][1] == "basic"
+    assert len(res.promoted_to_t3) == 1
+
+
+@pytest.mark.parametrize(
+    "catalog", ["relationship", "work", "interest", "habit", "psychological", "rules"]
+)
+async def test_consolidate_keeps_bot_sourced_inferred_catalogs(catalog):
+    """(c) Scope guard is identity/contact-only: the bot can legitimately infer
+    relationship/work/interest/habit/psychological from user behavior, so those
+    bot-sourced rows are kept."""
+    cons, store, *_ = _build(
+        active_entries=[_entry("x")],
+        extract_result=ExtractResult(
+            memories=[_cand(
+                catalogs=[catalog], speaker="bot", importance=3, confidence=0.7,
+            )],
+            primary_catalog=catalog, primary_confidence=0.7,
+        ),
+    )
+    res = await cons.consolidate(scope="user", scope_id="u1")
+    assert res.status == "ok"
+    assert len(store.memories) == 1
+    mem = next(iter(store.memories.values()))
+    assert mem.speaker == "bot"
+
+
+async def test_promote_gate_blocks_bot_identity():
+    """(d) Belt-and-suspenders: even if a bot-sourced identity candidate reaches
+    _process_candidate directly (bypassing the storage drop), the T3 promote gate
+    refuses to promote it — while the T2 memory is still written."""
+    recorder = []
+    cons, store, *_ = _build(
+        active_entries=[_entry("x")],
+        appender_recorder=recorder,
+    )
+    cand = _cand(
+        content="Flowerf có tên là Quang.",
+        catalogs=["identity"],
+        speaker="bot",
+        importance=5,
+        confidence=0.9,
+    )
+    result = ConsolidationResult(status="ok", scope="user", scope_id="u1")
+    await cons._process_candidate("u1", cand, result)
+    assert recorder == []
+    assert result.promoted_to_t3 == []
+    # The gate is independent of the storage drop: T2 memory IS written.
+    assert len(store.memories) == 1

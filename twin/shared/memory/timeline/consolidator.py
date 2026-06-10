@@ -31,6 +31,11 @@ ProfileReader = Callable[[str], Awaitable[str] | str]
 ProfileAppender = Callable[[str, str, str, str], Awaitable[None]]
 CleanupScheduler = Callable[[str], Awaitable[None] | None]
 
+# Facts only the SUBJECT can author. A bot uttering these about a user is not
+# evidence (it caused the identity-hallucination loop), so bot-sourced rows in
+# these catalogs are dropped before T2 and never promoted to T3.
+_SPEAKER_GATED_CATALOGS = frozenset({"identity", "contact"})
+
 
 @dataclass
 class ConsolidationResult:
@@ -204,6 +209,15 @@ class Consolidator:
                         cand.subject, cand.subject_user_id, scope, scope_id,
                     )
                     continue
+                if cand.speaker == "bot" and (
+                    set(cand.catalogs or []) & _SPEAKER_GATED_CATALOGS
+                ):
+                    self.logger.info(
+                        "T2:consolidator: drop bot-sourced identity/contact "
+                        "catalogs=%r subject_user_id=%r scope=%s/%s",
+                        cand.catalogs, cand.subject_user_id, scope, scope_id,
+                    )
+                    continue
                 routed.append((target_id, cand))
 
             dropped = len(extract_result.memories) - len(routed)
@@ -359,6 +373,12 @@ class Consolidator:
         ):
             for cat in catalogs:
                 if cat not in T3_PROMOTABLE:
+                    continue
+                if cat in _SPEAKER_GATED_CATALOGS and cand.speaker not in ("user", "joint"):
+                    self.logger.info(
+                        "T2:consolidator: refuse T3 promote of bot-sourced %s "
+                        "(speaker=%s) user=%s", cat, cand.speaker, user_id,
+                    )
                     continue
                 section = CATALOG_TO_T3[cat]
                 try:
