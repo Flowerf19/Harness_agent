@@ -446,3 +446,30 @@ that returns a chosen `ConsolidationResult`:
 - No other repo (e.g. a separate Evernight deployment) imports `ExtractResult`
   positionally; the new first field `ok` defaults so keyword/`memories=`
   construction is unaffected — grep shows all constructions are keyword-based.
+
+---
+
+## Outcome (2026-06-10) — shipped
+
+Implemented exactly as specified; **`manager.py` untouched** as predicted (its
+three-state machinery + `_trim_if_complete` early-return already handled
+`status="failed"`).
+
+Independent `code-reviewer` pass: **Approve** — no blocker/major. One **[Minor]**:
+the failure-case manager test seeded 2 entries with an empty
+`summarized_entry_ids`, so it would have passed even if the `_trim_if_complete`
+status guard regressed (an empty trim payload + 2 entries inside `keep_recent=5`
+never trims regardless). **Addressed** by strengthening
+`test_manager_does_not_trim_t1_when_extraction_fails`: seed **7** entries
+(> `keep_recent=5`) **and** `CannedConsolidator(fill_summarized_ids=True)`, so a
+full trim payload is present and only the `status="failed"` guard keeps T1 intact.
+**Mutation-verified:** temporarily adding `"failed"` to the trim set made the test
+fail (`assert 5 == 7`); reverting restored green. → This supersedes the "seed 2"
+sketch in Test plan §C, which could not observe trimming inside the kept window.
+
+- Files: `extractor.py`, `consolidator.py`, `cleanup.py`, `cleanup_scheduler.py`
+  + `extractor_test.py`, `consolidator_test.py`, `manager_test.py`, `cleanup_test.py`.
+- Tests: **142 passed** (`tests/unit/memory`); full `tests/unit` **214 passed**.
+- Commit: `715f954` on `feature/memory-rewrite` (not pushed).
+- Deferred (not in this change): **P1a** supersede window (24h/100), **P1b** T3
+  staleness / missing provenance back-link, **P3** embedding-dim guard.

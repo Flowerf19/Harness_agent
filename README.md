@@ -50,6 +50,16 @@ flowchart LR
 
 Evernight truy cập memory của March7 qua A2A (`get_snapshot`, `clear_session`) — **không** đọc trực tiếp T1 keys.
 
+### Memory 3 tầng — tại sao & vòng đời
+
+Hai agent chia nhau **một stack memory duy nhất**, tách 3 tầng vì mỗi tầng phục vụ một *latency budget* khác nhau: hot-path phải nhanh, semantic recall chạy async, profile thì biên dịch sẵn. Toàn bộ local-first (LLM + embeddings self-hosted qua LM Studio), không phụ thuộc cloud.
+
+- **T1 — active (working memory ngắn hạn):** cửa sổ trượt các message gần nhất theo từng scope (1-1 user hoặc channel) trong Redis. Nạp thẳng vào context mỗi lượt chat. Ngưỡng token/idle kích hoạt consolidation; sau khi tổng hợp, T1 bị cắt bớt nhưng giữ lại phần đuôi gần nhất để giữ mạch hội thoại.
+- **T2 — timeline (semantic memory dài hạn), trên Redis Stack:** các "atomic memory" được một lượt LLM trích từ transcript, embed cục bộ rồi lưu kèm taxonomy ~12 catalog cố định, gom theo topic, đánh version (supersede chain + change_type: new/update/correction/reinforcement), kèm confidence + importance từng item, và **TTL theo importance** (memory tự phân rã theo thời gian). Truy hồi đa chế độ: KNN ngữ nghĩa + đọc có lọc (theo catalog, theo topic, recent, current-state/active-only, change-log).
+- **T3 — profile (identity bền vững theo user):** một markdown profile các section cố định, **thăng cấp (promote)** từ những T2 memory importance cao + confidence cao, và được inject vào system prompt mỗi lượt.
+
+Vòng đời chạy theo: **observe → consolidate (T1→T2: trích xuất, route đúng người, embed) → promote (T2→T3) → cleanup (T2: supersede + topic-merge)**. Hai nguyên tắc cốt lõi: memory phân rã qua TTL thay vì phình mãi, và khi có fact mâu thuẫn thì **supersede/đánh version** chứ không ghi đè âm thầm. Cơ chế chi tiết (class, key, index) tra ở code + CodeGraph.
+
 ### Plan trạng thái
 
 - [Memory Rewrite](.agents/plans/memory-rewrite.md) — T1/T2/T3 chạy qua `twin/shared/memory/`, T2 dùng Redis Stack VECTOR HNSW 1024, T3 là Markdown 8 section. **Tiến độ: Phase 11/11 ✓**.
@@ -58,7 +68,7 @@ Evernight truy cập memory của March7 qua A2A (`get_snapshot`, `clear_session
 ### Gotcha runtime (dễ quên)
 
 - Channel memory chỉ observe channel được phép, không nghe toàn server. Reply trigger gồm cả reply-to-bot.
-- T2 timeline là user-centric: channel scope fan-out theo `author_id`; Redis document dùng `T2Memory.user_id` thật.
+- T2 timeline là user-centric: channel scope **extract 1 lần** rồi route mỗi memory về đúng participant nó nói về (`subject_user_id`), **không** fan-out per-author; Redis document dùng `T2Memory.user_id` thật (của subject).
 - Redis Stack RediSearch index phải ở DB 0; dùng `TIMELINE_REDIS_DB=0` cho T2, còn T1 có thể dùng DB riêng theo agent.
 - T3 profile inject vào system prompt mỗi turn qua `MarkdownProfileStore.get_system_prompt_context()`.
 
