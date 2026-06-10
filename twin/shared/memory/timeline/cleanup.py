@@ -201,7 +201,7 @@ class Cleanup:
         try:
             data = json.loads(_extract_json(text))
         except Exception as exc:
-            logger.debug("T2:cleanup: supersede JSON parse failed: %s", exc)
+            logger.warning("T2:cleanup: supersede JSON parse failed: %s", exc)
             return []
         pairs = data.get("supersedes") if isinstance(data, dict) else None
         if not isinstance(pairs, list):
@@ -292,7 +292,7 @@ class Cleanup:
         try:
             data = json.loads(_extract_json(text))
         except Exception as exc:
-            logger.debug("T2:cleanup: topic merge JSON parse failed: %s", exc)
+            logger.warning("T2:cleanup: topic merge JSON parse failed: %s", exc)
             return False
         return bool(isinstance(data, dict) and data.get("merge"))
 

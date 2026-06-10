@@ -172,6 +172,41 @@ async def test_consolidate_no_candidates_skipped():
     assert len(res.summarized_entry_ids) == 2
 
 
+async def test_consolidate_extraction_failure_status_failed():
+    """Extraction FAILED (ok=False) → status=failed, error sentinel, and crucially
+    summarized_entry_ids stays empty so the manager will NOT trim T1."""
+    cons, store, *_ = _build(
+        active_entries=[_entry("hi"), _entry("hello", role="assistant")],
+        extract_result=ExtractResult(ok=False, memories=[]),
+    )
+    res = await cons.consolidate(scope="user", scope_id="u1")
+    assert res.status == "failed"
+    assert res.error == "extraction_failed"
+    # The load-bearing invariant: no entry ids → _trim_if_complete won't flush T1.
+    assert res.summarized_entry_ids == []
+    assert store.memories == {}
+
+
+async def test_consolidate_dropped_candidates_logged(caplog):
+    """Channel scope where every candidate routes to bot/unmatched → 0 routable,
+    status=skipped (a drop is not a failure), and an aggregate WARNING fires."""
+    entries = [_entry("hi", author_id="u1", author_name="Hoà")]
+    extract_result = ExtractResult(
+        memories=[
+            _cand(content="về người khác", subject="KhôngAi", subject_user_id="unknown"),
+        ],
+        primary_catalog="interest", primary_confidence=0.6,
+    )
+    cons, *_ = _build(active_entries=entries, extract_result=extract_result)
+    with caplog.at_level("WARNING", logger="twin.shared.memory.timeline.consolidator"):
+        res = await cons.consolidate(scope="channel", scope_id="ch1")
+    assert res.status == "skipped"
+    assert any(
+        rec.levelname == "WARNING" and "dropped" in rec.getMessage()
+        for rec in caplog.records
+    )
+
+
 async def test_consolidate_writes_memory():
     cons, store, *_ = _build(
         active_entries=[_entry("Hoà thích phim Pháp")],

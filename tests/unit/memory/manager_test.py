@@ -88,6 +88,29 @@ class FakeConsolidator:
         )
 
 
+class CannedConsolidator:
+    """Returns a caller-supplied ConsolidationResult, with scope/scope_id and
+    (optionally) the live entry ids filled in at call time."""
+
+    def __init__(self, *, status, fill_summarized_ids=False):
+        self.status = status
+        self.fill_summarized_ids = fill_summarized_ids
+        self.calls = []
+
+    async def consolidate(self, *, scope, scope_id, user_id=None):
+        self.calls.append((scope, scope_id, user_id))
+        summarized_ids: list[str] = []
+        if self.fill_summarized_ids:
+            entries = await self.active.get_context(scope, scope_id)  # type: ignore[attr-defined]
+            summarized_ids = [e.entry_id for e in entries]
+        return ConsolidationResult(
+            status=self.status,
+            scope=scope,
+            scope_id=scope_id,
+            summarized_entry_ids=summarized_ids,
+        )
+
+
 def _active() -> ActiveMemory:
     return ActiveMemory(
         store=ActiveStore(FakeRedis()),
@@ -251,6 +274,67 @@ async def test_manager_channel_consolidation_extracts_once(tmp_path):
     assert consolidator.calls == [("channel", "c1", None)]
     # Shared T1 cleanup keeps the recent tail by default to preserve continuity.
     assert len(await active.get_context("channel", "c1")) == 2
+
+
+async def test_manager_does_not_trim_t1_when_extraction_fails(tmp_path):
+    """P0 acceptance gate: a failed consolidation must NOT flush T1 — the real
+    facts stay in T1 for the next cycle to retry.
+
+    Seeds 7 entries (> keep_recent=5) AND fills summarized_entry_ids, so the
+    assertion isolates the status="failed" guard in _trim_if_complete: with a
+    full trim payload present, only that guard keeps T1 intact. If the guard
+    regressed, trim would delete the oldest 2 (7 -> 5) and this test fails.
+    """
+    active = _active()
+    profile = MarkdownProfileStore(base_path=str(tmp_path))
+    consolidator = CannedConsolidator(status="failed", fill_summarized_ids=True)
+    manager = SharedMemoryManager(
+        active=active, profile_store=profile, consolidator=consolidator,
+    )
+    consolidator.active = active
+
+    facts = [
+        "mình tên Hoà, làm dev backend",
+        "mình sống ở Đà Nẵng",
+        "công ty mình tên Acme",
+        "mình thích phim Pháp",
+        "số đt mình là 0901234567",
+        "mình học Bách Khoa",
+        "mình nuôi một con mèo tên Miu",
+    ]
+    for fact in facts:
+        await manager.observe_user_message("u1", "user", fact)
+    assert len(await active.get_context("user", "u1")) == 7
+
+    result = await manager.consolidate_scope("user", "u1")
+
+    assert result["status"] == "failed"
+    # T1 preserved in full despite a populated summarized_entry_ids — only the
+    # status="failed" guard prevents the trim (a regression would drop to 5).
+    assert len(await active.get_context("user", "u1")) == 7
+
+
+async def test_manager_trims_t1_when_extraction_genuinely_empty(tmp_path):
+    """Counterpart to the failure case: a genuine-empty `skipped` result still
+    flushes T1 (intentional). keep_recent=5, so seeding 7 lets us observe the
+    shrink to the kept tail."""
+    active = _active()
+    profile = MarkdownProfileStore(base_path=str(tmp_path))
+    consolidator = CannedConsolidator(status="skipped", fill_summarized_ids=True)
+    manager = SharedMemoryManager(
+        active=active, profile_store=profile, consolidator=consolidator,
+    )
+    consolidator.active = active
+
+    for i in range(7):
+        await manager.observe_user_message("u1", "user", f"tin nhắn phiếm số {i}")
+    assert len(await active.get_context("user", "u1")) == 7
+
+    result = await manager.consolidate_scope("user", "u1")
+
+    assert result["status"] == "skipped"
+    # Trimmed down to the kept recent tail (KEEP_RECENT_MESSAGES_AFTER_SUMMARY=5).
+    assert len(await active.get_context("user", "u1")) == 5
 
 
 async def test_active_summary_policy_triggers_active_scope(tmp_path):
