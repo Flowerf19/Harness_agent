@@ -72,6 +72,35 @@ Vòng đời chạy theo: **observe → consolidate (T1→T2: trích xuất, rou
 - Redis Stack RediSearch index phải ở DB 0; dùng `TIMELINE_REDIS_DB=0` cho T2, còn T1 có thể dùng DB riêng theo agent.
 - T3 profile inject vào system prompt mỗi turn qua `MarkdownProfileStore.get_system_prompt_context()`.
 
+### Host bash tool — 2 lớp chặn
+
+`execute_host_bash` là proxy tool: chạy trong container nhưng thực thi trên host qua HTTP. Vì là tool đặc quyền, mỗi lần gọi đi qua **2 lớp chặn độc lập** — duyệt người (gateway cấp context + nút approve) *trước*, rồi xác thực caller (`Origin` allowlist) ở host. Thiếu bất kỳ lớp nào → lệnh dừng, không bao giờ chạm `bash`.
+
+```mermaid
+flowchart LR
+    subgraph C["Container (march7-bot)"]
+        LLM[March7 LLM] --> T[execute_host_bash]
+        T --> G{"Trạm Gác<br/>ApprovalGate<br/>— LỚP A"}
+        G -->|reject / timeout / no context| RA["❌ từ chối bởi Trạm Gác"]
+    end
+    G -->|approved<br/>Origin: march7-bot| O{"Origin allowlist<br/>— LỚP B"}
+    subgraph H["Host (Bash Executor :8374)"]
+        O -->|Origin lạ / thiếu| RB["❌ 403 Forbidden"]
+        O -->|hợp lệ| X["nsenter → bash -c"]
+        X --> R["stdout / stderr / exit_code"]
+    end
+```
+
+| | Lớp A — Trạm Gác | Lớp B — Origin |
+|---|---|---|
+| **Vị trí** | Trong container, *trước* HTTP | Trên host, *đầu* `/execute` |
+| **Chặn ai** | Lệnh chưa được người duyệt | Caller không phải bot container |
+| **Cơ chế** | `ApprovalGate` + `ApprovalBackend` (nút Discord) do **gateway** cấp qua context | So `Origin` header với `BASH_EXECUTOR_ALLOWED_ORIGINS` |
+| **Bỏ qua** | env `APPROVAL_AUTO_APPROVE_WITHOUT_CONTEXT=true` | thêm origin vào allowlist |
+
+> [!NOTE]
+> "Gateway chặn" = dừng ở Lớp A: gateway là nơi set approval context/backend. Message **không** đi qua gateway adapter → không có bề mặt xin phép → mặc định `reject`.
+
 ## Prerequisites
 
 - Python `3.11+`
