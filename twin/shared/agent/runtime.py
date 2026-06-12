@@ -25,18 +25,20 @@ from twin.shared.memory.active import (
 )
 from twin.shared.memory.profile import (
     MarkdownProfileStore,
-    ProfileCurationScheduler,
     ProfileCurator,
 )
+from twin.shared.memory.profile.promotion_guard import ProfilePromotionGuard
+from twin.shared.memory.profile.constants import PROFILE_CURATION_IDLE_SECONDS
 from twin.shared.memory.timeline import (
     Cleanup,
-    CleanupScheduler,
     Consolidator,
     Extractor,
     TimelineSearch,
     TimelineStore,
     TopicResolver,
 )
+from twin.shared.memory.timeline.constants import CLEANUP_DEBOUNCE_SECONDS
+from twin.shared.memory.scheduler import DebouncedScheduler
 
 
 @dataclass(slots=True)
@@ -49,8 +51,8 @@ class SharedAgentRuntime:
     timeline_store: TimelineStore
     timeline_search: TimelineSearch
     profile_store: MarkdownProfileStore
-    cleanup_scheduler: CleanupScheduler
-    curation_scheduler: ProfileCurationScheduler
+    cleanup_scheduler: DebouncedScheduler
+    curation_scheduler: DebouncedScheduler
     state_repo: ActiveSummaryStateRepository
     summary_policy: ActiveSummaryPolicy
 
@@ -84,22 +86,31 @@ async def build_shared_agent_runtime(*, redis_db: int, persona_path: str) -> Sha
 
     timeline_store = TimelineStore(timeline_redis_client)
     await timeline_store.initialize()
-    resolver = TopicResolver(timeline_store, embedding_service, llm_service)
+    resolver = TopicResolver(timeline_store)
     extractor = Extractor(llm_service)
     cleanup = Cleanup(
         store=timeline_store,
         embedder=embedding_service,
         llm=llm_service,
     )
-    cleanup_scheduler = CleanupScheduler(cleanup.run)
+    cleanup_scheduler = DebouncedScheduler(
+        cleanup.run,
+        debounce_seconds=CLEANUP_DEBOUNCE_SECONDS,
+    )
+
+    promotion_guard = ProfilePromotionGuard(
+        timeline_store=timeline_store,
+        profile_store=profile_store,
+        llm_service=llm_service,
+    )
+
     consolidator = Consolidator(
         active=active,
         store=timeline_store,
         resolver=resolver,
         extractor=extractor,
         embedder=embedding_service,
-        profile_reader=profile_store.read_raw,
-        profile_appender=profile_store.append_raw,
+        promotion_guard=promotion_guard,
         cleanup_scheduler=cleanup_scheduler.schedule,
     )
     timeline_search = TimelineSearch(
@@ -108,7 +119,10 @@ async def build_shared_agent_runtime(*, redis_db: int, persona_path: str) -> Sha
     )
 
     curator = ProfileCurator(profile_store, llm_service)
-    curation_scheduler = ProfileCurationScheduler(curator.curate)
+    curation_scheduler = DebouncedScheduler(
+        curator.curate,
+        debounce_seconds=PROFILE_CURATION_IDLE_SECONDS,
+    )
 
     memory_manager = SharedMemoryManager(
         active=active,

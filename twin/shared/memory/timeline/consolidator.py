@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Literal
 
@@ -25,11 +26,12 @@ from twin.shared.memory.timeline.models import (
 )
 from twin.shared.memory.timeline.store import TimelineStore
 from twin.shared.memory.timeline.topic_resolver import TopicResolver
+from twin.shared.memory.profile.promotion_guard import ProfilePromotionGuard
 
 
 ProfileReader = Callable[[str], Awaitable[str] | str]
 ProfileAppender = Callable[[str, str, str, str], Awaitable[None]]
-CleanupScheduler = Callable[[str], Awaitable[None] | None]
+DebouncedSchedulerCallback = Callable[[str], Awaitable[None] | None]
 
 # Facts only the SUBJECT can author. A bot uttering these about a user is not
 # evidence (it caused the identity-hallucination loop), so bot-sourced rows in
@@ -81,17 +83,15 @@ class Consolidator:
         resolver: TopicResolver,
         extractor: Extractor,
         embedder,
-        profile_reader: ProfileReader | None = None,
-        profile_appender: ProfileAppender | None = None,
-        cleanup_scheduler: CleanupScheduler | None = None,
+        promotion_guard: ProfilePromotionGuard | None = None,
+        cleanup_scheduler: DebouncedSchedulerCallback | None = None,
     ) -> None:
         self.active = active
         self.store = store
         self.resolver = resolver
         self.extractor = extractor
         self.embedder = embedder
-        self.profile_reader = profile_reader
-        self.profile_appender = profile_appender
+        self.promotion_guard = promotion_guard
         self.cleanup_scheduler = cleanup_scheduler
         self.logger = logging.getLogger(__name__)
 
@@ -153,12 +153,12 @@ class Consolidator:
             t3_snap = ""
             topic_glossary = []
             if scope == "user":
-                if self.profile_reader is not None:
+                if self.promotion_guard is not None and hasattr(self.promotion_guard, "profile_store"):
                     try:
-                        t3_snap = await _maybe_await(self.profile_reader(user_id)) or ""
+                        t3_snap = await self.promotion_guard.profile_store.read_raw(user_id) or ""
                     except Exception as exc:
                         self.logger.warning(
-                            "T2:consolidator: profile_reader failed: %s", exc,
+                            "T2:consolidator: profile_store.read_raw failed: %s", exc,
                         )
                         t3_snap = ""
                 try:
@@ -366,36 +366,7 @@ class Consolidator:
                 result.topic_ids.append(topic.topic_id)
 
         # T3 promotion.
-        if (
-            self.profile_appender is not None
-            and cand.importance >= T3_PROMOTE_MIN_IMPORTANCE
-            and cand.confidence >= T3_PROMOTE_MIN_CONFIDENCE
-        ):
-            for cat in catalogs:
-                if cat not in T3_PROMOTABLE:
-                    continue
-                if cat in _SPEAKER_GATED_CATALOGS and cand.speaker not in ("user", "joint"):
-                    self.logger.info(
-                        "T2:consolidator: refuse T3 promote of bot-sourced %s "
-                        "(speaker=%s) user=%s", cat, cand.speaker, user_id,
-                    )
-                    continue
-                section = CATALOG_TO_T3[cat]
-                try:
-                    await _maybe_await(
-                        self.profile_appender(
-                            user_id, section, cand.content, memory.memory_id,
-                        )
-                    )
-                    result.promoted_to_t3.append(
-                        {
-                            "section": section,
-                            "content": cand.content,
-                            "memory_id": memory.memory_id,
-                        }
-                    )
-                except Exception as exc:
-                    self.logger.warning(
-                        "T2:consolidator: T3 append failed section=%s: %s",
-                        section, exc,
-                    )
+        if self.promotion_guard:
+            promo_res = await self.promotion_guard.process_candidate(user_id, memory)
+            if promo_res and promo_res.get("promoted"):
+                result.promoted_to_t3.extend(promo_res["promoted"])

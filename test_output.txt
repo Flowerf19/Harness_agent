@@ -1,0 +1,156 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.5, pytest-9.0.3, pluggy-1.6.0
+rootdir: /home/flowerf/Projects/march7
+configfile: pytest.ini
+plugins: langsmith-0.7.26, asyncio-1.3.0, anyio-4.13.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 36 items
+
+tests/unit/memory/consolidator_test.py ......F...................FF..... [ 91%]
+..F                                                                      [100%]
+
+=================================== FAILURES ===================================
+________________ test_consolidate_promotes_to_t3_when_eligible _________________
+
+    async def test_consolidate_promotes_to_t3_when_eligible():
+        recorder = []
+        cons, *_ = _build(
+            active_entries=[_entry("Tên là Hoà")],
+            extract_result=ExtractResult(
+                memories=[_cand(
+                    content="Tên người dùng là Hoà.",
+                    catalogs=["identity"],
+                    importance=5,
+                    confidence=0.9,
+                )],
+                primary_catalog="identity", primary_confidence=0.9,
+            ),
+            appender_recorder=recorder,
+        )
+        res = await cons.consolidate(scope="user", scope_id="u1")
+        assert res.status == "ok"
+>       assert len(recorder) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/unit/memory/consolidator_test.py:283: AssertionError
+___________ test_consolidate_keeps_and_promotes_user_identity[user] ____________
+
+speaker = 'user'
+
+    @pytest.mark.parametrize("speaker", ["user", "joint"])
+    async def test_consolidate_keeps_and_promotes_user_identity(speaker):
+        """(b) User- (and joint-) sourced identity is kept, written to T2, and eligible
+        for T3 promotion."""
+        recorder = []
+        cons, store, *_ = _build(
+            active_entries=[_entry("Tên người dùng là Hoà")],
+            extract_result=ExtractResult(
+                memories=[_cand(
+                    content="Tên người dùng là Hoà.",
+                    catalogs=["identity"],
+                    speaker=speaker,
+                    importance=5,
+                    confidence=0.9,
+                )],
+                primary_catalog="identity", primary_confidence=0.9,
+            ),
+            appender_recorder=recorder,
+        )
+        res = await cons.consolidate(scope="user", scope_id="u1")
+        assert res.status == "ok"
+        assert len(store.memories) == 1
+>       assert len(recorder) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/unit/memory/consolidator_test.py:619: AssertionError
+___________ test_consolidate_keeps_and_promotes_user_identity[joint] ___________
+
+speaker = 'joint'
+
+    @pytest.mark.parametrize("speaker", ["user", "joint"])
+    async def test_consolidate_keeps_and_promotes_user_identity(speaker):
+        """(b) User- (and joint-) sourced identity is kept, written to T2, and eligible
+        for T3 promotion."""
+        recorder = []
+        cons, store, *_ = _build(
+            active_entries=[_entry("Tên người dùng là Hoà")],
+            extract_result=ExtractResult(
+                memories=[_cand(
+                    content="Tên người dùng là Hoà.",
+                    catalogs=["identity"],
+                    speaker=speaker,
+                    importance=5,
+                    confidence=0.9,
+                )],
+                primary_catalog="identity", primary_confidence=0.9,
+            ),
+            appender_recorder=recorder,
+        )
+        res = await cons.consolidate(scope="user", scope_id="u1")
+        assert res.status == "ok"
+        assert len(store.memories) == 1
+>       assert len(recorder) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+tests/unit/memory/consolidator_test.py:619: AssertionError
+_____________ test_t3_promotion_hybrid_duplicate_check_and_replace _____________
+
+    async def test_t3_promotion_hybrid_duplicate_check_and_replace():
+        # Setup FakeStore with mock similar memory (similarity 0.91, so >= 0.85)
+        old_mem = T2Memory(
+            memory_id="mem_old",
+            user_id="u1",
+            content="Hoà thích ăn thịt bò.",
+            importance=4,
+            catalogs=["interest"]
+        )
+        store = FakeStoreWithKNN(knn_results=[(old_mem, 0.91)])
+        profile_store = FakeProfileStore()
+        profile_store.bullets = ["Danh xưng: Quang", "Hoà thích ăn thịt bò."]
+    
+        active = FakeActiveMemory([_entry("x")])
+        resolver = FakeResolver(store)
+        extractor = FakeExtractor(ExtractResult(
+            memories=[], primary_catalog="interest", primary_confidence=0.8
+        ))
+        embedder = FakeEmbedder()
+    
+        from twin.shared.memory.profile.promotion_guard import ProfilePromotionGuard
+        promotion_guard = ProfilePromotionGuard(
+            timeline_store=store,
+            profile_store=profile_store,
+            llm_service=None,
+        )
+    
+        consolidator = Consolidator(
+            active=active, store=store, resolver=resolver,
+            extractor=extractor, embedder=embedder,
+            promotion_guard=promotion_guard,
+        )
+    
+        # Let's run a candidate directly through _process_candidate to trigger promotion
+        cand = _cand(
+            content="Hoà cực kỳ thích ăn thịt bò.", # Overlaps >= 65% with "Hoà thích ăn thịt bò."
+            catalogs=["interest"],
+            importance=4,
+            confidence=0.9,
+        )
+        result = ConsolidationResult(status="ok", scope="user", scope_id="u1")
+        await consolidator._process_candidate("u1", cand, result)
+    
+        # 1. Verification of duplicate check: it should mark the old memory as superseded
+>       assert len(store.superseded_calls) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+E        +    where [] = <unit.memory.consolidator_test.FakeStoreWithKNN object at 0x7f4cc26ee510>.superseded_calls
+
+tests/unit/memory/consolidator_test.py:751: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/memory/consolidator_test.py::test_consolidate_promotes_to_t3_when_eligible
+FAILED tests/unit/memory/consolidator_test.py::test_consolidate_keeps_and_promotes_user_identity[user]
+FAILED tests/unit/memory/consolidator_test.py::test_consolidate_keeps_and_promotes_user_identity[joint]
+FAILED tests/unit/memory/consolidator_test.py::test_t3_promotion_hybrid_duplicate_check_and_replace
+========================= 4 failed, 32 passed in 0.09s =========================

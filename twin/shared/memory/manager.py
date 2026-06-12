@@ -164,11 +164,20 @@ class SharedMemoryManager:
             logger.warning("T2: no consolidator configured for scope=%s/%s", scope, scope_id)
             return {"status": "failed", "scope": scope, "scope_id": scope_id, "error": "consolidator not configured"}
 
-        # Both scopes extract once. For a channel the consolidator routes each
-        # memory to the participant it is about (no per-user fan-out), so facts
-        # never leak across profiles.
         result = await self.consolidator.consolidate(scope=scope, scope_id=scope_id)
         await self._trim_if_complete(result)
+
+        # Trigger immediate T3 curation (5-second debounce) for users with promotions
+        if result.promoted_to_t3 and self.curation_scheduler is not None:
+            promoted_users = {item["user_id"] for item in result.promoted_to_t3 if isinstance(item, dict) and "user_id" in item}
+            if not promoted_users and scope == "user":
+                promoted_users = {scope_id}
+            for uid in promoted_users:
+                try:
+                    self.curation_scheduler(str(uid), 5.0)
+                except TypeError:
+                    self.curation_scheduler(str(uid))
+
         return self._result_to_dict(result)
 
     async def consolidate_snapshot(

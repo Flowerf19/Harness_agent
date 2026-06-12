@@ -66,6 +66,8 @@ Update upstream: `cd ~/.claude/skills && git pull`.
   policy/send behavior belongs in `gateway.adapters.discord`. Approval and
   some tool docs still contain Discord-specific assumptions, so do not copy
   those into new platforms.
+- **`manage_user_profile` tool supports two modes:** single-section mode (when `section` and `bullets` are provided) and whole-file/all mode (when `section` is omitted and `sections` map is passed). Omitted sections in whole-file mode are deleted, and a shrink check prevents dropping >50% of profile bullets unless `allow_shrink=True` is explicitly passed. Both modes require `expected_profile_hash`.
+- **Prerequisite tool routing in strict tool loop:** If a tool selected in pass 1 is missing required arguments (e.g. `manage_user_profile` without `expected_profile_hash`), the tool loop allows the refine step to route/switch to a prerequisite tool (e.g. `get_profile`) if defined in the tool guide, rather than returning a fallback response immediately.
 - **No Zalo adapter implementation exists yet.** `gateway/adapters/factory.py`
   raises `NotImplementedError` for `zalo`. Treat Zalo as planned/held until the
   Zalo webhook/token settings and adapter contract are defined.

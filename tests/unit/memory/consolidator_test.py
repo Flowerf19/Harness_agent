@@ -131,10 +131,34 @@ def _build(active_entries=None, extract_result=None, *,
     ))
     embedder = FakeEmbedder()
 
-    appender = None
-    if appender_recorder is not None:
-        async def appender(user_id, section, content, memory_id):
-            appender_recorder.append((user_id, section, content, memory_id))
+    class LocalFakeProfileStore:
+        async def read_raw(self, user_id):
+            if profile_reader:
+                import asyncio
+                res = profile_reader(user_id)
+                if asyncio.iscoroutine(res):
+                    return await res
+                return res
+            return "## Sở thích\n- Fake bullet"
+        async def append_raw(self, user_id, section, content):
+            if appender_recorder is not None:
+                appender_recorder.append((user_id, section, content, "fake_memory_id"))
+        async def read_section(self, user_id, section):
+            return []
+        async def read_raw_hash(self, user_id):
+            return "fake"
+        async def replace_section(self, user_id, section, bullets, expected_profile_hash):
+            pass
+
+    from twin.shared.memory.profile.promotion_guard import ProfilePromotionGuard
+    promotion_guard = ProfilePromotionGuard(
+        timeline_store=store,
+        profile_store=LocalFakeProfileStore(),
+        llm_service=None,
+    )
+
+    if profile_reader is None and appender_recorder is None:
+        promotion_guard = None
 
     scheduler = None
     if scheduler_recorder is not None:
@@ -144,8 +168,7 @@ def _build(active_entries=None, extract_result=None, *,
     consolidator = Consolidator(
         active=active, store=store, resolver=resolver,
         extractor=extractor, embedder=embedder,
-        profile_reader=profile_reader,
-        profile_appender=appender,
+        promotion_guard=promotion_guard,
         cleanup_scheduler=scheduler,
     )
     return consolidator, store, resolver, extractor, embedder
@@ -643,3 +666,93 @@ async def test_promote_gate_blocks_bot_identity():
     assert result.promoted_to_t3 == []
     # The gate is independent of the storage drop: T2 memory IS written.
     assert len(store.memories) == 1
+
+
+class FakeStoreWithKNN(FakeStore):
+    def __init__(self, recent=None, knn_results=None):
+        super().__init__(recent)
+        self.knn_results = knn_results or []
+        self.superseded_calls = []
+
+    async def knn_memories(self, user_id, query_vector, k=5, *, exclude_superseded=True, catalog=None, min_importance=None):
+        return self.knn_results
+
+    async def mark_superseded(self, user_id, old_id, new_id, change_type, change_reason):
+        self.superseded_calls.append((old_id, new_id, change_type, change_reason))
+
+
+class FakeProfileStore:
+    def __init__(self):
+        self.bullets = []
+        self.replaced_calls = []
+        self.appended_calls = []
+
+    async def read_section(self, user_id, section):
+        return list(self.bullets)
+
+    async def read_raw_hash(self, user_id):
+        return "fake_hash"
+
+    async def replace_section(self, user_id, section, bullets, expected_profile_hash):
+        self.bullets = bullets
+        self.replaced_calls.append((section, bullets, expected_profile_hash))
+        
+    async def read_raw(self, user_id):
+        return "## Sở thích\n" + "\n".join(f"- {b}" for b in self.bullets)
+
+    async def append_raw(self, user_id, section, content):
+        self.appended_calls.append((user_id, section, content))
+
+
+async def test_t3_promotion_hybrid_duplicate_check_and_replace():
+    # Setup FakeStore with mock similar memory (similarity 0.91, so >= 0.85)
+    old_mem = T2Memory(
+        memory_id="mem_old",
+        user_id="u1",
+        content="Hoà thích ăn thịt bò.",
+        importance=4,
+        catalogs=["interest"]
+    )
+    store = FakeStoreWithKNN(knn_results=[(old_mem, 0.91)])
+    profile_store = FakeProfileStore()
+    profile_store.bullets = ["Danh xưng: Quang", "Hoà thích ăn thịt bò."]
+
+    active = FakeActiveMemory([_entry("x")])
+    resolver = FakeResolver(store)
+    extractor = FakeExtractor(ExtractResult(
+        memories=[], primary_catalog="interest", primary_confidence=0.8
+    ))
+    embedder = FakeEmbedder()
+    
+    from twin.shared.memory.profile.promotion_guard import ProfilePromotionGuard
+    promotion_guard = ProfilePromotionGuard(
+        timeline_store=store,
+        profile_store=profile_store,
+        llm_service=None,
+    )
+
+    consolidator = Consolidator(
+        active=active, store=store, resolver=resolver,
+        extractor=extractor, embedder=embedder,
+        promotion_guard=promotion_guard,
+    )
+
+    # Let's run a candidate directly through _process_candidate to trigger promotion
+    cand = _cand(
+        content="Hoà cực kỳ thích ăn thịt bò.", # Overlaps >= 65% with "Hoà thích ăn thịt bò."
+        catalogs=["interest"],
+        importance=4,
+        confidence=0.9,
+    )
+    result = ConsolidationResult(status="ok", scope="user", scope_id="u1")
+    await consolidator._process_candidate("u1", cand, result)
+
+    # 1. Verification of duplicate check: it should mark the old memory as superseded
+    assert len(store.superseded_calls) == 1
+    assert store.superseded_calls[0][0] == "mem_old"
+    
+    # 2. Verification of T3 replacement: it should replace "Hoà thích ăn thịt bò." with "Hoà cực kỳ thích ăn thịt bò."
+    assert profile_store.bullets == ["Danh xưng: Quang", "Hoà cực kỳ thích ăn thịt bò."]
+    assert len(profile_store.replaced_calls) == 1
+    # Check that appender was NOT called (no new duplicate bullet appended)
+    assert profile_store.appended_calls == []

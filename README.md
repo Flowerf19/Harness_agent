@@ -56,14 +56,14 @@ Hai agent chia nhau **một stack memory duy nhất**, tách 3 tầng vì mỗi 
 
 - **T1 — active (working memory ngắn hạn):** cửa sổ trượt các message gần nhất theo từng scope (1-1 user hoặc channel) trong Redis. Nạp thẳng vào context mỗi lượt chat. Ngưỡng token/idle kích hoạt consolidation; sau khi tổng hợp, T1 bị cắt bớt nhưng giữ lại phần đuôi gần nhất để giữ mạch hội thoại.
 - **T2 — timeline (semantic memory dài hạn), trên Redis Stack:** các "atomic memory" được một lượt LLM trích từ transcript, embed cục bộ rồi lưu kèm taxonomy ~12 catalog cố định, gom theo topic, đánh version (supersede chain + change_type: new/update/correction/reinforcement), kèm confidence + importance từng item, và **TTL theo importance** (memory tự phân rã theo thời gian). Truy hồi đa chế độ: KNN ngữ nghĩa + đọc có lọc (theo catalog, theo topic, recent, current-state/active-only, change-log).
-- **T3 — profile (identity bền vững theo user):** một markdown profile các section cố định, **thăng cấp (promote)** từ những T2 memory importance cao + confidence cao, và được inject vào system prompt mỗi lượt. Vì promote chỉ chống trùng *chính xác* (cùng câu paraphrase vẫn lọt nên hồ sơ phình dần), một **lượt biên tập (curate)** tự chạy **~30 phút sau khi user ngừng nói** — ở bất kỳ DM hay channel nào họ có lên tiếng: 1 lượt LLM gộp trùng/bỏ thông tin lỗi thời rồi ghi lại *cả* hồ sơ dưới cùng hash-guard như sửa tay, kèm chốt an toàn (bỏ qua nếu hồ sơ chưa đổi hoặc còn quá ít bullet; từ chối bản rewrite làm mất >50% nội dung).
+- **T3 — profile (kiến trúc Hybrid Profile Consolidation):** một markdown profile các section cố định, **thăng cấp (promote)** từ những T2 memory importance cao + confidence cao, và được inject vào system prompt mỗi lượt. Vì promote chỉ chống trùng *chính xác* (cùng câu paraphrase vẫn lọt nên hồ sơ phình dần), một **lượt biên tập (curate)** tự chạy qua `DebouncedScheduler` **~30 phút sau khi user ngừng nói** — ở bất kỳ DM hay channel nào họ có lên tiếng: 1 lượt LLM gộp trùng/bỏ thông tin lỗi thời rồi ghi lại *cả* hồ sơ dưới cùng hash-guard như sửa tay, kèm chốt an toàn (bỏ qua nếu hồ sơ chưa đổi hoặc còn quá ít bullet; từ chối bản rewrite làm mất >50% nội dung).
 
 Vòng đời chạy theo: **observe → consolidate (T1→T2: trích xuất, route đúng người, embed) → promote (T2→T3) → cleanup (T2: supersede + topic-merge) → curate (T3: dedup/biên tập khi user idle)**. Ba nguyên tắc cốt lõi: memory phân rã qua TTL thay vì phình mãi; khi có fact mâu thuẫn thì **supersede/đánh version** chứ không ghi đè âm thầm; và **mỗi tầng tự dọn** — T2 qua cleanup, T3 qua curate — nên phần ghi tự động (promote) không bao giờ tích tụ rác vĩnh viễn. Cơ chế chi tiết (class, key, index) tra ở code + CodeGraph.
 
 ### Plan trạng thái
 
 - [Memory Rewrite](.agents/plans/memory-rewrite.md) — T1/T2/T3 chạy qua `twin/shared/memory/`, T2 dùng Redis Stack VECTOR HNSW 1024, T3 là Markdown 8 section. **Tiến độ: Phase 11/11 ✓**.
-- Unified Discussion Memory: đã được hấp thụ vào memory rewrite; flow hiện tại là `ActiveMemory → SharedMemoryManager → Consolidator → CleanupScheduler`.
+- Unified Discussion Memory: đã được hấp thụ vào memory rewrite; flow hiện tại là `ActiveMemory → SharedMemoryManager → Consolidator → DebouncedScheduler`.
 
 ### Gotcha runtime (dễ quên)
 

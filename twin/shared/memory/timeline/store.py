@@ -350,10 +350,16 @@ class TimelineStore:
         k: int = 5,
         *,
         exclude_superseded: bool = True,
+        catalog: str | None = None,
+        min_importance: int | None = None,
     ) -> list[tuple[T2Memory, float]]:
         filter_clause = f"@user_id:{{{_escape_tag(user_id)}}}"
         if exclude_superseded:
             filter_clause = f"{filter_clause} @superseded_by:{{_active}}"
+        if catalog:
+            filter_clause = f"{filter_clause} @catalogs:{{{_escape_tag(catalog)}}}"
+        if min_importance is not None:
+            filter_clause = f"{filter_clause} @importance:[{min_importance} 5]"
         return await self._knn(
             self.MEM_INDEX, user_id, query_vector, k, T2Memory,
             filter_clause=filter_clause,

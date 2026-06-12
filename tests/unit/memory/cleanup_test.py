@@ -13,11 +13,11 @@ import redis.asyncio as aioredis
 from twin.shared.memory.timeline import (
     Cleanup,
     CleanupReport,
-    CleanupScheduler,
     T2Memory,
     T2Topic,
     TimelineStore,
 )
+from twin.shared.memory.scheduler import DebouncedScheduler
 
 
 REDIS_URL = "redis://localhost:6379"
@@ -86,7 +86,7 @@ async def test_scheduler_debounces_multiple_schedules():
     async def cb(user_id):
         counter["n"] += 1
 
-    sched = CleanupScheduler(cb, debounce_seconds=0.05)
+    sched = DebouncedScheduler(cb, debounce_seconds=0.05)
     sched.schedule("u1")
     sched.schedule("u1")
     sched.schedule("u1")
@@ -101,7 +101,7 @@ async def test_scheduler_cancels_previous_pending():
     async def cb(user_id):
         counter["n"] += 1
 
-    sched = CleanupScheduler(cb, debounce_seconds=0.05)
+    sched = DebouncedScheduler(cb, debounce_seconds=0.05)
     sched.schedule("u1")
     await asyncio.sleep(0.01)
     sched.schedule("u1")
@@ -114,7 +114,7 @@ async def test_scheduler_swallows_callable_errors():
     async def cb(user_id):
         raise RuntimeError("boom")
 
-    sched = CleanupScheduler(cb, debounce_seconds=0.01)
+    sched = DebouncedScheduler(cb, debounce_seconds=0.01)
     sched.schedule("u1")
     await asyncio.sleep(0.05)
     # Calling close after a failed run should not raise.
@@ -127,8 +127,8 @@ async def test_scheduler_logs_report_summary(caplog):
     async def cb(user_id):
         return CleanupReport(supersedes_applied=1)
 
-    sched = CleanupScheduler(cb, debounce_seconds=0.01)
-    with caplog.at_level("INFO", logger="twin.shared.memory.timeline.cleanup_scheduler"):
+    sched = DebouncedScheduler(cb, debounce_seconds=0.01)
+    with caplog.at_level("INFO", logger="twin.shared.memory.scheduler"):
         sched.schedule("u1")
         await sched.flush("u1")
     await sched.close()
@@ -144,8 +144,8 @@ async def test_scheduler_no_summary_when_callable_returns_none(caplog):
     async def cb(user_id):
         return None
 
-    sched = CleanupScheduler(cb, debounce_seconds=0.01)
-    with caplog.at_level("INFO", logger="twin.shared.memory.timeline.cleanup_scheduler"):
+    sched = DebouncedScheduler(cb, debounce_seconds=0.01)
+    with caplog.at_level("INFO", logger="twin.shared.memory.scheduler"):
         sched.schedule("u1")
         await sched.flush("u1")
     await sched.close()

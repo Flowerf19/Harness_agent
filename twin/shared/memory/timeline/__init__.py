@@ -33,7 +33,6 @@ from twin.shared.memory.timeline.consolidator import (
     Consolidator,
 )
 from twin.shared.memory.timeline.cleanup import Cleanup, CleanupReport
-from twin.shared.memory.timeline.cleanup_scheduler import CleanupScheduler
 from twin.shared.memory.timeline.extractor import (
     CandidateMemory,
     ExtractResult,
@@ -51,7 +50,7 @@ __all__ = [
     "format_preflight_for_prompt", "TopicResolver",
     "Extractor", "Consolidator", "CandidateMemory", "ExtractResult",
     "ConsolidationResult",
-    "Cleanup", "CleanupReport", "CleanupScheduler",
+    "Cleanup", "CleanupReport",
     "CATALOGS", "T3_PROMOTABLE", "CATALOG_TO_T3",
     "EMBEDDING_DIM", "TTL_BY_IMPORTANCE", "TOPIC_TTL_MULTIPLIER",
     "TOPIC_MATCH_THRESHOLD_AUTO", "TOPIC_MATCH_THRESHOLD_LLM",

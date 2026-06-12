@@ -93,7 +93,7 @@ Memory rewrite is implemented end-to-end as of 2026-05-28.
 - **Shared stack**: `twin/shared/memory/` is the single implementation for both
   agents. Containers build `ActiveMemory`, `MarkdownProfileStore`,
   `TimelineStore`, `TimelineSearch`, `Consolidator`, `Cleanup`,
-  `CleanupScheduler`, `ProfileCurator`, and `ProfileCurationScheduler`.
+  `DebouncedScheduler` (used for cleanup and curation), and `ProfileCurator`.
 - **T1 scope-aware**: `ActiveEntry.scope` (`user`/`channel`), `scope_id`, plus
   `author_*`/`guild_id`/`channel_id`/`message_id`/`reply_to` metadata. Storage
   uses Redis JSON keys `active:{scope}:{scope_id}:{entry_id}` plus
@@ -111,18 +111,20 @@ Memory rewrite is implemented end-to-end as of 2026-05-28.
   `DiscussionConsolidator`, `consolidate_t2_memory`, and the old T2 page model
   were removed.
 
-- **T3 auto-curation**: `MarkdownProfileStore.append_raw` (the promote target)
+- **Hybrid Profile Consolidation (T2->T3)**: `MarkdownProfileStore.append_raw` (the promote target)
   dedups only on exact case-insensitive match, so paraphrased bullets accumulate.
   `ProfileCurator.curate()` closes the gap — one LLM pass dedups/merges/drops the
   full profile and rewrites it via `replace_all` under the same
   `expected_profile_hash` guard the manual `manage_user_profile` tool uses.
-  `ProfileCurationScheduler` (a `CleanupScheduler` clone, ~30-min debounce) fires
+  `DebouncedScheduler` (with a ~30-min debounce) fires
   it ~30 min after a user goes idle; `SharedMemoryManager.observe_user_message`
   (DM) and `observe_channel_message` (channel) call `schedule(...)` keyed on the
   speaking user, so both scopes are covered. Idempotency marker:
   `memories/.curation/<id>.hash` (skip when profile unchanged or trivial); the
   auto path never passes `allow_shrink`, and `replace_all` rejects a rewrite that
   drops >50% of a non-trivial profile.
+- **`manage_user_profile` tool modes**: The tool supports both a single-section mode (modifying one specific section with `bullets` list) and a whole-file mode (accepting a `sections` map of all sections, where unspecified sections are deleted). Both modes check `expected_profile_hash` to guard against conflicts. Whole-file mode also supports an `allow_shrink` flag (default false) to prevent LLM errors or accidental large deletions from shrinking the profile by >50%.
+- **Tool routing in loop**: The tool loop (`run_strict_tool_loop` in `twin/shared/llm/tool_loop.py`) has been upgraded to support prerequisite tool routing. If a tool selected in pass 1 is missing required arguments, the refine step can switch tool selection to a prerequisite tool (e.g. routing from `manage_user_profile` to `get_profile` to obtain the hash) rather than instantly failing.
 
 ## Memory Tiers
 

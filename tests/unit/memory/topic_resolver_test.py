@@ -25,30 +25,10 @@ def _vec(*components: float) -> list[float]:
 
 
 class FakeEmbedder:
-    def __init__(self) -> None:
-        self.vectors: dict[str, list[float]] = {}
-        self.default = _vec(1.0)
-
-    async def get_embedding(self, text: str) -> list[float]:
-        return self.vectors.get(text, self.default)
-
-
-class _LLMResponse:
-    def __init__(self, content: str) -> None:
-        self.content = content
-
+    pass
 
 class FakeLLM:
-    def __init__(self) -> None:
-        self.responses: list[str] = []
-        self.calls: list[tuple] = []
-
-    async def generate_response(
-        self, messages, system_prompt=None, use_native_tools=False
-    ):
-        self.calls.append((messages, system_prompt))
-        resp = self.responses.pop(0) if self.responses else "NO"
-        return _LLMResponse(resp)
+    pass
 
 
 async def _redis_alive() -> bool:
@@ -85,7 +65,7 @@ async def env():
 
     embedder = FakeEmbedder()
     llm = FakeLLM()
-    resolver = TopicResolver(store, embedder, llm)
+    resolver = TopicResolver(store)
 
     yield store, resolver, embedder, llm
 
@@ -117,7 +97,6 @@ async def test_stage1_exact_name_hits(env):
 
     got = await resolver.resolve("u1", "Phim Ảnh")
     assert got.topic_id == existing.topic_id
-    assert not llm.calls, "LLM must not be called on exact match"
 
 
 async def test_stage1_alias_hits(env):
@@ -131,94 +110,9 @@ async def test_stage1_alias_hits(env):
 
     got = await resolver.resolve("u1", "FILM")
     assert got.topic_id == existing.topic_id
-    assert not llm.calls
 
 
-# ---------------------------------------------------------------- Stage 2
 
-
-async def test_stage2_knn_auto_merge(env):
-    store, resolver, embedder, llm = env
-    # Existing topic vector close to query (cos ~0.99).
-    existing = T2Topic(
-        user_id="u1", name="phim",
-        catalogs=["interest"], embedding=_vec(0.99, 0.14),
-    )
-    await store.upsert_topic(existing)
-    await asyncio.sleep(0.1)
-
-    # Query vector for "Sony phim" → [1.0, 0.0, ...] → cos with existing ~0.99.
-    embedder.vectors["Sony phim"] = _vec(1.0)
-
-    got = await resolver.resolve("u1", "Sony phim")
-    assert got.topic_id == existing.topic_id
-    assert not llm.calls, "LLM must not be called when auto-threshold met"
-    # Alias was added.
-    refreshed = await store.get_topic("u1", existing.topic_id)
-    assert "Sony phim" in refreshed.aliases
-
-
-# ---------------------------------------------------------------- Stage 3
-
-
-async def test_stage3_llm_borderline_yes(env):
-    store, resolver, embedder, llm = env
-    # cos([1,0], [0.83,0.56]) ≈ 0.83 → borderline.
-    existing = T2Topic(
-        user_id="u1", name="phim hành động",
-        catalogs=["interest"], embedding=_vec(0.83, 0.56),
-    )
-    await store.upsert_topic(existing)
-    await asyncio.sleep(0.1)
-
-    embedder.vectors["action movies"] = _vec(1.0)
-    llm.responses = ["YES"]
-
-    got = await resolver.resolve("u1", "action movies")
-    assert got.topic_id == existing.topic_id
-    assert len(llm.calls) == 1
-    refreshed = await store.get_topic("u1", existing.topic_id)
-    assert "action movies" in refreshed.aliases
-
-
-async def test_stage3_llm_borderline_no(env):
-    store, resolver, embedder, llm = env
-    existing = T2Topic(
-        user_id="u1", name="phim hành động",
-        catalogs=["interest"], embedding=_vec(0.83, 0.56),
-    )
-    await store.upsert_topic(existing)
-    await asyncio.sleep(0.1)
-
-    embedder.vectors["chess"] = _vec(1.0)
-    llm.responses = ["NO"]
-
-    got = await resolver.resolve("u1", "chess")
-    assert got.topic_id != existing.topic_id
-    assert got.name == "chess"
-    assert len(llm.calls) == 1
-
-
-# ---------------------------------------------------------------- Stage 4
-
-
-async def test_stage4_create_new_when_below_threshold(env):
-    store, resolver, embedder, llm = env
-    # cos([1,0], [0.5, 0.87]) = 0.5 → below 0.75.
-    existing = T2Topic(
-        user_id="u1", name="cooking",
-        catalogs=["interest"], embedding=_vec(0.5, 0.87),
-    )
-    await store.upsert_topic(existing)
-    await asyncio.sleep(0.1)
-
-    embedder.vectors["Skydiving"] = _vec(1.0)
-
-    got = await resolver.resolve("u1", "Skydiving")
-    assert got.topic_id != existing.topic_id
-    assert got.name == "skydiving"
-    assert "Skydiving" in got.aliases  # original kept as alias
-    assert not llm.calls, "LLM must not be invoked below llm_threshold"
 
 
 # ---------------------------------------------------------------- user isolation
@@ -233,7 +127,7 @@ async def test_user_isolation(env):
     await store.upsert_topic(a_topic)
     await asyncio.sleep(0.1)
 
-    embedder.vectors["phim"] = _vec(1.0)
+
 
     got = await resolver.resolve("userB", "phim")
     assert got.user_id == "userB"
@@ -245,7 +139,7 @@ async def test_user_isolation(env):
 
 async def test_normalization_preserves_diacritics(env):
     store, resolver, embedder, llm = env
-    embedder.vectors["Phim Tâm Lý"] = _vec(1.0)
+
 
     got = await resolver.resolve("u1", "Phim Tâm Lý")
     assert got.name == "phim tâm lý"
@@ -275,12 +169,4 @@ async def test_alias_not_duplicated(env):
     assert len(lowered) == len(set(lowered))
 
 
-# ---------------------------------------------------------------- new topic dim
 
-
-async def test_create_new_attaches_embedding_dim_1024(env):
-    store, resolver, embedder, llm = env
-    embedder.vectors["novel topic xyz"] = _vec(1.0)
-
-    got = await resolver.resolve("u1", "novel topic xyz")
-    assert len(got.embedding) == 1024

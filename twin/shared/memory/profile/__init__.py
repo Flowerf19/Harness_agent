@@ -4,7 +4,6 @@ from twin.shared.memory.profile.constants import (
     SECTION_HEADERS,
     SECTIONS,
 )
-from twin.shared.memory.profile.curation_scheduler import ProfileCurationScheduler
 from twin.shared.memory.profile.curator import ProfileCurator
 from twin.shared.memory.profile.markdown_store import MarkdownProfileStore
 from twin.shared.memory.profile.models import ProfileSection
@@ -12,7 +11,6 @@ from twin.shared.memory.profile.models import ProfileSection
 __all__ = [
     "MarkdownProfileStore",
     "ProfileCurator",
-    "ProfileCurationScheduler",
     "ProfileSection",
     "SECTIONS",
     "SECTION_HEADERS",

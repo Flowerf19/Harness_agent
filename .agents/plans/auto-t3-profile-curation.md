@@ -4,6 +4,9 @@ created: 2026-06-11
 completed: 2026-06-12
 ---
 
+> [!NOTE]
+> Architecture Update: The `CleanupScheduler` and `ProfileCurationScheduler` mentioned in this plan have been merged into a single `DebouncedScheduler` in `twin/shared/utils/debounced_scheduler.py`.
+
 # Auto T3 Profile Curation + Whole-File Curation Mode
 
 ## Summary

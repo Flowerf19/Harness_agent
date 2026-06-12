@@ -4,6 +4,8 @@ created: 2026-06-10
 ---
 
 # T2 extraction-failure data loss (P0) + silent-failure observability (P2)
+> [!NOTE]
+> Architecture Update: The `CleanupScheduler` mentioned in this plan has been merged into a single `DebouncedScheduler` in `twin/shared/utils/debounced_scheduler.py`.
 
 ## Summary
 

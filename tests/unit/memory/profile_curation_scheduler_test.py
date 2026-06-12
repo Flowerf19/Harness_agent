@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 
-from twin.shared.memory.profile.curation_scheduler import ProfileCurationScheduler
+from twin.shared.memory.scheduler import DebouncedScheduler
 
 
 class RecordingCurator:
@@ -19,7 +19,7 @@ class RecordingCurator:
 
 async def test_schedule_then_flush_runs_once():
     curator = RecordingCurator()
-    scheduler = ProfileCurationScheduler(curator.curate, debounce_seconds=60)
+    scheduler = DebouncedScheduler(curator.curate, debounce_seconds=60)
 
     scheduler.schedule("u1")
     await scheduler.flush("u1")
@@ -30,7 +30,7 @@ async def test_schedule_then_flush_runs_once():
 async def test_repeated_schedule_within_window_collapses_to_one_run():
     curator = RecordingCurator()
     # Long debounce so the in-flight tasks never fire on their own; flush runs once.
-    scheduler = ProfileCurationScheduler(curator.curate, debounce_seconds=60)
+    scheduler = DebouncedScheduler(curator.curate, debounce_seconds=60)
 
     scheduler.schedule("u1")
     scheduler.schedule("u1")
@@ -43,7 +43,7 @@ async def test_repeated_schedule_within_window_collapses_to_one_run():
 
 async def test_distinct_user_ids_schedule_independently():
     curator = RecordingCurator()
-    scheduler = ProfileCurationScheduler(curator.curate, debounce_seconds=60)
+    scheduler = DebouncedScheduler(curator.curate, debounce_seconds=60)
 
     # Channel fan-out: two distinct speakers each get their own curation.
     scheduler.schedule("u1")
@@ -58,7 +58,7 @@ async def test_callable_exception_is_swallowed():
     async def boom(user_id: str) -> dict:
         raise RuntimeError("curation blew up")
 
-    scheduler = ProfileCurationScheduler(boom, debounce_seconds=60)
+    scheduler = DebouncedScheduler(boom, debounce_seconds=60)
 
     scheduler.schedule("u1")
     # flush awaits the run; the exception must be swallowed, not propagated.
@@ -67,7 +67,7 @@ async def test_callable_exception_is_swallowed():
 
 async def test_close_cancels_pending_without_firing():
     curator = RecordingCurator()
-    scheduler = ProfileCurationScheduler(curator.curate, debounce_seconds=60)
+    scheduler = DebouncedScheduler(curator.curate, debounce_seconds=60)
 
     scheduler.schedule("u1")
     scheduler.schedule("u2")
@@ -78,3 +78,14 @@ async def test_close_cancels_pending_without_firing():
     # A closed scheduler refuses further work.
     scheduler.schedule("u3")
     assert curator.calls == []
+
+
+async def test_schedule_with_custom_debounce():
+    curator = RecordingCurator()
+    scheduler = DebouncedScheduler(curator.curate, debounce_seconds=60)
+
+    # Schedule with 0.01s custom debounce. It should fire automatically without calling flush.
+    scheduler.schedule("u1", debounce=0.01)
+    await asyncio.sleep(0.02)
+
+    assert curator.calls == ["u1"]

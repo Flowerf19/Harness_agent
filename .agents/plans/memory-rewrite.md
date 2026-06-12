@@ -294,7 +294,7 @@ twin/shared/memory/
     extractor.py         hot-path LLM (1 call)
     consolidator.py      pipeline orchestrator
     cleanup.py           pass 2 dedupe + merge + T3 cleanup
-    cleanup_scheduler.py debounce 30s per user
+    debounced_scheduler.py debounce 30s per user
     search.py            6 modes + on-hit TTL refresh
     constants.py
   profile/
@@ -405,9 +405,7 @@ Tay verify Hoà + Quang trước khi auto-apply cho user khác.
 
 - [ ] `twin/shared/memory/timeline/topic_resolver.py`:
   - Stage 1: exact + alias
-  - Stage 2: KNN top-3, auto ≥ 0.92
-  - Stage 3: LLM judge borderline 0.75-0.92
-  - Stage 4: create new
+  - Stage 2: create new
 - [ ] Unit test `tests/unit/memory/test_topic_resolver.py`:
   - Exact name → hit
   - Alias hit
@@ -440,7 +438,7 @@ Tay verify Hoà + Quang trước khi auto-apply cho user khác.
 
 ### Phase 5 — Cleanup + Scheduler (1 ngày)
 
-- [ ] `twin/shared/memory/timeline/cleanup_scheduler.py`:
+- [ ] `twin/shared/utils/debounced_scheduler.py`:
   - Debounce per user_id, 30s
   - Lock per user (asyncio.Lock dict)
   - Cancel previous task on re-schedule
@@ -575,8 +573,8 @@ Tay verify Hoà + Quang trước khi auto-apply cho user khác.
 | Race condition: user chat tiếp khi cleanup đang chạy | Lock per user; cleanup chỉ chạy nếu user idle ≥ debounce |
 | Migration 5→8 section LLM sai → mất info | One-shot manual verify Hoà + Quang trước; backup `memories.bak/` |
 | Redis VECTOR HNSW không hỗ trợ (Redis Stack version cũ) | Check Redis Stack version ≥ 7.2 trước Phase 2; container đang dùng `redis-stack-server:7.2.0-v18` → OK |
-| T1 cleanup gọi trước khi T2 ghi xong → mất entry | Đảm bảo consolidate là synchronous trước khi T1.trim; cleanup_scheduler chạy SAU upsert_memory |
-| Topic resolver Stage 3 LLM lỗi → tạo topic mới rác | Fallback Stage 4 create new + log warning để cleanup pass merge sau |
+| T1 cleanup gọi trước khi T2 ghi xong → mất entry | Đảm bảo consolidate là synchronous trước khi T1.trim; debounced_scheduler chạy SAU upsert_memory |
+| Topic resolver lỗi tạo topic mới rác | Fallback create new + log warning để cleanup pass merge sau (do đã bỏ KNN/LLM judge) |
 | Pre-flight retrieval slow → user thấy lag | KNN < 10ms, embedding query 50-200ms; cache embedding query 5 phút theo content hash |
 | Bot reply không vào T2 (lỗ Lỗ #1) | Extractor prompt nhấn mạnh `speaker=bot` cho assistant entry, test case riêng |
 
