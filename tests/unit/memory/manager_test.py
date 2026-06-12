@@ -337,6 +337,53 @@ async def test_manager_trims_t1_when_extraction_genuinely_empty(tmp_path):
     assert len(await active.get_context("user", "u1")) == 5
 
 
+async def test_observe_user_message_schedules_curation_for_user_turn(tmp_path):
+    active = _active()
+    profile = MarkdownProfileStore(base_path=str(tmp_path))
+    scheduled: list[str] = []
+    manager = SharedMemoryManager(
+        active=active,
+        profile_store=profile,
+        curation_scheduler=scheduled.append,
+    )
+
+    await manager.observe_user_message("u1", "user", "alo")
+
+    assert scheduled == ["u1"]
+
+
+async def test_observe_user_message_assistant_turn_does_not_schedule(tmp_path):
+    active = _active()
+    profile = MarkdownProfileStore(base_path=str(tmp_path))
+    scheduled: list[str] = []
+    manager = SharedMemoryManager(
+        active=active,
+        profile_store=profile,
+        curation_scheduler=scheduled.append,
+    )
+
+    await manager.observe_user_message("u1", "assistant", "chào bạn")
+
+    # The bot's own turn must never reset the user's curation timer.
+    assert scheduled == []
+
+
+async def test_observe_channel_message_schedules_curation_for_author(tmp_path):
+    active = _active()
+    profile = MarkdownProfileStore(base_path=str(tmp_path))
+    scheduled: list[str] = []
+    manager = SharedMemoryManager(
+        active=active,
+        profile_store=profile,
+        curation_scheduler=scheduled.append,
+    )
+
+    await manager.observe_channel_message("g1", "c1", "author-9", "Hoà", "m1", "alo")
+
+    # Keyed on the speaking participant, not the channel.
+    assert scheduled == ["author-9"]
+
+
 async def test_active_summary_policy_triggers_active_scope(tmp_path):
     active = _active()
     calls = []

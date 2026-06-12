@@ -30,7 +30,7 @@ class FakeLLM:
         self.last_messages: list[dict[str, Any]] | None = None
         self.last_system_prompt: str | None = None
 
-    async def generate_response(self, messages, system_prompt=None, use_native_tools=False):
+    async def generate_response(self, messages, system_prompt=None, use_native_tools=False, max_tokens=None):
         self.last_messages = list(messages)
         self.last_system_prompt = system_prompt
         return self.response

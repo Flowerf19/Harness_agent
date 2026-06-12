@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from twin.shared.memory.active import ActiveEntry, ActiveMemory
 from twin.shared.memory.profile import MarkdownProfileStore
@@ -25,12 +25,14 @@ class SharedMemoryManager:
         profile_store: MarkdownProfileStore,
         timeline_search: TimelineSearch | None = None,
         consolidator: Any = None,
+        curation_scheduler: Callable[[str], None] | None = None,
     ) -> None:
         self.t1 = active
         self.profile = profile_store
         self.t3 = profile_store
         self.timeline_search = timeline_search
         self.consolidator = consolidator
+        self.curation_scheduler = curation_scheduler
 
     # ------------------------------------------------------------------ writes
 
@@ -46,6 +48,9 @@ class SharedMemoryManager:
             author_id=str(user_id) if role != "assistant" else None,
             author_name=str(user_id) if role != "assistant" else None,
         )
+        # Reset the user's T3 curation timer on a real user turn (not the bot's).
+        if role != "assistant" and self.curation_scheduler is not None:
+            self.curation_scheduler(str(user_id))
 
     async def add_assistant_message(
         self,
@@ -100,6 +105,10 @@ class SharedMemoryManager:
             channel_id=str(channel_id),
             reply_to=reply_to,
         )
+        # Channel turns are always a user turn; key the curation timer on the
+        # speaking participant so their T3 is curated 30 min after they go idle.
+        if self.curation_scheduler is not None:
+            self.curation_scheduler(str(author_id))
 
     # ------------------------------------------------------------------- reads
 

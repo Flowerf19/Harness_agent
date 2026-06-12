@@ -18,6 +18,13 @@ SAFE_REFINE_FAILURE_REPLY = (
     "Xin lỗi, tôi cần bạn nói rõ hơn trước khi dùng công cụ này."
 )
 
+# Reasoning models (e.g. gpt-5.x-mini) spend output tokens on internal reasoning
+# before emitting tool_calls / structured JSON. The default LLM_MAX_TOKENS (~4000)
+# can be exhausted by reasoning alone, starving the actual tool selection/refine
+# output. Give the tool-loop path a larger explicit budget so structured output
+# survives. Scale matches EXTRACT_MAX_TOKENS / PROFILE_CURATION_MAX_TOKENS (4000).
+TOOL_SELECTION_MAX_TOKENS = 8000
+
 _VALID_REFINE_ACTIONS = {"call_tool", "respond"}
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL | re.IGNORECASE)
 
@@ -52,6 +59,7 @@ async def run_strict_tool_loop(
             messages=messages,
             system_prompt=system_prompt,
             use_native_tools=use_native_tools,
+            max_tokens=TOOL_SELECTION_MAX_TOKENS,
         )
 
         if not isinstance(llm_response, LLMResponse) or not llm_response.has_tool_calls():
@@ -79,10 +87,26 @@ async def run_strict_tool_loop(
             logger.warning("Failed to load tool guide for %s: %s", tool_name, exc)
             return LLMResponse(content=SAFE_REFINE_FAILURE_REPLY)
 
+        # When pass 1 picked a tool but did not supply all of its required args
+        # (e.g. manage_user_profile chosen without expected_profile_hash, which
+        # only get_profile can produce), refine must be allowed to route to the
+        # prerequisite tool named in the guide instead of dead-ending in respond.
+        missing_required = _missing_required_args(tool_registry, tool_name, selected.get("arguments"))
+        allow_tool_switch = bool(missing_required)
+        if allow_tool_switch:
+            logger.info(
+                "Selected tool '%s' missing required args %s; allowing refine to route to a prerequisite tool",
+                tool_name,
+                missing_required,
+            )
+
         refine_response = await llm.generate_response(
             messages=_build_refine_messages(messages, selected),
-            system_prompt=_build_refine_system_prompt(system_prompt, tool_guide, selected),
+            system_prompt=_build_refine_system_prompt(
+                system_prompt, tool_guide, selected, missing_required
+            ),
             use_native_tools=False,
+            max_tokens=TOOL_SELECTION_MAX_TOKENS,
         )
 
         if isinstance(refine_response, str):
@@ -94,6 +118,8 @@ async def run_strict_tool_loop(
         refine = _parse_refine_decision(
             refine_response.content,
             expected_tool_name=tool_name,
+            allow_tool_switch=allow_tool_switch,
+            allowed_tool_names=tool_prompt_catalog.allowed_tool_names(),
             logger=logger,
         )
         if refine is None:
@@ -146,6 +172,7 @@ def _build_refine_system_prompt(
     system_prompt: str,
     tool_guide: str,
     selected: dict[str, Any],
+    missing_required: list[str] | None = None,
 ) -> str:
     selected_json = json.dumps(
         {
@@ -154,6 +181,23 @@ def _build_refine_system_prompt(
         },
         ensure_ascii=False,
     )
+    if missing_required:
+        switch_clause = (
+            f"- Tool đã chọn còn THIẾU tham số bắt buộc: {', '.join(missing_required)}.\n"
+            "- Nếu dữ liệu thiếu này phải lấy từ một tool khác (xem hướng dẫn, ví dụ "
+            "`get_profile` cấp `expected_profile_hash`), hãy call_tool tool tiên quyết đó "
+            "trước (đặt tool_name = tên tool tiên quyết) thay vì respond.\n"
+            "- Chỉ respond/hỏi lại khi không tool nào lấp được dữ liệu thiếu."
+        )
+        tool_name_rule = (
+            f'- tool_name khi call_tool là "{selected.get("name")}", '
+            "HOẶC tool tiên quyết cần để lấy tham số đang thiếu."
+        )
+    else:
+        switch_clause = "- Không thực thi nếu thiếu dữ liệu quan trọng; hãy respond/hỏi lại."
+        tool_name_rule = (
+            f'- tool_name khi call_tool phải giữ nguyên: "{selected.get("name")}".'
+        )
     contract = f"""
 === TINH CHỈNH TOOL ===
 Bạn đang ở bước tinh chỉnh/hủy cho đúng một tool đã được chọn.
@@ -178,8 +222,8 @@ Nếu hủy tool và trả lời trực tiếp:
 
 Ràng buộc:
 - action chỉ là "call_tool" hoặc "respond".
-- tool_name khi call_tool phải giữ nguyên: "{selected.get("name")}".
-- Không thực thi nếu thiếu dữ liệu quan trọng; hãy respond/hỏi lại.
+{tool_name_rule}
+{switch_clause}
 """.strip()
 
     parts = [system_prompt.strip(), "=== HƯỚNG DẪN TOOL ĐÃ CHỌN ===\n" + tool_guide, contract]
@@ -201,6 +245,8 @@ def _parse_refine_decision(
     raw: str,
     *,
     expected_tool_name: str,
+    allow_tool_switch: bool = False,
+    allowed_tool_names: set[str] | None = None,
     logger: logging.Logger,
 ) -> RefineDecision | None:
     text = (raw or "").strip()
@@ -221,12 +267,28 @@ def _parse_refine_decision(
 
     tool_name = str(data.get("tool_name") or "").strip()
     if tool_name != expected_tool_name:
-        logger.warning(
-            "Refine attempted to switch tool: expected=%s actual=%s",
+        # Tool switching is rejected by default to protect pass-1's single-tool
+        # selection. It is only permitted when the selected tool had unmet
+        # required args, and only to another registered (prerequisite) tool.
+        if not allow_tool_switch:
+            logger.warning(
+                "Refine attempted to switch tool: expected=%s actual=%s",
+                expected_tool_name,
+                tool_name,
+            )
+            return None
+        if not tool_name or (allowed_tool_names is not None and tool_name not in allowed_tool_names):
+            logger.warning(
+                "Refine switched to unknown tool: %r (allowed=%s)",
+                tool_name,
+                sorted(allowed_tool_names) if allowed_tool_names else None,
+            )
+            return None
+        logger.info(
+            "Refine routed to prerequisite tool: expected=%s actual=%s",
             expected_tool_name,
             tool_name,
         )
-        return None
 
     arguments = data.get("arguments")
     if arguments is None and isinstance(data.get("tool_input"), dict):
@@ -236,6 +298,38 @@ def _parse_refine_decision(
         return None
 
     return RefineDecision(action="call_tool", tool_name=tool_name, arguments=arguments)
+
+
+def _missing_required_args(
+    tool_registry: Any,
+    tool_name: str,
+    arguments: Any,
+) -> list[str]:
+    """Return required schema args the model did not supply for the selected tool.
+
+    Used to decide whether refine may route to a prerequisite tool. Empty list
+    means all required args are present (or the schema is unavailable), keeping
+    the strict single-tool refine path for the normal case.
+    """
+    get_schema = getattr(tool_registry, "get_tool_schema", None)
+    if not callable(get_schema):
+        return []
+    try:
+        schema = get_schema(tool_name)
+    except Exception:
+        return []
+    if not isinstance(schema, dict):
+        return []
+    required = schema.get("function", {}).get("parameters", {}).get("required", [])
+    if not isinstance(required, list):
+        return []
+    provided = arguments if isinstance(arguments, dict) else {}
+    missing = []
+    for name in required:
+        value = provided.get(name)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            missing.append(str(name))
+    return missing
 
 
 def _extract_json(text: str) -> str:

@@ -1,5 +1,5 @@
 <tool_description>
-Khi cần đọc hồ sơ T3 ổn định của user.
+Khi cần đọc hồ sơ T3 ổn định của user. Gọi tool này TRƯỚC khi curate/`manage_user_profile` để lấy `expected_profile_hash` hiện tại.
 </tool_description>
 
 ## get_profile

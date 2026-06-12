@@ -14,6 +14,7 @@ from typing import Any
 from twin.shared.memory.profile.constants import (
     DEFAULT_PROFILE_DIR,
     EMPTY_PLACEHOLDER,
+    PROFILE_CURATION_MIN_BULLETS,
     PROFILE_FOOTER_HINT,
     PROFILE_HEADER,
     SECTION_HEADERS,
@@ -369,4 +370,86 @@ class MarkdownProfileStore:
                 "written": new_text != text,
                 "old_count": len(before),
                 "new_count": len(cleaned_bullets),
+            }
+
+    async def replace_all(
+        self,
+        user_id: str,
+        sections: dict[str, list[str]],
+        expected_profile_hash: str | None = None,
+        *,
+        allow_shrink: bool = False,
+    ) -> dict[str, Any]:
+        """Rewrite the whole profile from an authoritative section map.
+
+        The map is authoritative: a canonical section absent from ``sections``
+        renders as empty. ``expected_profile_hash`` follows the same optimistic-
+        concurrency contract as ``replace_section``. A rewrite that drops more
+        than half of an existing non-trivial profile is rejected unless
+        ``allow_shrink`` is set (catastrophic-loss guard).
+        """
+        if not isinstance(sections, dict):
+            raise ValueError("sections must be a dict")
+        cleaned: dict[str, list[str]] = _empty_section_map()
+        for key, bullets in sections.items():
+            if key not in SECTIONS:
+                raise ValueError(f"invalid section: {key!r}")
+            cleaned[key] = _sanitize_bullets(bullets)
+        expected = (expected_profile_hash or "").strip() or None
+        path = self._path_for(user_id)
+
+        async with self._profile_file_lock(user_id):
+            text = await self._ensure_file(path)
+            current_hash = profile_hash(text)
+            if expected is not None and expected != current_hash:
+                return {
+                    "ok": False,
+                    "conflict": True,
+                    "profile_hash": current_hash,
+                    "expected_profile_hash": expected,
+                    "written": False,
+                }
+
+            parsed = _parse_markdown(text)
+            old_total = sum(len(parsed.get(s, [])) for s in SECTIONS)
+            new_total = sum(len(cleaned[s]) for s in SECTIONS)
+            if (
+                old_total >= PROFILE_CURATION_MIN_BULLETS
+                and new_total < old_total * 0.5
+                and not allow_shrink
+            ):
+                return {
+                    "ok": False,
+                    "shrink_blocked": True,
+                    "old_total": old_total,
+                    "new_total": new_total,
+                    "profile_hash": current_hash,
+                    "written": False,
+                }
+
+            new_text = _render_markdown(cleaned)
+            new_hash = profile_hash(new_text)
+            if new_text != text:
+                try:
+                    self._atomic_write_sync(path, new_text)
+                except OSError as exc:
+                    logger.warning("profile replace_all failed for %s: %s", path, exc)
+                    raise
+
+            sections_changed = [
+                s for s in SECTIONS if parsed.get(s, []) != cleaned[s]
+            ]
+            logger.debug(
+                "profile replace_all: user=%s old=%d new=%d changed=%d",
+                user_id, old_total, new_total, len(sections_changed),
+            )
+            return {
+                "ok": True,
+                "conflict": False,
+                "profile_hash": new_hash,
+                "previous_profile_hash": current_hash,
+                "written": new_text != text,
+                "old_total": old_total,
+                "new_total": new_total,
+                "sections_changed": sections_changed,
             }

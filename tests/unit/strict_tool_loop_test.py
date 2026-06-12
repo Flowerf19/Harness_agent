@@ -37,6 +37,9 @@ class FakeCatalog:
         self.loaded.append(tool_name)
         return f'<tool_guide name="{tool_name}">\n{tool_name}: guide\n\n## {tool_name}\nUse carefully.\n</tool_guide>'
 
+    def allowed_tool_names(self):
+        return {"get_profile", "manage_user_profile", "search_memory", "web_search"}
+
 
 class FakeRegistry:
     def __init__(self):
@@ -45,6 +48,27 @@ class FakeRegistry:
     async def execute_tool(self, tool_name, arguments):
         self.calls.append({"tool_name": tool_name, "arguments": arguments})
         return f"result for {tool_name}: {arguments}"
+
+
+class FakeRegistryWithSchema(FakeRegistry):
+    """Registry that exposes get_tool_schema so the loop can detect unmet
+    required args and allow refine to route to a prerequisite tool."""
+
+    def __init__(self, required_by_tool):
+        super().__init__()
+        self._required = required_by_tool
+
+    def get_tool_schema(self, tool_name):
+        required = self._required.get(tool_name)
+        if required is None:
+            return None
+        return {
+            "type": "function",
+            "function": {
+                "name": tool_name,
+                "parameters": {"type": "object", "required": list(required)},
+            },
+        }
 
 
 def _tool_response(*tool_calls):
@@ -198,7 +222,112 @@ async def test_invalid_refine_json_skips_execution():
 
 
 @pytest.mark.asyncio
-async def test_refine_cannot_switch_selected_tool():
+async def test_refine_routes_to_prerequisite_when_required_arg_missing():
+    # Pass 1 picks manage_user_profile but omits the required expected_profile_hash
+    # (only get_profile can produce it). Refine must route to get_profile and the
+    # loop must execute it + continue, instead of dead-ending in respond.
+    llm = FakeLLM(
+        [
+            _tool_response(
+                {
+                    "id": "call_1",
+                    "name": "manage_user_profile",
+                    "arguments": {"user_id": "123", "reason": "dedup"},
+                }
+            ),
+            _text_response(
+                json.dumps(
+                    {
+                        "action": "call_tool",
+                        "tool_name": "get_profile",
+                        "arguments": {"user_id": "123"},
+                    }
+                )
+            ),
+            _text_response("done"),
+        ]
+    )
+    registry = FakeRegistryWithSchema(
+        {
+            "manage_user_profile": ["user_id", "expected_profile_hash", "reason"],
+            "get_profile": ["user_id"],
+        }
+    )
+    catalog = FakeCatalog()
+    messages = [{"role": "user", "content": "curate my profile"}]
+
+    response = await run_strict_tool_loop(
+        llm=llm,
+        tool_registry=registry,
+        tool_prompt_catalog=catalog,
+        messages=messages,
+        system_prompt="sys",
+        use_native_tools=True,
+        llm_type="openai",
+        logger=logging.getLogger(__name__),
+    )
+
+    assert isinstance(response, LLMResponse)
+    assert response.content == "done"
+    # Refine routed to the prerequisite tool and the loop executed it.
+    assert registry.calls == [
+        {"tool_name": "get_profile", "arguments": {"user_id": "123"}}
+    ]
+    # The get_profile result is now in messages so a later iteration can supply
+    # the hash; the loop did not dead-end in respond.
+    assert messages[-1]["role"] == "tool"
+    assert "get_profile" in messages[-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_refine_cannot_switch_when_required_args_satisfied():
+    # All required args present -> strict single-tool refine; a switch attempt
+    # is rejected and the loop returns the safe failure reply.
+    llm = FakeLLM(
+        [
+            _tool_response(
+                {
+                    "id": "call_1",
+                    "name": "manage_user_profile",
+                    "arguments": {
+                        "user_id": "123",
+                        "expected_profile_hash": "deadbeef",
+                        "reason": "dedup",
+                    },
+                }
+            ),
+            _text_response(
+                json.dumps(
+                    {
+                        "action": "call_tool",
+                        "tool_name": "get_profile",
+                        "arguments": {"user_id": "123"},
+                    }
+                )
+            ),
+        ]
+    )
+    registry = FakeRegistryWithSchema(
+        {
+            "manage_user_profile": ["user_id", "expected_profile_hash", "reason"],
+            "get_profile": ["user_id"],
+        }
+    )
+
+    response = await run_strict_tool_loop(
+        llm=llm,
+        tool_registry=registry,
+        tool_prompt_catalog=FakeCatalog(),
+        messages=[{"role": "user", "content": "curate"}],
+        system_prompt="sys",
+        use_native_tools=True,
+        llm_type="openai",
+        logger=logging.getLogger(__name__),
+    )
+
+    assert isinstance(response, LLMResponse)
+    assert response.content == SAFE_REFINE_FAILURE_REPLY
+    assert registry.calls == []
     llm = FakeLLM(
         [
             _tool_response(

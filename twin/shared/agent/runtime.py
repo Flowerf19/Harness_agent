@@ -23,7 +23,11 @@ from twin.shared.memory.active import (
     ActiveSummaryStateRepository,
     FastPathDetector,
 )
-from twin.shared.memory.profile import MarkdownProfileStore
+from twin.shared.memory.profile import (
+    MarkdownProfileStore,
+    ProfileCurationScheduler,
+    ProfileCurator,
+)
 from twin.shared.memory.timeline import (
     Cleanup,
     CleanupScheduler,
@@ -46,12 +50,15 @@ class SharedAgentRuntime:
     timeline_search: TimelineSearch
     profile_store: MarkdownProfileStore
     cleanup_scheduler: CleanupScheduler
+    curation_scheduler: ProfileCurationScheduler
     state_repo: ActiveSummaryStateRepository
     summary_policy: ActiveSummaryPolicy
 
     async def close(self) -> None:
         if self.cleanup_scheduler:
             await self.cleanup_scheduler.close()
+        if self.curation_scheduler:
+            await self.curation_scheduler.close()
         if self.llm_service:
             await self.llm_service.close()
         if self.redis_client:
@@ -100,11 +107,15 @@ async def build_shared_agent_runtime(*, redis_db: int, persona_path: str) -> Sha
         embedder=embedding_service,
     )
 
+    curator = ProfileCurator(profile_store, llm_service)
+    curation_scheduler = ProfileCurationScheduler(curator.curate)
+
     memory_manager = SharedMemoryManager(
         active=active,
         profile_store=profile_store,
         timeline_search=timeline_search,
         consolidator=consolidator,
+        curation_scheduler=curation_scheduler.schedule,
     )
     active.trigger_callback = memory_manager.consolidate_scope
 
@@ -124,6 +135,7 @@ async def build_shared_agent_runtime(*, redis_db: int, persona_path: str) -> Sha
         timeline_search=timeline_search,
         profile_store=profile_store,
         cleanup_scheduler=cleanup_scheduler,
+        curation_scheduler=curation_scheduler,
         state_repo=state_repo,
         summary_policy=summary_policy,
     )

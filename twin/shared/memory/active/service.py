@@ -128,7 +128,15 @@ class ActiveMemory:
             await self.store.delete_entries(scope, scope_id, to_delete)
 
         remaining = [e for e in all_entries if e.entry_id not in set(to_delete)]
-        remaining_tokens = sum(e.tokens for e in remaining)
+        # Count only tokens that are genuinely UN-summarized: exclude entries we
+        # just summarized but physically retained for context (the keep_recent
+        # tail). Entries that arrived after the consolidation snapshot are not in
+        # summarized_entry_ids, so they still count — keeping the scope hot until
+        # they too get summarized.
+        summarized_set = set(summarized_entry_ids)
+        remaining_tokens = sum(
+            e.tokens for e in remaining if e.entry_id not in summarized_set
+        )
         await self.store.update_state(
             scope, scope_id, unsummarized_tokens=remaining_tokens
         )

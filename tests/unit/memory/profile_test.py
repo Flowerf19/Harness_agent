@@ -244,3 +244,139 @@ async def test_read_raw_round_trips_after_writes(tmp_path):
 async def test_profile_section_enum_values_match_sections_constant():
     assert [s.value for s in ProfileSection] == SECTIONS
     assert DEFAULT_PROFILE_DIR == "memories"
+
+
+async def test_replace_all_renders_canonical_markdown(tmp_path):
+    store = _store(tmp_path)
+    result = await store.replace_all(
+        USER,
+        {"basic": ["Tên: Quang", "Tuổi: 24"], "interest": ["Cờ vua"]},
+    )
+    assert result["ok"] is True
+    assert result["conflict"] is False
+    assert result["written"] is True
+    assert result["new_total"] == 3
+    assert await store.read_section(USER, "basic") == ["Tên: Quang", "Tuổi: 24"]
+    assert await store.read_section(USER, "interest") == ["Cờ vua"]
+
+    raw = await store.read_raw(USER)
+    # All 8 canonical headers present exactly once; absent keys render empty.
+    for header in SECTION_HEADERS.values():
+        assert raw.count(f"## {header}") == 1
+    rules_block = raw.split(f"## {SECTION_HEADERS['rules']}", 1)[1]
+    assert f"- {EMPTY_PLACEHOLDER}" in rules_block
+
+
+async def test_replace_all_absent_key_clears_section(tmp_path):
+    store = _store(tmp_path)
+    await store.append_raw(USER, "basic", "Tên: Quang")
+    await store.append_raw(USER, "interest", "Cờ vua")
+    current = await store.read_raw(USER)
+
+    # Map omits "interest": authoritative => it is cleared.
+    result = await store.replace_all(
+        USER,
+        {"basic": ["Tên: Quang"]},
+        expected_profile_hash=profile_hash(current),
+        allow_shrink=True,
+    )
+    assert result["ok"] is True
+    assert await store.read_section(USER, "interest") == []
+    assert await store.read_section(USER, "basic") == ["Tên: Quang"]
+
+
+async def test_replace_all_detects_expected_hash_conflict_without_write(tmp_path):
+    store = _store(tmp_path)
+    await store.append_raw(USER, "basic", "Tên: Quang")
+    before = await store.read_raw(USER)
+
+    result = await store.replace_all(
+        USER,
+        {"basic": ["Tên: Q"]},
+        expected_profile_hash="stale",
+    )
+    assert result["ok"] is False
+    assert result["conflict"] is True
+    assert result["profile_hash"] == profile_hash(before)
+    assert result["written"] is False
+    assert await store.read_raw(USER) == before
+
+
+async def test_replace_all_blocks_catastrophic_shrink(tmp_path):
+    store = _store(tmp_path)
+    for i in range(6):
+        await store.append_raw(USER, "interest", f"item-{i}")
+    before = await store.read_raw(USER)
+
+    # 6 -> 2 is >50% drop on a non-trivial profile => blocked.
+    result = await store.replace_all(
+        USER,
+        {"interest": ["item-0", "item-1"]},
+        expected_profile_hash=profile_hash(before),
+    )
+    assert result["ok"] is False
+    assert result["shrink_blocked"] is True
+    assert result["old_total"] == 6
+    assert result["new_total"] == 2
+    assert result["written"] is False
+    assert await store.read_raw(USER) == before
+
+
+async def test_replace_all_allow_shrink_bypasses_guard(tmp_path):
+    store = _store(tmp_path)
+    for i in range(6):
+        await store.append_raw(USER, "interest", f"item-{i}")
+    before = await store.read_raw(USER)
+
+    result = await store.replace_all(
+        USER,
+        {"interest": ["item-0", "item-1"]},
+        expected_profile_hash=profile_hash(before),
+        allow_shrink=True,
+    )
+    assert result["ok"] is True
+    assert result["new_total"] == 2
+    assert await store.read_section(USER, "interest") == ["item-0", "item-1"]
+
+
+async def test_replace_all_tiny_profile_exempt_from_shrink_guard(tmp_path):
+    store = _store(tmp_path)
+    await store.append_raw(USER, "interest", "a")
+    await store.append_raw(USER, "interest", "b")
+    await store.append_raw(USER, "interest", "c")
+    before = await store.read_raw(USER)
+
+    # 3 -> 0: old_total < MIN_BULLETS (4) so the guard does not apply.
+    result = await store.replace_all(
+        USER,
+        {},
+        expected_profile_hash=profile_hash(before),
+    )
+    assert result["ok"] is True
+    assert result["old_total"] == 3
+    assert result["new_total"] == 0
+    assert await store.read_section(USER, "interest") == []
+
+
+async def test_replace_all_noop_returns_written_false(tmp_path):
+    store = _store(tmp_path)
+    await store.append_raw(USER, "basic", "Tên: Quang")
+    current = await store.read_raw(USER)
+
+    result = await store.replace_all(
+        USER,
+        {"basic": ["Tên: Quang"]},
+        expected_profile_hash=profile_hash(current),
+    )
+    assert result["ok"] is True
+    assert result["written"] is False
+    assert result["sections_changed"] == []
+    assert result["profile_hash"] == result["previous_profile_hash"]
+
+
+async def test_replace_all_invalid_section_key_raises(tmp_path):
+    store = _store(tmp_path)
+    with pytest.raises(ValueError):
+        await store.replace_all(USER, {"not_a_section": ["x"]})
+    with pytest.raises(ValueError):
+        await store.replace_all(USER, {"basic": ["- already prefixed"]})

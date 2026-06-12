@@ -87,7 +87,7 @@ class FakeLLM:
     def __class__name__(self):  # pragma: no cover — only for repr
         return "FakeLLM"
 
-    async def generate_response(self, messages, system_prompt, use_native_tools):
+    async def generate_response(self, messages, system_prompt, use_native_tools, max_tokens=None):
         self.last_messages = list(messages)
         self.last_system_prompt = system_prompt
         return self.response

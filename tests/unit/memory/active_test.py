@@ -133,6 +133,43 @@ async def test_trim_keeps_recent():
     assert deleted_expected.isdisjoint(remaining_ids)
 
 
+@pytest.mark.asyncio
+async def test_trim_clears_unsummarized_tokens_for_retained_entries():
+    # Regression: retained-but-summarized entries (the keep_recent tail) must
+    # NOT count toward unsummarized_tokens, or the scope stays hot forever and
+    # the consolidator re-summarizes the same transcript on every poll.
+    mem = _make_memory(token_counter=lambda _: 10)
+    entries: list[ActiveEntry] = []
+    for i in range(5):
+        entries.append(await mem.observe("user", "u1", "user", f"msg-{i}"))
+
+    # All 5 entries summarized; keep_recent=5 retains every one of them.
+    summarized = [e.entry_id for e in entries]
+    await mem.trim("user", "u1", summarized, keep_recent=5)
+
+    state = await mem.store.get_state("user", "u1")
+    assert state["unsummarized_tokens"] == 0
+
+
+@pytest.mark.asyncio
+async def test_trim_counts_entries_not_yet_summarized():
+    # An entry that arrived after the consolidation snapshot (not in
+    # summarized_entry_ids) and is still present MUST keep counting.
+    mem = _make_memory(token_counter=lambda _: 10)
+    entries: list[ActiveEntry] = []
+    for i in range(4):
+        entries.append(await mem.observe("user", "u1", "user", f"msg-{i}"))
+    # A 5th message lands mid-consolidation, after the snapshot was taken.
+    late = await mem.observe("user", "u1", "user", "late-arrival")
+
+    summarized = [e.entry_id for e in entries]  # excludes `late`
+    await mem.trim("user", "u1", summarized, keep_recent=5)
+
+    state = await mem.store.get_state("user", "u1")
+    # Only the late, un-summarized entry's tokens remain.
+    assert state["unsummarized_tokens"] == late.tokens == 10
+
+
 # ---------------- detector ----------------
 
 def test_fast_path_detector_matches_identity():

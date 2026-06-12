@@ -19,6 +19,12 @@ SECTION_HEADERS: dict[str, str] = {
 
 DEFAULT_PROFILE_DIR = "memories"
 
+# Auto T3 curation: idle window must exceed IDLE_TRIGGER_MINUTES*60 (=900s) so
+# consolidation/promotion (fills T3) always lands before curation (cleans T3).
+PROFILE_CURATION_IDLE_SECONDS = 1800
+PROFILE_CURATION_MAX_TOKENS = 4000
+PROFILE_CURATION_MIN_BULLETS = 4
+
 EMPTY_PLACEHOLDER = "(chưa có)"
 
 PROFILE_HEADER = "=== HỒ SƠ NGƯỜI DÙNG ==="
