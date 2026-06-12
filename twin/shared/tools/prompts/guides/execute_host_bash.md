@@ -1,6 +1,6 @@
 <tool_description>
 Khi cần kiểm tra host, Docker, log, service, hoặc chạy bash thật.
-</tool_description>
+
 
 ## execute_host_bash
 
@@ -16,6 +16,8 @@ Chạy lệnh bash trên máy host của bot thông qua Bash Executor. Mỗi l�
 - Tính toán: dùng `run_python_code`.
 - Lệnh trong sandbox hoặc phân tích dữ liệu dự án: dùng `run_python_code` với kernel bash.
 - Lệnh nguy hiểm hoặc thay đổi cấu hình khi user không yêu cầu rõ.
+
+</tool_description>
 
 ### Input
 

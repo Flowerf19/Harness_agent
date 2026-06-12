@@ -1,6 +1,4 @@
 <tool_description>
-Khi cần thông tin hiện tại, mới nhất, giá, lịch, tin tức, hoặc nguồn web.
-</tool_description>
 
 ## web_search
 
@@ -16,6 +14,8 @@ Tìm kiếm web hiện tại qua Tavily.
 - Ký ức/user history: dùng `search_memory`.
 - Tính toán/dữ liệu local: dùng `run_python_code`.
 - Lệnh host/log/docker: dùng `execute_host_bash`.
+
+</tool_description>
 
 ### Input
 

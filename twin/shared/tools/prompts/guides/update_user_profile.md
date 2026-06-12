@@ -1,6 +1,4 @@
 <tool_description>
-Khi cần lưu thông tin bền vững của user vào hồ sơ T3.
-</tool_description>
 
 ## update_user_profile
 
@@ -16,6 +14,8 @@ Append một bullet ổn định vào hồ sơ Core Memory T3 của user.
 - Tâm trạng hoặc nhu cầu một lần.
 - Guess/suy diễn chưa được xác nhận.
 - Nội dung cần ghi đè toàn bộ profile: không dùng tool này.
+</tool_description>
+
 
 ### Input
 

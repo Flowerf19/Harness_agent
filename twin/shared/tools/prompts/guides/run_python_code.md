@@ -1,6 +1,4 @@
 <tool_description>
-Khi cần tính toán, chạy code, kiểm thử script, hoặc xử lý file.
-</tool_description>
 
 ## run_python_code
 
@@ -16,7 +14,7 @@ Chạy Python hoặc bash trong sandbox CodeBox/Jupyter. Trạng thái được 
 - Thông tin web/current: dùng `web_search`.
 - Trạng thái máy host, docker, log: dùng `execute_host_bash`.
 - Câu hỏi đơn giản có thể trả lời trực tiếp.
-
+</tool_description>
 ### Input
 
 - `user_id`: Discord ID dạng số để có session riêng.
