@@ -129,7 +129,11 @@ def read_tool_description(
         raise ValueError(
             f"Tool guide missing <{description_tag}> block for {tool_name}: {guide}"
         )
-    return body[start + len(start_tag):end].strip()
+    description = body[start + len(start_tag):end].strip()
+    # Catalog/schema descriptions should be a single micro line; the rest of
+    # the block is rendered by render_tool_guide() when a tool is selected.
+    first_line = description.splitlines()[0].strip() if description else ""
+    return first_line
 
 
 def _find_spec_for_tool(

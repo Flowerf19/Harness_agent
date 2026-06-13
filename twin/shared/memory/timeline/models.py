@@ -1,4 +1,4 @@
-"""T2 timeline models: T2Topic, T2Memory + catalog enums and helpers."""
+"""T2 timeline models: T2Memory + catalog enums and helpers."""
 from __future__ import annotations
 
 import uuid

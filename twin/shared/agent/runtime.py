@@ -2,7 +2,7 @@
 
 This module builds infrastructure that March7 and Evernight both use. Agent
 identity and behavior stay in each container; this only owns LLM, memory,
-Redis, timeline, cleanup, and summary plumbing.
+Redis, timeline, and summary plumbing.
 """
 from __future__ import annotations
 

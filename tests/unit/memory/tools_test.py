@@ -20,7 +20,6 @@ class FakeTimelineSearch:
                 memory_id="mem-1",
                 user_id=kwargs["user_id"],
                 content="User thích phim tâm lý.",
-                topic_ids=["topic-film"],
                 catalogs=["interest"],
             )
         ]
@@ -69,9 +68,7 @@ async def test_search_memory_tool_dispatches_semantic_params():
             "query": "phim",
             "mode": "semantic",
             "limit": 20,
-            "topic_id": None,
             "hours": 24,
-            "exclude_superseded": True,
         }
     ]
 

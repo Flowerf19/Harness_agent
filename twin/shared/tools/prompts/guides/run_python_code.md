@@ -1,4 +1,6 @@
 <tool_description>
+Chạy Python hoặc bash trong sandbox CodeBox/Jupyter. Trạng thái được giữ riêng theo từng user.
+
 
 ## run_python_code
 
@@ -13,8 +15,9 @@ Chạy Python hoặc bash trong sandbox CodeBox/Jupyter. Trạng thái được 
 
 - Thông tin web/current: dùng `web_search`.
 - Trạng thái máy host, docker, log: dùng `execute_host_bash`.
-- Câu hỏi đơn giản có thể trả lời trực tiếp.
+- Câu hỏi đơn giản có thể trả lờitrực trực tiếp.
 </tool_description>
+
 ### Input
 
 - `user_id`: Discord ID dạng số để có session riêng.

@@ -105,25 +105,6 @@ def sample_t1_snapshot(
 
 
 @pytest.fixture
-def sample_t2_page(sample_user_id: str):
-    """Sample T2 page for tests."""
-    from twin.shared.memory.timeline import T2Memory
-
-    now = datetime.now(timezone.utc)
-    return T2Memory(
-        memory_id="sample-evangelion",
-        user_id=sample_user_id,
-        content="User is watching Neon Genesis Evangelion and finds it intense and mind-blowing.",
-        topic_ids=["topic-evangelion"],
-        catalogs=["interest"],
-        importance=4,
-        created_at=datetime(2025, 1, 10, 8, 0, 0, tzinfo=timezone.utc),
-        last_accessed=now,
-        confidence=0.95,
-    )
-
-
-@pytest.fixture
 def sample_snapshot(sample_t1_snapshot):
     """Alias for sample_t1_snapshot for backward compatibility."""
     return sample_t1_snapshot
@@ -235,48 +216,6 @@ def redis_client(mock_redis):
 # ============================================================
 # LLM Fixtures
 # ============================================================
-
-@pytest.fixture
-def topic_extraction_response() -> dict:
-    """Sample JSON response for topic extraction from T1 snapshot."""
-    return {
-        "topics": [
-            {
-                "canonical_topic": "Evangelion_Anime",
-                "category": "entertainment",
-                "summary": "User is watching Neon Genesis Evangelion and finds it intense and mind-blowing.",
-                "key_points": [
-                    "Started watching Evangelion in January 2025",
-                    "Finished the series",
-                    "Found the ending mind-blowing",
-                ],
-                "importance": 4,
-                "confidence": 0.95,
-            }
-        ]
-    }
-
-
-@pytest.fixture
-def merge_response() -> dict:
-    """Sample JSON response for T2 summary update operation."""
-    return {
-        "current_summary": "User finished Neon Genesis Evangelion and found the ending mind-blowing. The psychological aspects were particularly impactful.",
-        "key_points": [
-            "Started watching Evangelion in January 2025",
-            "Finished the entire series",
-            "Found the ending mind-blowing",
-            "Appreciated the psychological depth",
-        ],
-        "history_log": [
-            "added: started watching Evangelion",
-            "updated: finished series",
-            "added: psychological depth appreciated",
-        ],
-        "category": "entertainment",
-        "importance": 4,
-    }
-
 
 @pytest.fixture
 def llm_response():

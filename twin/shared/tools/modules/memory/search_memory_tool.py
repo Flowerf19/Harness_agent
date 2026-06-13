@@ -9,7 +9,7 @@ from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
 
 logger = logging.getLogger(__name__)
 
-_VALID_TOOL_MODES = {"auto", "semantic", "time", "topic", "recent"}
+_VALID_TOOL_MODES = {"auto", "semantic", "time", "recent"}
 _MAX_LIMIT = 20
 
 
@@ -34,21 +34,13 @@ class SearchMemoryTool(BaseTool):
                 },
                 "mode": {
                     "type": "string",
-                    "enum": ["auto", "semantic", "time", "topic", "recent"],
+                    "enum": ["auto", "semantic", "time", "recent"],
                     "default": "auto",
-                    "description": "auto, semantic, time, topic, recent.",
+                    "description": "auto, semantic, time, recent.",
                 },
                 "query": {
                     "type": "string",
                     "description": "Truy vấn semantic.",
-                },
-                "topic_id": {
-                    "type": "string",
-                    "description": "T2 topic_id.",
-                },
-                "topic": {
-                    "type": "string",
-                    "description": "Alias cho topic_id.",
                 },
                 "hours": {
                     "type": "integer",
@@ -64,11 +56,6 @@ class SearchMemoryTool(BaseTool):
                     "default": 5,
                     "description": f"Số kết quả, tối đa {_MAX_LIMIT}.",
                 },
-                "exclude_superseded": {
-                    "type": "boolean",
-                    "default": True,
-                    "description": "Loại memory đã supersede.",
-                },
             },
             "required": ["user_id"],
         }
@@ -78,17 +65,13 @@ class SearchMemoryTool(BaseTool):
         user_id: str,
         mode: str = "auto",
         query: Optional[str] = None,
-        topic_id: Optional[str] = None,
-        topic: Optional[str] = None,
         hours: Optional[int] = 24,
         days: Optional[int] = None,
         limit: int = 5,
-        exclude_superseded: bool = True,
     ) -> str:
         user_id = str(user_id or "").strip()
         mode = (mode or "auto").strip()
         query = (query or "").strip() or None
-        topic_key = (topic_id or topic or "").strip() or None
 
         if not user_id:
             return "Lỗi: Thiếu user_id."
@@ -106,8 +89,6 @@ class SearchMemoryTool(BaseTool):
         timeline_mode = self._timeline_mode(mode)
         if timeline_mode == "semantic" and not query:
             return "Lỗi: mode semantic cần query."
-        if timeline_mode == "by_topic" and not topic_key:
-            return "Lỗi: mode topic cần topic_id."
 
         try:
             memories = await self.timeline_search.search(
@@ -115,9 +96,7 @@ class SearchMemoryTool(BaseTool):
                 query=query,
                 mode=timeline_mode,
                 limit=self._bounded_limit(limit),
-                topic_id=topic_key,
                 hours=self._resolve_hours(mode, hours, days),
-                exclude_superseded=exclude_superseded,
             )
             return self._format_memories(memories)
         except Exception as e:
@@ -126,8 +105,6 @@ class SearchMemoryTool(BaseTool):
 
     @staticmethod
     def _timeline_mode(mode: str) -> str:
-        if mode == "topic":
-            return "by_topic"
         if mode == "time":
             return "recent"
         return mode
@@ -177,15 +154,14 @@ class SearchMemoryTool(BaseTool):
     @staticmethod
     def _metadata(memory: Any) -> list[str]:
         metadata: list[str] = []
-        for field_name in ("memory_id", "speaker", "change_type"):
+        for field_name in ("memory_id", "speaker"):
             value = SearchMemoryTool._field(memory, field_name)
             if value:
                 metadata.append(f"{field_name}={value}")
 
-        for field_name in ("topic_ids", "catalogs"):
-            value = SearchMemoryTool._field(memory, field_name)
-            if value:
-                metadata.append(f"{field_name}={','.join(value)}")
+        catalogs = SearchMemoryTool._field(memory, "catalogs")
+        if catalogs:
+            metadata.append(f"catalogs={','.join(catalogs)}")
 
         created_at = SearchMemoryTool._field(memory, "created_at")
         if isinstance(created_at, datetime):
@@ -193,9 +169,6 @@ class SearchMemoryTool(BaseTool):
         elif created_at:
             metadata.append(f"created_at={created_at}")
 
-        superseded_by = SearchMemoryTool._field(memory, "superseded_by")
-        if superseded_by:
-            metadata.append(f"superseded_by={superseded_by}")
         return metadata
 
     def __repr__(self) -> str:

@@ -137,7 +137,7 @@ async def test_trim_keeps_recent():
 async def test_trim_clears_unsummarized_tokens_for_retained_entries():
     # Regression: retained-but-summarized entries (the keep_recent tail) must
     # NOT count toward unsummarized_tokens, or the scope stays hot forever and
-    # the consolidator re-summarizes the same transcript on every poll.
+    # the consolidation re-summarizes the same transcript on every poll.
     mem = _make_memory(token_counter=lambda _: 10)
     entries: list[ActiveEntry] = []
     for i in range(5):

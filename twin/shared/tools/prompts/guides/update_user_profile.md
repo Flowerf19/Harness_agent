@@ -1,4 +1,6 @@
 <tool_description>
+Append một bullet ổn định vào hồ sơ Core Memory T3 của user.
+
 
 ## update_user_profile
 
@@ -19,7 +21,7 @@ Append một bullet ổn định vào hồ sơ Core Memory T3 của user.
 
 ### Input
 
-- `user_id`: Discord ID dạng số của người mà thông tin nói tới.
+- `user_id`: Discord ID dạng số của user được đề cập.
 - `section`: một trong `basic`, `contact`, `relationship`, `work`, `interest`, `habit`, `psychological`, `rules`.
 - `content`: một bullet sạch, không prefix `- `, viết tiếng Việt.
 - `source_memory_id`: optional nếu thông tin đến từ T2.

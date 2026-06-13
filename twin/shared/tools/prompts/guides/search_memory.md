@@ -1,4 +1,5 @@
 <tool_description>
+Tìm lịch sử user trong bộ nhớ timeline T2 trên Redis.
 
 
 ## search_memory
@@ -9,21 +10,20 @@ Tìm lịch sử user trong bộ nhớ timeline T2 trên Redis.
 
 - User hỏi về lịch sử, sở thích, thói quen, nội dung đã từng nói.
 - User dùng từ tham chiếu như "hôm trước", "lúc nãy", "ta đã nói", "nhớ không".
-- Cần tìm memory theo topic_id hoặc khoảng thời gian.
+- Cần tìm memory theo khoảng thờigian gian.
 
 ### Khi không nên dùng
 
 - Thông tin hiện tại trên web: dùng `web_search`.
-- Nội dung nằm ngay trong context hiện tại: trả lời trực tiếp.
+- Nội dung nằm ngay trong context hiện tại: trả lờitrực trực tiếp.
 - Hồ sơ T3 ổn định: dùng `get_profile`.
 </tool_description>
 
 ### Input
 
 - `user_id` bắt buộc là Discord ID dạng số. Dùng CURRENT USER hoặc MENTIONED USERS từ system prompt.
-- `mode`: `auto`, `semantic`, `time`, `topic`, `recent`.
+- `mode`: `auto`, `semantic`, `time`, `recent`.
 - `query`: bắt buộc cho semantic; viết cụ thể, không dùng "chuyện đó".
-- `topic_id` hoặc `topic`: bắt buộc cho topic.
 - `hours`/`days`: dùng cho time/recent.
 - `limit`: mặc định 5, tối đa 20.
 
