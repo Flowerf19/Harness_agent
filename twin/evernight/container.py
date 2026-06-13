@@ -9,6 +9,7 @@ from twin.evernight.agent import EvernightAgent
 from twin.evernight.config import EvernightConfig
 from twin.shared.agent.runtime import SharedAgentRuntime, build_shared_agent_runtime
 from twin.shared.tools.registry.bootstrap import build_tool_registry
+from twin.shared.memory.timeline_summary_store import TimelineSummaryStore
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +30,9 @@ class EvernightContainer:
         self.timeline_store = None
         self.timeline_search = None
         self.profile_store = None
-        self.cleanup_scheduler = None
         self.state_repo = None
         self.summary_policy = None
+        self.timeline_summary_store = None
 
     @classmethod
     def get_instance(cls, config: EvernightConfig = None):
@@ -55,9 +56,15 @@ class EvernightContainer:
         self.timeline_store = self.runtime.timeline_store
         self.timeline_search = self.runtime.timeline_search
         self.profile_store = self.runtime.profile_store
-        self.cleanup_scheduler = self.runtime.cleanup_scheduler
         self.state_repo = self.runtime.state_repo
         self.summary_policy = self.runtime.summary_policy
+
+        # Create simplified timeline summary store for new consolidation flow
+        self.timeline_summary_store = TimelineSummaryStore(
+            redis_client=self.timeline_redis_client,
+            embedding_dim=1024,
+        )
+        await self.timeline_summary_store.initialize()
 
         tools = build_tool_registry(
             agent_name="evernight",
@@ -67,6 +74,8 @@ class EvernightContainer:
             profile_store=self.profile_store,
             llm_service=self.llm_service,
             base_memory_path=self.config.persona_path,
+            embedding_service=self.embedding_service,
+            timeline_summary_store=self.timeline_summary_store,
         )
         self.tool_registry = tools.registry
         self.llm_service.set_tool_registry(self.tool_registry)

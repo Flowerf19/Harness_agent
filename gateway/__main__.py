@@ -51,19 +51,7 @@ async def _run_gateway() -> None:
     await a2a_server.start()
     logger.info(f"March7 A2A server listening on port {march7_container.config.port}")
 
-    # Background poller that drives SummaryPolicy for user + channel scopes
-    inactivity_trigger = None
-    if march7_container.state_repo is not None and march7_container.summary_policy is not None:
-        from twin.evernight.triggers.inactivity_trigger import InactivityTrigger
-        poll_interval = int(getattr(march7_container.config, "poll_interval", 60))
-        inactivity_trigger = InactivityTrigger(
-            state_repo=march7_container.state_repo,
-            summary_policy=march7_container.summary_policy,
-            scopes=("user", "channel"),
-            poll_interval=poll_interval,
-        )
-        await inactivity_trigger.start()
-        logger.info("March7 InactivityTrigger started (poll=%ss, scopes=(user, channel))", poll_interval)
+
 
     # Evernight A2A client (HTTP to evernight container)
     evernight_client = None
@@ -106,8 +94,7 @@ async def _run_gateway() -> None:
 
     await gateway.stop_all()
     await agent_router.close()
-    if inactivity_trigger:
-        await inactivity_trigger.stop()
+
     await a2a_server.stop()
     await march7_container.shutdown()
     logger.info("Gateway shut down cleanly.")

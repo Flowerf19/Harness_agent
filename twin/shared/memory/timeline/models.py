@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field, model_validator
 
 from twin.shared.memory.timeline.constants import (
     MAX_CATALOGS_PER_MEMORY,
-    TOPIC_TTL_MULTIPLIER,
     TTL_BY_IMPORTANCE,
 )
 
@@ -37,7 +36,7 @@ CATALOG_TO_T3 = {
     "rules": "rules",
 }
 
-MAX_CATALOGS_PER_TOPIC = 4
+
 
 
 def utc_now() -> datetime:
@@ -59,15 +58,7 @@ def expires_at_for_importance(
     return base + timedelta(days=get_ttl_by_importance(importance))
 
 
-def topic_ttl_for_importance(importance: int) -> int:
-    return get_ttl_by_importance(importance) * TOPIC_TTL_MULTIPLIER
 
-
-def topic_expires_at_for_importance(
-    importance: int, now: datetime | None = None
-) -> datetime:
-    base = now or utc_now()
-    return base + timedelta(days=topic_ttl_for_importance(importance))
 
 
 def _validate_catalogs(values: list[str], max_count: int) -> list[str]:
@@ -79,50 +70,19 @@ def _validate_catalogs(values: list[str], max_count: int) -> list[str]:
     return values
 
 
-class T2Topic(BaseModel):
-    topic_id: str = Field(default_factory=new_uuid)
-    user_id: str
-    name: str
-    aliases: list[str] = Field(default_factory=list)
-    catalogs: list[str] = Field(default_factory=list)
-    embedding: list[float] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=utc_now)
-    last_accessed: datetime = Field(default_factory=utc_now)
-    access_count: int = 0
-    importance: int = 3
-    memory_count: int = 0
-    ttl_days: int = 60
-    expires_at: datetime | None = None
-
-    @model_validator(mode="after")
-    def _populate_derived(self) -> "T2Topic":
-        _validate_catalogs(self.catalogs, MAX_CATALOGS_PER_TOPIC)
-        if self.expires_at is None:
-            self.expires_at = topic_expires_at_for_importance(
-                self.importance, self.created_at
-            )
-        if self.ttl_days == 60 and self.importance != 3:
-            # Default value untouched; recompute from importance for consistency.
-            self.ttl_days = topic_ttl_for_importance(self.importance)
-        return self
-
 
 class T2Memory(BaseModel):
     memory_id: str = Field(default_factory=new_uuid)
     user_id: str
     content: str
     embedding: list[float] = Field(default_factory=list)
-    topic_ids: list[str] = Field(default_factory=list)
+
     catalogs: list[str] = Field(default_factory=list)
     speaker: Literal["user", "bot", "joint"] = "user"
     created_at: datetime = Field(default_factory=utc_now)
     importance: int = 3
     confidence: float = 1.0
     source_msg_ids: list[str] = Field(default_factory=list)
-    supersedes: str | None = None
-    superseded_by: str | None = None
-    change_type: Literal["new", "update", "correction", "reinforcement"] = "new"
-    change_reason: str | None = None
     ttl_days: int = 30
     expires_at: datetime | None = None
     last_accessed: datetime = Field(default_factory=utc_now)

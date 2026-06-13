@@ -33,3 +33,7 @@ PROFILE_FOOTER_HINT = (
     "(Lồng tự nhiên vào câu trả lời, KHÔNG nói "
     '"Theo hồ sơ..." hay "Lần trước bạn nói...")'
 )
+
+# Cosine similarity threshold for T3 promotion dedup. At or above this value,
+# the new memory supersedes the old one in the profile.
+T3_PROMOTION_DEDUP_THRESHOLD = 0.92

@@ -85,6 +85,51 @@ class EvernightAgent:
             logger.error(f"Evernight: Consolidation failed: {e}", exc_info=True)
             return False
 
+    async def consolidate_via_tool(self, user_id: str, reason: str = "manual", max_messages: int = 200) -> dict:
+        """
+        New consolidation flow: use consolidate_memory tool directly.
+        
+        This replaces the old pipeline (Extractor → PromotionGuard → Cleanup → Curator)
+        with a single LLM call via the Summarizer prompt.
+        
+        Returns: dict with status, timeline_summary, profile_updates, etc.
+        """
+        logger.info(f"Evernight: Consolidating via tool for user {user_id}, reason={reason}")
+        
+        if not self.tool_registry:
+            logger.error("Evernight: Tool registry not available")
+            return {"status": "failed", "error": "tool_registry_not_available"}
+        
+        try:
+            # Get the consolidate_memory tool from registry
+            tool = self.tool_registry.get_tool("consolidate_memory")
+            if not tool:
+                logger.error("Evernight: consolidate_memory tool not found in registry")
+                return {"status": "failed", "error": "tool_not_found"}
+            
+            # Execute the tool
+            result_str = await tool.execute(
+                user_id=user_id,
+                reason=reason,
+                max_messages=max_messages,
+            )
+            
+            # Parse JSON result
+            import json
+            result = json.loads(result_str)
+            
+            logger.info(
+                f"Evernight: Consolidation completed for user {user_id}, "
+                f"status={result.get('status')}, "
+                f"messages={result.get('messages_summarized', 0)}"
+            )
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Evernight: Consolidation via tool failed: {e}", exc_info=True)
+            return {"status": "failed", "error": str(e)}
+
     def _format_snapshot(self, snapshot: List[dict]) -> str:
         lines = []
         for msg in snapshot:

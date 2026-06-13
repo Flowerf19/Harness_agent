@@ -7,7 +7,6 @@ from typing import Any, Callable
 from twin.shared.memory.active import ActiveEntry, ActiveMemory
 from twin.shared.memory.profile import MarkdownProfileStore
 from twin.shared.memory.timeline import (
-    ConsolidationResult,
     TimelineSearch,
     format_preflight_for_prompt,
 )
@@ -24,15 +23,13 @@ class SharedMemoryManager:
         active: ActiveMemory,
         profile_store: MarkdownProfileStore,
         timeline_search: TimelineSearch | None = None,
-        consolidator: Any = None,
-        curation_scheduler: Callable[[str], None] | None = None,
+        consolidation_client: Any = None,
     ) -> None:
         self.t1 = active
         self.profile = profile_store
         self.t3 = profile_store
         self.timeline_search = timeline_search
-        self.consolidator = consolidator
-        self.curation_scheduler = curation_scheduler
+        self.consolidation_client = consolidation_client
 
     # ------------------------------------------------------------------ writes
 
@@ -48,9 +45,6 @@ class SharedMemoryManager:
             author_id=str(user_id) if role != "assistant" else None,
             author_name=str(user_id) if role != "assistant" else None,
         )
-        # Reset the user's T3 curation timer on a real user turn (not the bot's).
-        if role != "assistant" and self.curation_scheduler is not None:
-            self.curation_scheduler(str(user_id))
 
     async def add_assistant_message(
         self,
@@ -105,10 +99,6 @@ class SharedMemoryManager:
             channel_id=str(channel_id),
             reply_to=reply_to,
         )
-        # Channel turns are always a user turn; key the curation timer on the
-        # speaking participant so their T3 is curated 30 min after they go idle.
-        if self.curation_scheduler is not None:
-            self.curation_scheduler(str(author_id))
 
     # ------------------------------------------------------------------- reads
 
@@ -160,25 +150,33 @@ class SharedMemoryManager:
     # -------------------------------------------------------------- consolidate
 
     async def consolidate_scope(self, scope: str, scope_id: str) -> dict:
-        if self.consolidator is None:
-            logger.warning("T2: no consolidator configured for scope=%s/%s", scope, scope_id)
-            return {"status": "failed", "scope": scope, "scope_id": scope_id, "error": "consolidator not configured"}
-
-        result = await self.consolidator.consolidate(scope=scope, scope_id=scope_id)
-        await self._trim_if_complete(result)
-
-        # Trigger immediate T3 curation (5-second debounce) for users with promotions
-        if result.promoted_to_t3 and self.curation_scheduler is not None:
-            promoted_users = {item["user_id"] for item in result.promoted_to_t3 if isinstance(item, dict) and "user_id" in item}
-            if not promoted_users and scope == "user":
-                promoted_users = {scope_id}
-            for uid in promoted_users:
-                try:
-                    self.curation_scheduler(str(uid), 5.0)
-                except TypeError:
-                    self.curation_scheduler(str(uid))
-
-        return self._result_to_dict(result)
+        """Consolidate T1 messages via A2A call to Evernight."""
+        if self.consolidation_client is None:
+            logger.error("ConsolidationClient not configured")
+            return {"status": "failed", "scope": scope, "scope_id": scope_id, "error": "consolidation_client not configured"}
+        
+        logger.info(
+            "Consolidating via A2A client scope=%s/%s", scope, scope_id,
+        )
+        result_dict = await self.consolidation_client.consolidate_scope(
+            scope=scope,
+            scope_id=scope_id,
+            reason="auto",
+        )
+        
+        # Trim T1 if consolidation succeeded
+        if result_dict.get("status") == "ok":
+            messages_summarized = result_dict.get("messages_summarized", 0)
+            if messages_summarized > 0:
+                # Get the entry IDs that were summarized
+                entries = await self.t1.get_context(scope, scope_id, limit=messages_summarized)
+                entry_ids = [e.entry_id for e in entries]
+                await self.t1.trim(scope, scope_id, entry_ids)
+                logger.info(
+                    "Trimmed T1 after A2A consolidation: %d entries", len(entry_ids),
+                )
+        
+        return result_dict
 
     async def consolidate_snapshot(
         self,
@@ -321,30 +319,4 @@ class SharedMemoryManager:
             "author_id": entry.author_id,
             "author_name": entry.author_name,
             "timestamp": entry.created_at.isoformat(),
-        }
-
-    async def _trim_if_complete(self, result: ConsolidationResult) -> None:
-        if result.status not in {"ok", "skipped"}:
-            return
-        if not result.scope or not result.scope_id:
-            return
-        await self.t1.trim(
-            result.scope,
-            result.scope_id,
-            result.summarized_entry_ids,
-        )
-
-    @staticmethod
-    def _result_to_dict(result: ConsolidationResult) -> dict:
-        return {
-            "status": result.status,
-            "scope": result.scope,
-            "scope_id": result.scope_id,
-            "summarized_entry_ids": result.summarized_entry_ids,
-            "memory_ids": result.memory_ids,
-            "topic_ids": result.topic_ids,
-            "promoted_to_t3": result.promoted_to_t3,
-            "primary_catalog": result.primary_catalog,
-            "primary_confidence": result.primary_confidence,
-            "error": result.error,
         }

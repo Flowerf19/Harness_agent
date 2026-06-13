@@ -52,54 +52,79 @@ class EvernightA2AHandler:
 
     async def handle_consolidate_task(self, params: dict) -> AsyncIterator[A2AMessage]:
         session_id = params.get("sessionId", "unknown")
-        snapshot = params.get("snapshot", [])
+        reason = params.get("reason", "manual")
+        max_messages = params.get("max_messages", 200)
 
-        logger.info(f"Evernight handling consolidation for user {session_id}")
+        logger.info(f"Evernight handling consolidation via tool for user {session_id}, reason={reason}")
         try:
-            success = await self.agent.consolidate(session_id, snapshot)
+            result = await self.agent.consolidate_via_tool(
+                user_id=session_id,
+                reason=reason,
+                max_messages=max_messages,
+            )
             yield A2AMessage(
                 role="agent",
-                parts=[Part(type="text", text=f"Consolidation {'successful' if success else 'failed'}")],
+                parts=[Part(type="data", data=result)],
             )
         except Exception as e:
+            logger.exception("Consolidation handler error")
             yield A2AMessage(
                 role="agent",
-                parts=[Part(type="text", text=f"Consolidation error: {e}")],
+                parts=[Part(type="data", data={"status": "failed", "error": str(e)})],
             )
 
     async def handle_consolidate_discussion_task(self, params: dict) -> AsyncIterator[A2AMessage]:
-        """A2A compatibility skill for shared-memory consolidation payloads."""
+        """A2A consolidation via tool - replaces old pipeline."""
         payload = params.get("payload") or {}
         scope = payload.get("scope")
         scope_id = payload.get("scope_id")
+        reason = payload.get("reason", "discussion")
+        max_messages = payload.get("max_messages", 200)
+        
         logger.info(
-            "Evernight handling consolidate_discussion scope=%s scope_id=%s",
+            "Evernight handling consolidate_discussion via tool scope=%s scope_id=%s",
             scope,
             scope_id,
         )
 
-        consolidator = getattr(self.agent, "consolidator", None)
-        if consolidator is None:
+        # Extract user_id from scope_id (for user scope, scope_id is user_id)
+        user_id = scope_id if scope == "user" else None
+        if not user_id:
             yield A2AMessage(
                 role="agent",
                 parts=[Part(type="data", data={
                     "status": "failed",
                     "scope": scope,
                     "scope_id": scope_id,
-                    "reason": "consolidator not configured on Evernight",
-                    "retry_after_seconds": 600,
+                    "reason": "user_id required (scope must be 'user')",
                 })],
             )
             return
 
-        if hasattr(consolidator, "consolidate_payload"):
-            result = await consolidator.consolidate_payload(payload)
-        else:
-            result = await consolidator.consolidate(payload)
-        yield A2AMessage(
-            role="agent",
-            parts=[Part(type="data", data=result)],
-        )
+        try:
+            result = await self.agent.consolidate_via_tool(
+                user_id=user_id,
+                reason=reason,
+                max_messages=max_messages,
+            )
+            # Add scope info to result for compatibility
+            result["scope"] = scope
+            result["scope_id"] = scope_id
+            yield A2AMessage(
+                role="agent",
+                parts=[Part(type="data", data=result)],
+            )
+        except Exception as e:
+            logger.exception("Consolidation discussion handler error")
+            yield A2AMessage(
+                role="agent",
+                parts=[Part(type="data", data={
+                    "status": "failed",
+                    "scope": scope,
+                    "scope_id": scope_id,
+                    "error": str(e),
+                })],
+            )
 
     async def handle_dm(self, request: web.Request) -> web.Response:
         """Handle general DM request from March7 container.

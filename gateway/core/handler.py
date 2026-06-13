@@ -20,7 +20,7 @@ ERROR_MESSAGE = "Hệ thống não bộ của tớ đang bị quá tải xíu, c
 
 # Wait this long after a message before replying, coalescing a burst of rapid
 # messages in the same scope into a single reply (the latest message wins).
-MESSAGE_DEBOUNCE_SECONDS = float(os.getenv("MESSAGE_DEBOUNCE_SECONDS", "2.0"))
+MESSAGE_DEBOUNCE_SECONDS = float(os.getenv("MESSAGE_DEBOUNCE_SECONDS", "3.5"))
 
 
 class GatewayChatHandler(GatewayHandler):

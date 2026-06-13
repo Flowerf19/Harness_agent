@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from dotenv import load_dotenv
 
@@ -9,6 +10,7 @@ from twin.march7.agent import March7Agent
 from twin.march7.config import March7Config
 from twin.shared.agent.runtime import SharedAgentRuntime, build_shared_agent_runtime
 from twin.shared.tools.registry.bootstrap import build_tool_registry
+from twin.shared.memory.consolidation_client import ConsolidationClient
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +31,8 @@ class March7Container:
         self.timeline_store = None
         self.timeline_search = None
         self.profile_store = None
-        self.cleanup_scheduler = None
-        self.state_repo = None
-        self.summary_policy = None
+        self.profile_store = None
+        self.consolidation_client = None
 
     @classmethod
     def get_instance(cls, config: March7Config = None):
@@ -43,9 +44,15 @@ class March7Container:
         load_dotenv(override=True)
         logger.info("March7Container initializing...")
 
+        # Create consolidation client for A2A communication with Evernight
+        evernight_url = os.getenv("EVERNIGHT_A2A_URL", "http://evernight:8001")
+        self.consolidation_client = ConsolidationClient(evernight_url=evernight_url)
+        logger.info("ConsolidationClient initialized for %s", evernight_url)
+
         self.runtime = await build_shared_agent_runtime(
             redis_db=self.config.redis_db,
             persona_path=self.config.persona_path,
+            consolidation_client=self.consolidation_client,
         )
         self.llm_service = self.runtime.llm_service
         self.embedding_service = self.runtime.embedding_service
@@ -55,9 +62,7 @@ class March7Container:
         self.timeline_store = self.runtime.timeline_store
         self.timeline_search = self.runtime.timeline_search
         self.profile_store = self.runtime.profile_store
-        self.cleanup_scheduler = self.runtime.cleanup_scheduler
-        self.state_repo = self.runtime.state_repo
-        self.summary_policy = self.runtime.summary_policy
+        self.profile_store = self.runtime.profile_store
 
         tools = build_tool_registry(
             agent_name="march7",
@@ -83,5 +88,7 @@ class March7Container:
         logger.info("March7Container initialized")
 
     async def shutdown(self):
+        if self.consolidation_client:
+            await self.consolidation_client.close()
         if self.runtime:
             await self.runtime.close()

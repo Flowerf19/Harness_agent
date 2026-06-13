@@ -26,6 +26,13 @@ SYSTEM_TOOL_SPECS: tuple[ToolSpec, ...] = (
         guide_path="guides/search_memory.md",
     ),
     ToolSpec(
+        module="twin.evernight.tools.consolidate_memory_tool",
+        class_name="ConsolidateMemoryTool",
+        visible_to=frozenset({"evernight"}),
+        allowed_to=frozenset({"evernight"}),
+        guide_path="guides/consolidate_memory.md",
+    ),
+    ToolSpec(
         module="twin.shared.tools.modules.profile.get_profile_tool",
         class_name="GetProfileTool",
         guide_path="guides/get_profile.md",

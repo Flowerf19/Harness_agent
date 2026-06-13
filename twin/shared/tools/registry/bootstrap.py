@@ -84,6 +84,8 @@ def build_tool_registry(
     profile_store: Any = None,
     approval_gate: ApprovalGate | None = None,
     use_evernight_dm_approval: bool = False,
+    embedding_service: Any = None,
+    timeline_summary_store: Any = None,
 ) -> ToolBootstrapResult:
     """Build one registry for an agent from the shared system tool catalog."""
     tavily_client = _init_tavily_client()
@@ -107,6 +109,8 @@ def build_tool_registry(
         "approval_gate": approval_gate,
         "executor_url": Config.BASH_EXECUTOR_URL,
         "timeout": Config.BASH_EXECUTOR_TIMEOUT,
+        "embedding_service": embedding_service,
+        "timeline_summary_store": timeline_summary_store,
     }
 
     registry = ToolRegistry(agent_name=agent_name)

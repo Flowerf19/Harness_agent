@@ -25,22 +25,11 @@ from twin.shared.memory.active import (
 )
 from twin.shared.memory.profile import (
     MarkdownProfileStore,
-    ProfileCurator,
 )
-from twin.shared.memory.profile.promotion_guard import ProfilePromotionGuard
-from twin.shared.memory.profile.constants import PROFILE_CURATION_IDLE_SECONDS
 from twin.shared.memory.timeline import (
-    Cleanup,
-    Consolidator,
-    Extractor,
     TimelineSearch,
     TimelineStore,
-    TopicResolver,
 )
-from twin.shared.memory.timeline.constants import CLEANUP_DEBOUNCE_SECONDS
-from twin.shared.memory.scheduler import DebouncedScheduler
-
-
 @dataclass(slots=True)
 class SharedAgentRuntime:
     llm_service: Any
@@ -51,16 +40,10 @@ class SharedAgentRuntime:
     timeline_store: TimelineStore
     timeline_search: TimelineSearch
     profile_store: MarkdownProfileStore
-    cleanup_scheduler: DebouncedScheduler
-    curation_scheduler: DebouncedScheduler
     state_repo: ActiveSummaryStateRepository
     summary_policy: ActiveSummaryPolicy
 
     async def close(self) -> None:
-        if self.cleanup_scheduler:
-            await self.cleanup_scheduler.close()
-        if self.curation_scheduler:
-            await self.curation_scheduler.close()
         if self.llm_service:
             await self.llm_service.close()
         if self.redis_client:
@@ -69,7 +52,12 @@ class SharedAgentRuntime:
             await self.timeline_redis_client.aclose()
 
 
-async def build_shared_agent_runtime(*, redis_db: int, persona_path: str) -> SharedAgentRuntime:
+async def build_shared_agent_runtime(
+    *,
+    redis_db: int,
+    persona_path: str,
+    consolidation_client: Any = None,
+) -> SharedAgentRuntime:
     llm_service = build_llm_service(persona_path=persona_path)
     embedding_service = create_embedding_service()
 
@@ -86,50 +74,17 @@ async def build_shared_agent_runtime(*, redis_db: int, persona_path: str) -> Sha
 
     timeline_store = TimelineStore(timeline_redis_client)
     await timeline_store.initialize()
-    resolver = TopicResolver(timeline_store)
-    extractor = Extractor(llm_service)
-    cleanup = Cleanup(
-        store=timeline_store,
-        embedder=embedding_service,
-        llm=llm_service,
-    )
-    cleanup_scheduler = DebouncedScheduler(
-        cleanup.run,
-        debounce_seconds=CLEANUP_DEBOUNCE_SECONDS,
-    )
 
-    promotion_guard = ProfilePromotionGuard(
-        timeline_store=timeline_store,
-        profile_store=profile_store,
-        llm_service=llm_service,
-    )
-
-    consolidator = Consolidator(
-        active=active,
-        store=timeline_store,
-        resolver=resolver,
-        extractor=extractor,
-        embedder=embedding_service,
-        promotion_guard=promotion_guard,
-        cleanup_scheduler=cleanup_scheduler.schedule,
-    )
     timeline_search = TimelineSearch(
         store=timeline_store,
         embedder=embedding_service,
-    )
-
-    curator = ProfileCurator(profile_store, llm_service)
-    curation_scheduler = DebouncedScheduler(
-        curator.curate,
-        debounce_seconds=PROFILE_CURATION_IDLE_SECONDS,
     )
 
     memory_manager = SharedMemoryManager(
         active=active,
         profile_store=profile_store,
         timeline_search=timeline_search,
-        consolidator=consolidator,
-        curation_scheduler=curation_scheduler.schedule,
+        consolidation_client=consolidation_client,
     )
     active.trigger_callback = memory_manager.consolidate_scope
 
@@ -148,8 +103,6 @@ async def build_shared_agent_runtime(*, redis_db: int, persona_path: str) -> Sha
         timeline_store=timeline_store,
         timeline_search=timeline_search,
         profile_store=profile_store,
-        cleanup_scheduler=cleanup_scheduler,
-        curation_scheduler=curation_scheduler,
         state_repo=state_repo,
         summary_policy=summary_policy,
     )

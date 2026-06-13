@@ -78,3 +78,7 @@ docker/volumes/**
 docker/volumes/conda_envs/
 .playwright-cli
 
+# Calibration generated output
+scripts/calibration/calibration_results.json
+
+.qoder/settings.local.json
