@@ -8,7 +8,7 @@ Bé Bảy là hệ Twin-Soul AI trên Discord: `march7` là agent hội thoại 
 - **Twin-Soul runtime**: `march7` cho chat chính, `evernight` cho chat riêng + tác vụ nền.
 - **Evernight DM/tag/!9**: nhận DM, tag/mention, prefix `!9`; gửi DM thông báo/approval.
 - **Memory 3 tầng**: T1 Redis active, T2 Redis Stack semantic/vector, T3 Markdown profile.
-- **Background consolidation**: tự động tổng hợp khi inactivity/overflow.
+- **Background consolidation**: tự động tổng hợp thông qua A2A Consolidation (`March7` gọi `Evernight`).
 - **Self-heal loop**: framework có sẵn, đang phát triển.
 
 ## Yêu cầu cho agent workflow
@@ -34,8 +34,7 @@ Agent docs project-specific (boundary A2A, gotcha runtime, testing) ở [.agents
 flowchart LR
     D[Discord] --> M[March7 bot]
     D --> E[Evernight bot]
-    M <--> A[A2A boundary]
-    A <--> E
+    M -- "A2A Task (port 8001)<br/>consolidate_discussion" --> E
     M --> S[(Shared memory stack)]
     E --> S
     S --> T1[(T1 active memory)]
@@ -48,22 +47,27 @@ flowchart LR
 | **March7** | Chat chính, tool calling, T1/T2/T3 shared memory | 8000 |
 | **Evernight** | DM/tag/`!9` chat, notification/approval, self-heal, T1/T2/T3 shared memory | 8001 |
 
-Evernight truy cập memory của March7 qua A2A (`get_snapshot`, `clear_session`) — **không** đọc trực tiếp T1 keys.
+Evernight nhận tác vụ xử lý tóm tắt trí nhớ (Consolidation) từ March7 qua A2A (`consolidate_discussion`), truy cập T1 để tóm tắt và ghi xuống T2/T3.
 
 ### Memory 3 tầng — tại sao & vòng đời
 
 Hai agent chia nhau **một stack memory duy nhất**, tách 3 tầng vì mỗi tầng phục vụ một *latency budget* khác nhau: hot-path phải nhanh, semantic recall chạy async, profile thì biên dịch sẵn. Toàn bộ local-first (LLM + embeddings self-hosted qua LM Studio), không phụ thuộc cloud.
 
-- **T1 — active (working memory ngắn hạn):** cửa sổ trượt các message gần nhất theo từng scope (1-1 user hoặc channel) trong Redis. Nạp thẳng vào context mỗi lượt chat. Ngưỡng token/idle kích hoạt consolidation; sau khi tổng hợp, T1 bị cắt bớt nhưng giữ lại phần đuôi gần nhất để giữ mạch hội thoại.
-- **T2 — timeline (semantic memory dài hạn), trên Redis Stack:** các "atomic memory" được một lượt LLM trích từ transcript, embed cục bộ rồi lưu kèm taxonomy ~12 catalog cố định, gom theo topic, đánh version (supersede chain + change_type: new/update/correction/reinforcement), kèm confidence + importance từng item, và **TTL theo importance** (memory tự phân rã theo thời gian). Truy hồi đa chế độ: KNN ngữ nghĩa + đọc có lọc (theo catalog, theo topic, recent, current-state/active-only, change-log).
-- **T3 — profile (kiến trúc Hybrid Profile Consolidation):** một markdown profile các section cố định, **thăng cấp (promote)** từ những T2 memory importance cao + confidence cao, và được inject vào system prompt mỗi lượt. Vì promote chỉ chống trùng *chính xác* (cùng câu paraphrase vẫn lọt nên hồ sơ phình dần), một **lượt biên tập (curate)** tự chạy qua `DebouncedScheduler` **~30 phút sau khi user ngừng nói** — ở bất kỳ DM hay channel nào họ có lên tiếng: 1 lượt LLM gộp trùng/bỏ thông tin lỗi thời rồi ghi lại *cả* hồ sơ dưới cùng hash-guard như sửa tay, kèm chốt an toàn (bỏ qua nếu hồ sơ chưa đổi hoặc còn quá ít bullet; từ chối bản rewrite làm mất >50% nội dung).
+- **T1 — active (working memory ngắn hạn):** cửa sổ trượt các message gần nhất theo từng scope (1-1 user hoặc channel) trong Redis. Nạp thẳng vào context mỗi lượt chat. Ngưỡng token kích hoạt consolidation; sau khi tổng hợp, T1 bị cắt bớt nhưng giữ lại phần đuôi gần nhất để giữ mạch hội thoại.
+- **T2 — timeline (semantic memory dài hạn), trên Redis Stack:** Lưu trữ các snapshot tóm tắt quá trình trò chuyện kèm theo taxonomy (catalog cố định). Truy hồi đa chế độ: KNN ngữ nghĩa (vector) + lọc theo catalog/thời gian.
+- **T3 — profile:** một markdown profile các section cố định được cập nhật trực tiếp sau mỗi chu kỳ tóm tắt, sau đó inject vào system prompt mỗi lượt. Profile lưu giữ các fact cốt lõi một cách cô đọng.
 
-Vòng đời chạy theo: **observe → consolidate (T1→T2: trích xuất, route đúng người, embed) → promote (T2→T3) → cleanup (T2: supersede + topic-merge) → curate (T3: dedup/biên tập khi user idle)**. Ba nguyên tắc cốt lõi: memory phân rã qua TTL thay vì phình mãi; khi có fact mâu thuẫn thì **supersede/đánh version** chứ không ghi đè âm thầm; và **mỗi tầng tự dọn** — T2 qua cleanup, T3 qua curate — nên phần ghi tự động (promote) không bao giờ tích tụ rác vĩnh viễn. Cơ chế chi tiết (class, key, index) tra ở code + CodeGraph.
+**Vòng đời (A2A Consolidation):**
+Hệ thống sử dụng cơ chế A2A trực tiếp thay vì các pipeline tuần tự phức tạp trước đây (Extractor/Curator/Topic):
+1. **Observe:** `March7` nhận tin nhắn và lưu vào `T1 ActiveMemory`.
+2. **Trigger:** `InactivityTrigger` (hiện được quản lý hoàn toàn bởi `Evernight`, đã gỡ khỏi gateway của `March7`) theo dõi tính trạng idle. Khi thỏa điều kiện hoặc T1 đạt ngưỡng, một tác vụ `consolidate_discussion` được sinh ra. Đối với March7, nó dùng `ConsolidationClient` (qua port 8001) gửi yêu cầu sang `Evernight`.
+3. **Consolidate:** `Evernight` nhận yêu cầu (hoặc tự trigger) và chạy `ConsolidateMemoryTool`. Tool này gọi LLM để đọc toàn bộ T1 snapshot, sau đó tạo ra cả bản tóm tắt T2 (timeline summary) và bản cập nhật T3 (profile updates) trong cùng một lượt, rồi lưu trực tiếp vào DB.
+4. **Trim:** T1 được tự động cắt bớt phần cũ để giải phóng context window. Cơ chế chi tiết có thể xem tại `twin/shared/memory/` và qua CodeGraph.
 
 ### Plan trạng thái
 
 - [Memory Rewrite](.agents/plans/memory-rewrite.md) — T1/T2/T3 chạy qua `twin/shared/memory/`, T2 dùng Redis Stack VECTOR HNSW 1024, T3 là Markdown 8 section. **Tiến độ: Phase 11/11 ✓**.
-- Unified Discussion Memory: đã được hấp thụ vào memory rewrite; flow hiện tại là `ActiveMemory → SharedMemoryManager → Consolidator → DebouncedScheduler`.
+- Unified Discussion Memory: đã được hấp thụ vào memory rewrite; flow hiện tại dùng hoàn toàn cơ chế **A2A Consolidation** (InactivityTrigger → ConsolidateMemoryTool), thay thế hoàn toàn `SharedMemoryManager → Consolidator → DebouncedScheduler` cũ.
 
 ### Gotcha runtime (dễ quên)
 

@@ -85,12 +85,9 @@ Update upstream: `cd ~/.claude/skills && git pull`.
 - T2 timeline intentionally keeps memories user-centric. Channel scope is
   consolidated by fan-out per participant; do not store channel sentinel ids
   as `T2Memory.user_id`.
-- The legacy `TOKEN_LIMIT_REACHED`, `DiscussionConsolidator`, and
-  `consolidate_t2_memory` paths were removed. Current flow is
-  `ActiveMemory` threshold/idle → `SharedMemoryManager.consolidate_scope` →
-  `Consolidator` → `CleanupScheduler`.
-- Each agent builds the same shared stack (`ActiveMemory`,
-  `MarkdownProfileStore`, `TimelineStore/Search`, `Consolidator`, `Cleanup`)
+- The legacy local Python consolidation paths (including `DiscussionConsolidator`, `consolidate_t2_memory`, `Consolidator`, and `CleanupScheduler`) were removed. Current flow uses **A2A Consolidation**: `InactivityTrigger` on Evernight detects idle scopes → March7 sends task via `ConsolidationClient` (A2A) → Evernight runs `ConsolidateMemoryTool` to summarize `ActiveMemory` and write to T2/T3.
+- Each agent builds the shared stack (`ActiveMemory`,
+  `MarkdownProfileStore`, `TimelineStore/Search`)
   in its container. T2 RediSearch indexes must use Redis DB 0
   (`TIMELINE_REDIS_DB=0`).
 - **`twin/shared/tools/` consolidated 2026-05-26.** Core types live in `twin.shared.tools.registry`; individual tool classes live under `twin.shared.tools.modules.<domain>.<tool>` (domains: `execution`, `memory`, `profile`, `web`). The paths `twin.shared.tools.base_tool` / `tool_registry` / `tool_discovery` / `implementations.system.*` no longer exist — do not recreate them.

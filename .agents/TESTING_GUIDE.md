@@ -7,9 +7,8 @@ transport, và external services. Dùng file này để chọn test focused; dù
 ## Test Layout
 
 - `tests/unit/` — logic cô lập, không cần service ngoài:
-  - `tests/unit/memory/` — toàn bộ memory stack: `active`, `manager`, `consolidator`,
-    `cleanup`, `extractor`, `timeline_store`, `search`, `topic_resolver`, `profile`,
-    `tools`.
+  - `tests/unit/memory/` — toàn bộ memory stack: `active`, `manager`, `consolidation_client`,
+    `timeline_summary_store`, `search`, `profile`.
   - `tests/unit/` (gốc) — `inactivity_trigger`, `a2a_client`, `http_transport`,
     `tool_bootstrap`, `march7_handle_chat_scope`, `discord_send_response`.
 - `tests/gateway/` — gateway core/adapter + models (`test_gateway`,
@@ -57,8 +56,8 @@ is still preferred over bare `pytest`.
 
 - T1 active memory → `tests/unit/memory/active_test.py` + `manager_test.py`
 - `InactivityTrigger` → `tests/unit/inactivity_trigger_test.py`
-- T2 timeline/vector → `tests/unit/memory/{timeline_store,search,topic_resolver,consolidator,cleanup}_test.py`
-- T3 profile → `tests/unit/memory/{profile,tools,profile_curator,profile_curation_scheduler}_test.py` + `tests/unit/manage_profile_tool_test.py` + extraction `extractor_test.py`
+- T2 timeline/vector → `tests/unit/memory/{timeline_summary_store,search}_test.py`
+- T3 profile → `tests/unit/memory/profile_test.py` + `tests/unit/manage_profile_tool_test.py`
 - March7 chat scope / A2A → `tests/unit/march7_handle_chat_scope_test.py`, `a2a_client_test.py`
 - Gateway / Discord → `tests/gateway -q`,
   `tests/unit/discord_send_response_test.py`
@@ -67,7 +66,7 @@ is still preferred over bare `pytest`.
 
 ## Last Verified
 
-- 2026-06-12: `conda run -n discord_bot python -m pytest tests/unit/memory/profile_curation_scheduler_test.py tests/unit/memory/profile_curator_test.py tests/unit/manage_profile_tool_test.py -q`
+- 2026-06-12: `conda run -n discord_bot python -m pytest tests/unit/manage_profile_tool_test.py -q`
   → passed.
 - 2026-06-07: `conda run -n discord_bot python -m pytest tests/unit/approval_gate_test.py tests/gateway tests/unit/evernight_discord_adapter_test.py tests/unit/march7_handle_chat_scope_test.py tests/unit/evernight_agent_test.py tests/unit/discord_send_response_test.py tests/unit/tool_bootstrap_test.py tests/unit/memory/manager_test.py -q`
   → 55 passed.

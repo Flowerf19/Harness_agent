@@ -29,7 +29,7 @@ Expected local endpoints:
 
 ```bash
 pip install -r requirements.txt
-python -m gateway          # March7 in-process (Discord adapter + March7 A2A + InactivityTrigger)
+python -m gateway          # March7 in-process (Discord adapter + March7 A2A)
 python -m twin.evernight   # Evernight (A2A + DM bot + InactivityTrigger + self-heal)
 python -m twin.march7      # Standalone March7 A2A only — local dev fallback, no Discord
 ```
@@ -43,12 +43,10 @@ owns:
 
 - `March7Container.initialize()` (shared T1/T2/T3 memory stack, tools, LLM)
 - March7 A2A server on port 8000
-- `InactivityTrigger` over `("user", "channel")` driving `ActiveSummaryPolicy.evaluate`
 - Discord adapter via `ChatGateway`
 
 `twin/march7/__main__.py` is a thinner CLI-style entry (no gateway / no
-Discord) kept for local dev. Both mount the same `InactivityTrigger` so the
-unified flow works in either mode.
+Discord) kept for local dev. Both modes support the unified flow.
 
 ## Architecture Boundaries
 
@@ -88,12 +86,9 @@ Before implementing platform features, follow
 
 ## Current Implementation Status
 
-Memory rewrite is implemented end-to-end as of 2026-05-28.
+Memory rewrite is implemented end-to-end as of 2026-05-28, with a subsequent refactoring to the **A2A Consolidation** mechanism.
 
-- **Shared stack**: `twin/shared/memory/` is the single implementation for both
-  agents. Containers build `ActiveMemory`, `MarkdownProfileStore`,
-  `TimelineStore`, `TimelineSearch`, `Consolidator`, `Cleanup`,
-  `DebouncedScheduler` (used for cleanup and curation), and `ProfileCurator`.
+- **Shared stack**: `twin/shared/memory/` contains the core implementation components: `ActiveMemory`, `MarkdownProfileStore`, `TimelineStore`, and `TimelineSearch`. 
 - **T1 scope-aware**: `ActiveEntry.scope` (`user`/`channel`), `scope_id`, plus
   `author_*`/`guild_id`/`channel_id`/`message_id`/`reply_to` metadata. Storage
   uses Redis JSON keys `active:{scope}:{scope_id}:{entry_id}` plus
@@ -101,28 +96,14 @@ Memory rewrite is implemented end-to-end as of 2026-05-28.
 - **Prompt context**: `SharedMemoryManager.get_context()` injects T3 profile
   context from `MarkdownProfileStore.get_system_prompt_context()` and T2
   pre-flight retrieval from `TimelineSearch.preflight()`.
-- **Consolidation flow**: `ActiveMemory` threshold/idle calls
-  `SharedMemoryManager.consolidate_scope()`. User scope consolidates directly;
-  channel scope fans out per participant author id. Successful consolidation
-  trims summarized T1 entries and schedules cleanup.
+- **Consolidation flow (A2A)**: When thresholds are met (managed by Evernight's `InactivityTrigger`), March7 uses `ConsolidationClient` to send a consolidation task via A2A HTTP port 8001 to Evernight. Evernight then executes the `ConsolidateMemoryTool`, which summarizes directly from `ActiveMemory` and writes to `TimelineStore` / `MarkdownProfileStore` via a single LLM call (Summarizer prompt).
 - **T2 timeline/vector**: `T2Memory` and `T2Topic` are stored as Redis JSON with
   RediSearch `VECTOR HNSW` indexes `idx:t2:mem` and `idx:t2:topic`.
-- **Legacy removed**: old `twin/*/memories/`, `twin/shared/memories/`,
-  `DiscussionConsolidator`, `consolidate_t2_memory`, and the old T2 page model
-  were removed.
+- **Legacy removed**: The old local Python pipeline mechanism—including `Extractor`, `PromotionGuard`, `CleanupScheduler`, `Curator`, `TopicResolver`, `Consolidator`, and legacy components like `DiscussionConsolidator` and the old T2 page model—have been completely removed. InactivityTrigger is also removed from March7's gateway, now exclusively managed by Evernight.
 
-- **Hybrid Profile Consolidation (T2->T3)**: `MarkdownProfileStore.append_raw` (the promote target)
+- **Hybrid Profile Consolidation (T2->T3)**: `MarkdownProfileStore.append_raw`
   dedups only on exact case-insensitive match, so paraphrased bullets accumulate.
-  `ProfileCurator.curate()` closes the gap — one LLM pass dedups/merges/drops the
-  full profile and rewrites it via `replace_all` under the same
-  `expected_profile_hash` guard the manual `manage_user_profile` tool uses.
-  `DebouncedScheduler` (with a ~30-min debounce) fires
-  it ~30 min after a user goes idle; `SharedMemoryManager.observe_user_message`
-  (DM) and `observe_channel_message` (channel) call `schedule(...)` keyed on the
-  speaking user, so both scopes are covered. Idempotency marker:
-  `memories/.curation/<id>.hash` (skip when profile unchanged or trivial); the
-  auto path never passes `allow_shrink`, and `replace_all` rejects a rewrite that
-  drops >50% of a non-trivial profile.
+  The profile is now merged directly during the A2A consolidation step via `ConsolidateMemoryTool` instead of relying on a separate `ProfileCurator` and `DebouncedScheduler`.
 - **`manage_user_profile` tool modes**: The tool supports both a single-section mode (modifying one specific section with `bullets` list) and a whole-file mode (accepting a `sections` map of all sections, where unspecified sections are deleted). Both modes check `expected_profile_hash` to guard against conflicts. Whole-file mode also supports an `allow_shrink` flag (default false) to prevent LLM errors or accidental large deletions from shrinking the profile by >50%.
 - **Tool routing in loop**: The tool loop (`run_strict_tool_loop` in `twin/shared/llm/tool_loop.py`) has been upgraded to support prerequisite tool routing. If a tool selected in pass 1 is missing required arguments, the refine step can switch tool selection to a prerequisite tool (e.g. routing from `manage_user_profile` to `get_profile` to obtain the hash) rather than instantly failing.
 
@@ -160,9 +141,8 @@ Evernight:
 - `EVERNIGHT_REDIS_DB` default `1`
 - `EVERNIGHT_PERSONA_PATH` default `twin/evernight/personas`
 - `MARCH7_URL` default `http://march7:8000`
-- `EVERNIGHT_A2A_URL` default `http://evernight:8001` (March7 reads this to
-  reach Evernight's `consolidate_discussion` skill)
-- `POLL_INTERVAL` default `60` (both InactivityTrigger instances honor this;
+- `EVERNIGHT_A2A_URL` default `http://evernight:8001` (March7 uses `ConsolidationClient` to reach Evernight's port 8001 for consolidation tasks)
+- `POLL_INTERVAL` default `60` (Evernight's `InactivityTrigger` honors this;
   the idle-summary threshold itself is the `IDLE_TRIGGER_MINUTES` constant, not
   an env var)
 - `SELF_HEAL_ENABLED` default `true`
