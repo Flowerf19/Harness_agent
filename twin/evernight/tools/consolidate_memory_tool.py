@@ -72,9 +72,14 @@ class ConsolidateMemoryTool(BaseTool):
         return {
             "type": "object",
             "properties": {
-                "user_id": {
+                "scope": {
                     "type": "string",
-                    "description": "ID của user cần consolidate",
+                    "description": "Scope của consolidation (user hoặc channel)",
+                    "default": "user",
+                },
+                "scope_id": {
+                    "type": "string",
+                    "description": "ID của scope cần consolidate",
                 },
                 "reason": {
                     "type": "string",
@@ -86,7 +91,7 @@ class ConsolidateMemoryTool(BaseTool):
                     "description": "Số messages tối đa cần tóm tắt",
                 },
             },
-            "required": ["user_id", "reason"],
+            "required": ["scope_id", "reason"],
         }
 
     @property
@@ -95,23 +100,25 @@ class ConsolidateMemoryTool(BaseTool):
 
     async def execute(
         self,
-        user_id: str,
+        scope: str,
+        scope_id: str,
         reason: str,
         max_messages: int = 200,
     ) -> str:
-        user_id = str(user_id or "").strip()
-        if not user_id:
-            return "Lỗi: Thiếu user_id."
+        scope_id = str(scope_id or "").strip()
+        scope = str(scope or "user").strip()
+        if not scope_id:
+            return "Lỗi: Thiếu scope_id."
 
         logger.info(
-            "ConsolidateMemoryTool: user=%s reason=%s max_messages=%d",
-            user_id, reason, max_messages,
+            "ConsolidateMemoryTool: scope=%s scope_id=%s reason=%s max_messages=%d",
+            scope, scope_id, reason, max_messages,
         )
 
         try:
             # 1. Read T1 messages
             t1_entries = await self.memory_manager.t1.get_context(
-                "user", user_id, limit=max_messages,
+                scope, scope_id, limit=max_messages,
             )
             if not t1_entries:
                 return json.dumps({
@@ -122,8 +129,12 @@ class ConsolidateMemoryTool(BaseTool):
 
             messages_text = self._format_messages(t1_entries)
 
-            # 2. Read current profile
-            profile_text = await self.memory_manager.profile.read_raw(user_id)
+            # 2. Read current profile (channel scope may not have profile)
+            profile_text = ""
+            try:
+                profile_text = await self.memory_manager.profile.read_raw(scope_id)
+            except Exception as exc:
+                logger.debug("ConsolidateMemoryTool: no profile for scope_id=%s: %s", scope_id, exc)
 
             # 3. LLM call with Summarizer prompt
             prompt = _SUMMARIZER_PROMPT.format(
@@ -156,7 +167,7 @@ class ConsolidateMemoryTool(BaseTool):
                 try:
                     embedding = await self.embedding_service.get_embedding(timeline_summary)
                     summary_id = await self.timeline_summary_store.store_summary(
-                        user_id=user_id,
+                        user_id=scope_id,
                         content=timeline_summary,
                         embedding=embedding,
                         importance=importance,
@@ -172,7 +183,7 @@ class ConsolidateMemoryTool(BaseTool):
                 try:
                     for bullet in bullets:
                         await self.memory_manager.profile.append_raw(
-                            user_id, section, bullet,
+                            scope_id, section, bullet,
                         )
                     updated_sections.append(section)
                 except Exception as exc:

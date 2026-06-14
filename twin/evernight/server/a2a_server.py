@@ -76,34 +76,33 @@ class EvernightA2AHandler:
     async def handle_consolidate_discussion_task(self, params: dict) -> AsyncIterator[A2AMessage]:
         """A2A consolidation via tool - replaces old pipeline."""
         payload = params.get("payload") or {}
-        scope = payload.get("scope")
+        scope = payload.get("scope", "user")
         scope_id = payload.get("scope_id")
         reason = payload.get("reason", "discussion")
         max_messages = payload.get("max_messages", 200)
-        
+
         logger.info(
             "Evernight handling consolidate_discussion via tool scope=%s scope_id=%s",
             scope,
             scope_id,
         )
 
-        # Extract user_id from scope_id (for user scope, scope_id is user_id)
-        user_id = scope_id if scope == "user" else None
-        if not user_id:
+        if not scope_id:
             yield A2AMessage(
                 role="agent",
                 parts=[Part(type="data", data={
                     "status": "failed",
                     "scope": scope,
                     "scope_id": scope_id,
-                    "reason": "user_id required (scope must be 'user')",
+                    "reason": "scope_id required",
                 })],
             )
             return
 
         try:
             result = await self.agent.consolidate_via_tool(
-                user_id=user_id,
+                scope=scope,
+                scope_id=scope_id,
                 reason=reason,
                 max_messages=max_messages,
             )
