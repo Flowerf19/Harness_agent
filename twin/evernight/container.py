@@ -27,8 +27,7 @@ class EvernightContainer:
         self.tool_registry = None
         self.redis_client = None
         self.timeline_redis_client = None
-        self.timeline_store = None
-        self.timeline_search = None
+        self.timeline_summary_store = None
         self.profile_store = None
         self.state_repo = None
         self.summary_policy = None
@@ -53,24 +52,15 @@ class EvernightContainer:
         self.memory_manager = self.runtime.memory_manager
         self.redis_client = self.runtime.redis_client
         self.timeline_redis_client = self.runtime.timeline_redis_client
-        self.timeline_store = self.runtime.timeline_store
-        self.timeline_search = self.runtime.timeline_search
+        self.timeline_summary_store = self.runtime.timeline_summary_store
         self.profile_store = self.runtime.profile_store
         self.state_repo = self.runtime.state_repo
         self.summary_policy = self.runtime.summary_policy
-
-        # Create simplified timeline summary store for new consolidation flow
-        self.timeline_summary_store = TimelineSummaryStore(
-            redis_client=self.timeline_redis_client,
-            embedding_dim=1024,
-        )
-        await self.timeline_summary_store.initialize()
 
         tools = build_tool_registry(
             agent_name="evernight",
             core_manager=None,
             memory_manager=self.memory_manager,
-            timeline_search=self.timeline_search,
             profile_store=self.profile_store,
             llm_service=self.llm_service,
             base_memory_path=self.config.persona_path,
@@ -83,7 +73,7 @@ class EvernightContainer:
 
         self.agent = EvernightAgent(
             memory_manager=self.memory_manager,
-            episodic_memory=self.timeline_search,
+            episodic_memory=self.memory_manager,
             llm_service=self.llm_service,
             tool_registry=self.tool_registry,
             march7_url=self.config.march7_url,

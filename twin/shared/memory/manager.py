@@ -6,12 +6,20 @@ from typing import Any, Callable
 
 from twin.shared.memory.active import ActiveEntry, ActiveMemory
 from twin.shared.memory.profile import MarkdownProfileStore
-from twin.shared.memory.timeline import (
-    TimelineSearch,
-    format_preflight_for_prompt,
-)
 
 logger = logging.getLogger(__name__)
+
+
+def format_preflight_for_prompt(summaries: list[dict]) -> str:
+    if not summaries:
+        return ""
+    lines = ["## Ngữ cảnh nhớ liên quan (dùng tự nhiên, không lộ nguồn)"]
+    for s in summaries:
+        content = s.get("content", "")
+        if len(content) > 240:
+            content = content[:240] + "…"
+        lines.append(f"- {content}")
+    return "\n".join(lines)
 
 
 class SharedMemoryManager:
@@ -22,13 +30,15 @@ class SharedMemoryManager:
         *,
         active: ActiveMemory,
         profile_store: MarkdownProfileStore,
-        timeline_search: TimelineSearch | None = None,
+        timeline_summary_store: Any = None,
+        embedding_service: Any = None,
         consolidation_client: Any = None,
     ) -> None:
         self.t1 = active
         self.profile = profile_store
         self.t3 = profile_store
-        self.timeline_search = timeline_search
+        self.timeline_summary_store = timeline_summary_store
+        self.embedding_service = embedding_service
         self.consolidation_client = consolidation_client
 
     # ------------------------------------------------------------------ writes
@@ -228,11 +238,12 @@ class SharedMemoryManager:
     # ---------------------------------------------------------------- helpers
 
     async def _preflight_context(self, user_id: str, current_query: str) -> str:
-        if self.timeline_search is None or not current_query:
+        if self.timeline_summary_store is None or not current_query:
             return ""
         try:
-            memories = await self.timeline_search.preflight(user_id, current_query)
-            return format_preflight_for_prompt(memories)
+            query_embedding = await self.embedding_service.get_embedding(current_query)
+            summaries = await self.timeline_summary_store.search(user_id, query_embedding, limit=5)
+            return format_preflight_for_prompt(summaries)
         except Exception as exc:
             logger.debug("T2: preflight failed user=%s: %s", user_id, exc)
             return ""

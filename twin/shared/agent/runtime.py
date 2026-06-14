@@ -26,10 +26,8 @@ from twin.shared.memory.active import (
 from twin.shared.memory.profile import (
     MarkdownProfileStore,
 )
-from twin.shared.memory.timeline import (
-    TimelineSearch,
-    TimelineStore,
-)
+from twin.shared.memory.timeline_summary_store import TimelineSummaryStore
+
 @dataclass(slots=True)
 class SharedAgentRuntime:
     llm_service: Any
@@ -37,8 +35,7 @@ class SharedAgentRuntime:
     memory_manager: SharedMemoryManager
     redis_client: Any
     timeline_redis_client: Any
-    timeline_store: TimelineStore
-    timeline_search: TimelineSearch
+    timeline_summary_store: TimelineSummaryStore
     profile_store: MarkdownProfileStore
     state_repo: ActiveSummaryStateRepository
     summary_policy: ActiveSummaryPolicy
@@ -72,18 +69,17 @@ async def build_shared_agent_runtime(
 
     profile_store = MarkdownProfileStore()
 
-    timeline_store = TimelineStore(timeline_redis_client)
-    await timeline_store.initialize()
-
-    timeline_search = TimelineSearch(
-        store=timeline_store,
-        embedder=embedding_service,
+    timeline_summary_store = TimelineSummaryStore(
+        redis_client=timeline_redis_client,
+        embedding_dim=1024,
     )
+    await timeline_summary_store.initialize()
 
     memory_manager = SharedMemoryManager(
         active=active,
         profile_store=profile_store,
-        timeline_search=timeline_search,
+        timeline_summary_store=timeline_summary_store,
+        embedding_service=embedding_service,
         consolidation_client=consolidation_client,
     )
     active.trigger_callback = memory_manager.consolidate_scope
@@ -100,8 +96,7 @@ async def build_shared_agent_runtime(
         memory_manager=memory_manager,
         redis_client=redis_client,
         timeline_redis_client=timeline_redis_client,
-        timeline_store=timeline_store,
-        timeline_search=timeline_search,
+        timeline_summary_store=timeline_summary_store,
         profile_store=profile_store,
         state_repo=state_repo,
         summary_policy=summary_policy,
