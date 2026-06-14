@@ -83,25 +83,7 @@ class SearchMemoryTool(BaseTool):
         if mode not in _VALID_TOOL_MODES:
             return f"Lỗi: mode '{mode}' không hợp lệ. Mode hợp lệ: {', '.join(sorted(_VALID_TOOL_MODES))}."
 
-        if not self.timeline_search:
-            return "Lỗi: TimelineSearch chưa sẵn sàng."
-
-        timeline_mode = self._timeline_mode(mode)
-        if timeline_mode == "semantic" and not query:
-            return "Lỗi: mode semantic cần query."
-
-        try:
-            memories = await self.timeline_search.search(
-                user_id=user_id,
-                query=query,
-                mode=timeline_mode,
-                limit=self._bounded_limit(limit),
-                hours=self._resolve_hours(mode, hours, days),
-            )
-            return self._format_memories(memories)
-        except Exception as e:
-            logger.error("T2: SearchMemoryTool failed: %s", e)
-            raise ToolExecutionError(self.name, f"Lỗi khi tìm kiếm: {e}", original_error=e)
+        return "Lỗi: T2 search đã bị vô hiệu hóa — đang chờ cập nhật TimelineSummaryStore."
 
     @staticmethod
     def _timeline_mode(mode: str) -> str:

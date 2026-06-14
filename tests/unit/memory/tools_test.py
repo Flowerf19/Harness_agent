@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import pytest
 
-from twin.shared.memory.timeline import T2Memory
 from twin.shared.tools.modules.memory.search_memory_tool import SearchMemoryTool
 from twin.shared.tools.modules.profile.get_profile_tool import GetProfileTool
 from twin.shared.tools.modules.profile.update_profile_tool import UpdateUserProfileTool
@@ -16,12 +15,12 @@ class FakeTimelineSearch:
     async def search(self, **kwargs):
         self.calls.append(kwargs)
         return [
-            T2Memory(
-                memory_id="mem-1",
-                user_id=kwargs["user_id"],
-                content="User thích phim tâm lý.",
-                catalogs=["interest"],
-            )
+            {
+                "memory_id": "mem-1",
+                "user_id": kwargs["user_id"],
+                "content": "User thích phim tâm lý.",
+                "catalogs": ["interest"],
+            }
         ]
 
 
@@ -50,38 +49,10 @@ class FakeProfileStore:
 
 
 @pytest.mark.asyncio
-async def test_search_memory_tool_dispatches_semantic_params():
-    timeline = FakeTimelineSearch()
-    tool = SearchMemoryTool(timeline_search=timeline)
-
-    result = await tool.execute(
-        user_id="123",
-        mode="semantic",
-        query="phim",
-        limit=50,
-    )
-
-    assert "User thích phim tâm lý." in result
-    assert timeline.calls == [
-        {
-            "user_id": "123",
-            "query": "phim",
-            "mode": "semantic",
-            "limit": 20,
-            "hours": 24,
-        }
-    ]
-
-
-@pytest.mark.asyncio
-async def test_search_memory_tool_maps_time_to_recent_hours():
-    timeline = FakeTimelineSearch()
-    tool = SearchMemoryTool(timeline_search=timeline)
-
-    await tool.execute(user_id="123", mode="time", days=2)
-
-    assert timeline.calls[0]["mode"] == "recent"
-    assert timeline.calls[0]["hours"] == 48
+async def test_search_memory_tool_returns_disabled_message():
+    tool = SearchMemoryTool(timeline_search=None)
+    result = await tool.execute(user_id="123", mode="semantic", query="phim")
+    assert "vô hiệu hóa" in result
 
 
 @pytest.mark.asyncio
