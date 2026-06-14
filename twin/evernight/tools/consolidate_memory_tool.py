@@ -181,11 +181,7 @@ class ConsolidateMemoryTool(BaseTool):
                         section, exc,
                     )
 
-            # 7. Trim T1
-            entry_ids = [e.entry_id for e in t1_entries]
-            await self.memory_manager.t1.trim("user", user_id, entry_ids)
-
-            # 8. Return result
+            # 7. Return result
             return json.dumps({
                 "status": "ok",
                 "timeline_summary": timeline_summary,
