@@ -21,7 +21,7 @@ Cấu hình env vars cho chat + embedding của `march7`/`evernight`. Code looku
 Voyage / Cohere v2-compat / LM Studio / OpenRouter → dùng `openai_compat` với URL+model riêng, không cần class mới.
 
 > [!IMPORTANT]
-> **Gemini MRL truncation**: `gemini-embedding-001` native 3072-dim. Service truyền `outputDimensionality=EMBEDDING_VECTOR_SIZE` (Matryoshka Representation Learning) rồi L2-normalize để khớp T2 VECTOR index có sẵn. Giữ `EMBEDDING_VECTOR_SIZE=1024`. Khi đổi size: `FT.DROPINDEX idx:t2:mem` + `FT.DROPINDEX idx:t2:topic` + restart (xem `../../../.agents/AGENT_RULES.md`).
+> **Gemini MRL truncation**: `gemini-embedding-001` native 3072-dim. Service truyền `outputDimensionality=EMBEDDING_VECTOR_SIZE` (Matryoshka Representation Learning) rồi L2-normalize để khớp T2 VECTOR index (`timeline_summaries`). Giữ `EMBEDDING_VECTOR_SIZE=1024`. Khi đổi size: `FT.DROPINDEX timeline_summaries` + restart (xem `../../../.agents/AGENT_RULES.md`).
 
 ## Ví dụ cấu hình
 

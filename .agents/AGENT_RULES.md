@@ -84,12 +84,9 @@ Update upstream: `cd ~/.claude/skills && git pull`.
   `twin/shared/memories/`.
 - T2 timeline intentionally keeps memories user-centric. Channel scope is
   consolidated by fan-out per participant; do not store channel sentinel ids
-  as `T2Memory.user_id`.
-- The legacy local Python consolidation paths (including `DiscussionConsolidator`, `consolidate_t2_memory`, `Consolidator`, and `CleanupScheduler`) were removed. Current flow uses **A2A Consolidation**: `InactivityTrigger` on Evernight detects idle scopes → March7 sends task via `ConsolidationClient` (A2A) → Evernight runs `ConsolidateMemoryTool` to summarize `ActiveMemory` and write to T2/T3.
-- Each agent builds the shared stack (`ActiveMemory`,
-  `MarkdownProfileStore`, `TimelineStore/Search`)
-  in its container. T2 RediSearch indexes must use Redis DB 0
-  (`TIMELINE_REDIS_DB=0`).
+  as `user_id` in `TimelineSummaryStore`.
+- The legacy local Python consolidation paths (including `DiscussionConsolidator`, `consolidate_t2_memory`, `Consolidator`, `CleanupScheduler`, `TimelineStore`, `TimelineSearch`, and `T2Memory`) were removed. Current flow uses **A2A Consolidation**: `InactivityTrigger` on Evernight detects idle scopes → March7 sends task via `ConsolidationClient` (A2A) → Evernight runs `ConsolidateMemoryTool` to summarize `ActiveMemory` and write to `TimelineSummaryStore` / `MarkdownProfileStore`.
+- Each agent builds the shared stack (`ActiveMemory`, `MarkdownProfileStore`, `TimelineSummaryStore`) in its container. T2 RediSearch index must use Redis DB 0 (`TIMELINE_REDIS_DB=0`).
 - **`twin/shared/tools/` consolidated 2026-05-26.** Core types live in `twin.shared.tools.registry`; individual tool classes live under `twin.shared.tools.modules.<domain>.<tool>` (domains: `execution`, `memory`, `profile`, `web`). The paths `twin.shared.tools.base_tool` / `tool_registry` / `tool_discovery` / `implementations.system.*` no longer exist — do not recreate them.
 - **LLM/embedding endpoints chạy trên host phải dùng `host.docker.internal`, không phải `localhost`.** Container march7/evernight có `extra_hosts: host.docker.internal:host-gateway` trong compose; `localhost` trong `.env` sẽ trỏ vào chính container và fail với `Cannot connect to host localhost:<port>`. Áp dụng cho `OPENAI_API_URL`, `EMBEDDING_API_URL`, `LM_STUDIO_API_URL`, `TOOL_LLM_ENDPOINT`. Service nội-mạng Docker (redis, codebox, bash-executor, evernight) thì dùng service name.
 - **Docker entry for March7 is `python -m gateway`** (`gateway/__main__.py`),
@@ -99,6 +96,6 @@ Update upstream: `cd ~/.claude/skills && git pull`.
   entry — keep it in sync but treat the gateway entry as authoritative.
 - Local Redis/T2 data may be disposable during development because T3 Markdown
   is the durable profile/core memory. Confirm before deleting production data.
-- After modifying the T2 FT schema, the existing indexes must be dropped and
-  recreated (`FT.DROPINDEX idx:t2:mem`, `FT.DROPINDEX idx:t2:topic`, then
-  restart). `_create_*_index` skips creation if the index already exists.
+- After modifying the T2 FT schema, the existing index must be dropped and
+  recreated (`FT.DROPINDEX timeline_summaries`, then restart). `_create_index`
+  skips creation if the index already exists.

@@ -88,18 +88,18 @@ Before implementing platform features, follow
 
 Memory rewrite is implemented end-to-end as of 2026-05-28, with a subsequent refactoring to the **A2A Consolidation** mechanism.
 
-- **Shared stack**: `twin/shared/memory/` contains the core implementation components: `ActiveMemory`, `MarkdownProfileStore`, `TimelineStore`, and `TimelineSearch`. 
+- **Shared stack**: `twin/shared/memory/` contains the core implementation components: `ActiveMemory`, `MarkdownProfileStore`, `TimelineSummaryStore`. 
 - **T1 scope-aware**: `ActiveEntry.scope` (`user`/`channel`), `scope_id`, plus
   `author_*`/`guild_id`/`channel_id`/`message_id`/`reply_to` metadata. Storage
   uses Redis JSON keys `active:{scope}:{scope_id}:{entry_id}` plus
   `active_state:*` and `active_index:*`.
 - **Prompt context**: `SharedMemoryManager.get_context()` injects T3 profile
   context from `MarkdownProfileStore.get_system_prompt_context()` and T2
-  pre-flight retrieval from `TimelineSearch.preflight()`.
-- **Consolidation flow (A2A)**: When thresholds are met (managed by Evernight's `InactivityTrigger`), March7 uses `ConsolidationClient` to send a consolidation task via A2A HTTP port 8001 to Evernight. Evernight then executes the `ConsolidateMemoryTool`, which summarizes directly from `ActiveMemory` and writes to `TimelineStore` / `MarkdownProfileStore` via a single LLM call (Summarizer prompt).
-- **T2 timeline/vector**: `T2Memory` and `T2Topic` are stored as Redis JSON with
-  RediSearch `VECTOR HNSW` indexes `idx:t2:mem` and `idx:t2:topic`.
-- **Legacy removed**: The old local Python pipeline mechanism—including `Extractor`, `PromotionGuard`, `CleanupScheduler`, `Curator`, `TopicResolver`, `Consolidator`, and legacy components like `DiscussionConsolidator` and the old T2 page model—have been completely removed. InactivityTrigger is also removed from March7's gateway, now exclusively managed by Evernight.
+  pre-flight retrieval from `TimelineSummaryStore.search()` (embed query → KNN vector search).
+- **Consolidation flow (A2A)**: When thresholds are met (managed by Evernight's `InactivityTrigger`), March7 uses `ConsolidationClient` to send a consolidation task via A2A HTTP port 8001 to Evernight. Evernight then executes the `ConsolidateMemoryTool`, which summarizes directly from `ActiveMemory` and writes to `TimelineSummaryStore` / `MarkdownProfileStore` via a single LLM call (Summarizer prompt).
+- **T2 timeline/vector**: `TimelineSummary` entries are stored as Redis HASH with
+  RediSearch `VECTOR HNSW` index `timeline_summaries`. Replaces the old `T2Memory` + `T2Topic` JSON model and `idx:t2:mem` / `idx:t2:topic` indexes.
+- **Legacy removed**: The old local Python pipeline mechanism—including `Extractor`, `PromotionGuard`, `CleanupScheduler`, `Curator`, `TopicResolver`, `Consolidator`, `DiscussionConsolidator`, the old T2 page model, `TimelineStore`, `TimelineSearch`, and `T2Memory`—have been completely removed. InactivityTrigger is also removed from March7's gateway, now exclusively managed by Evernight.
 
 - **Hybrid Profile Consolidation (T2->T3)**: `MarkdownProfileStore.append_raw`
   dedups only on exact case-insensitive match, so paraphrased bullets accumulate.
@@ -111,11 +111,8 @@ Memory rewrite is implemented end-to-end as of 2026-05-28, with a subsequent ref
 
 - **T1 Active Memory**: short-term session context in Redis JSON, scoped as
   `user` or `channel`.
-- **T2 Timeline Memory**: Redis Stack semantic/vector memory, used by both
-  agents for pre-flight retrieval, search tool calls, consolidation, topic
-  resolution, supersede chains, and cleanup.
-- **T3 Core/Profile Memory**: Markdown files via `MarkdownProfileStore`, default
-  base path `memories/`, rendered as 8 profile sections.
+- **T2 Timeline Memory**: Redis Stack semantic/vector memory via `TimelineSummaryStore`, used by both agents for pre-flight retrieval and consolidation. Replaces the old `TimelineStore`/`TimelineSearch` stack.
+- **T3 Core/Profile Memory**: Markdown files via `MarkdownProfileStore`, default base path `memories/`, rendered as 8 profile sections.
 
 ## Key Environment Groups
 
