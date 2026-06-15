@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
@@ -16,8 +16,13 @@ _MAX_LIMIT = 20
 class SearchMemoryTool(BaseTool):
     """Tool for querying Redis Stack backed T2 timeline memory."""
 
-    def __init__(self, timeline_search: Optional[Any] = None):
-        self.timeline_search = timeline_search
+    def __init__(
+        self,
+        timeline_summary_store: Optional[Any] = None,
+        embedding_service: Optional[Any] = None,
+    ):
+        self.timeline_summary_store = timeline_summary_store
+        self.embedding_service = embedding_service
 
     @property
     def name(self) -> str:
@@ -83,7 +88,40 @@ class SearchMemoryTool(BaseTool):
         if mode not in _VALID_TOOL_MODES:
             return f"Lỗi: mode '{mode}' không hợp lệ. Mode hợp lệ: {', '.join(sorted(_VALID_TOOL_MODES))}."
 
-        return "Lỗi: T2 search đã bị vô hiệu hóa — đang chờ cập nhật TimelineSummaryStore."
+        if self.timeline_summary_store is None:
+            return "Lỗi: timeline_summary_store chưa được cấu hình."
+
+        limit = self._bounded_limit(limit)
+        resolved_mode = mode
+        if resolved_mode == "auto":
+            resolved_mode = "semantic" if query else "recent"
+
+        if resolved_mode == "semantic":
+            if not query:
+                return "Lỗi: Chế độ semantic yêu cầu tham số 'query'."
+            if self.embedding_service is None:
+                return "Lỗi: embedding_service chưa được cấu hình."
+            try:
+                embedding = await self.embedding_service.get_embedding(query)
+                memories = await self.timeline_summary_store.search(
+                    user_id=user_id,
+                    query_embedding=embedding,
+                    limit=limit,
+                )
+            except Exception as e:
+                logger.error("SearchMemoryTool: semantic search failed: %s", e, exc_info=True)
+                return f"Lỗi khi tìm kiếm ký ức: {e}"
+        else:
+            try:
+                memories = await self.timeline_summary_store.get_recent(
+                    user_id=user_id,
+                    limit=limit,
+                )
+            except Exception as e:
+                logger.error("SearchMemoryTool: get_recent failed: %s", e, exc_info=True)
+                return f"Lỗi khi lấy ký ức gần đây: {e}"
+
+        return self._format_memories(memories)
 
     @staticmethod
     def _timeline_mode(mode: str) -> str:
@@ -136,7 +174,7 @@ class SearchMemoryTool(BaseTool):
     @staticmethod
     def _metadata(memory: Any) -> list[str]:
         metadata: list[str] = []
-        for field_name in ("memory_id", "speaker"):
+        for field_name in ("memory_id", "summary_id", "speaker"):
             value = SearchMemoryTool._field(memory, field_name)
             if value:
                 metadata.append(f"{field_name}={value}")
@@ -149,9 +187,14 @@ class SearchMemoryTool(BaseTool):
         if isinstance(created_at, datetime):
             metadata.append(f"created_at={created_at.isoformat()}")
         elif created_at:
-            metadata.append(f"created_at={created_at}")
+            try:
+                ts = float(created_at)
+                dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+                metadata.append(f"created_at={dt.isoformat()}")
+            except (ValueError, TypeError):
+                metadata.append(f"created_at={created_at}")
 
         return metadata
 
     def __repr__(self) -> str:
-        return f"<SearchMemoryTool: timeline_search={self.timeline_search is not None}>"
+        return f"<SearchMemoryTool: timeline_summary_store={self.timeline_summary_store is not None}>"

@@ -131,24 +131,49 @@ class TimelineSummaryStore:
             )
             
             summaries = []
-            # Parse results: [count, key1, [field1, val1, ...], key2, ...]
-            i = 1
-            while i < len(results):
-                key = results[i]
-                i += 1
-                if i < len(results):
-                    fields = results[i]
-                    i += 1
-                    # Convert to dict
+            if isinstance(results, dict):
+                raw_results = results.get(b"results") or results.get("results") or []
+                for item in raw_results:
+                    key = item.get(b"id") or item.get("id")
+                    extra_attrs = item.get(b"extra_attributes") or item.get("extra_attributes") or {}
+                    
                     summary_dict = {}
-                    for j in range(0, len(fields), 2):
-                        field_name = fields[j].decode() if isinstance(fields[j], bytes) else fields[j]
-                        field_value = fields[j+1].decode() if isinstance(fields[j+1], bytes) else fields[j+1]
+                    for k, v in extra_attrs.items():
+                        field_name = k.decode() if isinstance(k, bytes) else k
+                        try:
+                            field_value = v.decode() if isinstance(v, bytes) else v
+                        except UnicodeDecodeError:
+                            field_value = v
                         summary_dict[field_name] = field_value
                     
-                    # Extract summary_id from key
-                    summary_dict["summary_id"] = key.decode().replace(f"{self.prefix}:", "")
+                    if key:
+                        key_str = key.decode() if isinstance(key, bytes) else key
+                        summary_dict["summary_id"] = key_str.replace(f"{self.prefix}:", "")
                     summaries.append(summary_dict)
+            else:
+                # Parse results: [count, key1, [field1, val1, ...], key2, ...]
+                i = 1
+                while i < len(results):
+                    key = results[i]
+                    i += 1
+                    if i < len(results):
+                        fields = results[i]
+                        i += 1
+                        # Convert to dict
+                        summary_dict = {}
+                        for j in range(0, len(fields), 2):
+                            field_name = fields[j].decode() if isinstance(fields[j], bytes) else fields[j]
+                            try:
+                                field_value = fields[j+1].decode() if isinstance(fields[j+1], bytes) else fields[j+1]
+                            except UnicodeDecodeError:
+                                field_value = fields[j+1]
+                            summary_dict[field_name] = field_value
+                        
+                        # Extract summary_id from key
+                        if key:
+                            key_str = key.decode() if isinstance(key, bytes) else key
+                            summary_dict["summary_id"] = key_str.replace(f"{self.prefix}:", "")
+                        summaries.append(summary_dict)
             
             return summaries
             
@@ -169,20 +194,46 @@ class TimelineSummaryStore:
             )
             
             summaries = []
-            i = 1
-            while i < len(results):
-                key = results[i]
-                i += 1
-                if i < len(results):
-                    fields = results[i]
-                    i += 1
+            if isinstance(results, dict):
+                raw_results = results.get(b"results") or results.get("results") or []
+                for item in raw_results:
+                    key = item.get(b"id") or item.get("id")
+                    extra_attrs = item.get(b"extra_attributes") or item.get("extra_attributes") or {}
+                    
                     summary_dict = {}
-                    for j in range(0, len(fields), 2):
-                        field_name = fields[j].decode() if isinstance(fields[j], bytes) else fields[j]
-                        field_value = fields[j+1].decode() if isinstance(fields[j+1], bytes) else fields[j+1]
+                    for k, v in extra_attrs.items():
+                        field_name = k.decode() if isinstance(k, bytes) else k
+                        try:
+                            field_value = v.decode() if isinstance(v, bytes) else v
+                        except UnicodeDecodeError:
+                            field_value = v
                         summary_dict[field_name] = field_value
-                    summary_dict["summary_id"] = key.decode().replace(f"{self.prefix}:", "")
+                    
+                    if key:
+                        key_str = key.decode() if isinstance(key, bytes) else key
+                        summary_dict["summary_id"] = key_str.replace(f"{self.prefix}:", "")
                     summaries.append(summary_dict)
+            else:
+                i = 1
+                while i < len(results):
+                    key = results[i]
+                    i += 1
+                    if i < len(results):
+                        fields = results[i]
+                        i += 1
+                        summary_dict = {}
+                        for j in range(0, len(fields), 2):
+                            field_name = fields[j].decode() if isinstance(fields[j], bytes) else fields[j]
+                            try:
+                                field_value = fields[j+1].decode() if isinstance(fields[j+1], bytes) else fields[j+1]
+                            except UnicodeDecodeError:
+                                field_value = fields[j+1]
+                            summary_dict[field_name] = field_value
+                        
+                        if key:
+                            key_str = key.decode() if isinstance(key, bytes) else key
+                            summary_dict["summary_id"] = key_str.replace(f"{self.prefix}:", "")
+                        summaries.append(summary_dict)
             
             return summaries
             

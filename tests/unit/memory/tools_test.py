@@ -12,16 +12,34 @@ class FakeTimelineSearch:
     def __init__(self):
         self.calls: list[dict] = []
 
-    async def search(self, **kwargs):
-        self.calls.append(kwargs)
+    async def search(self, user_id, query_embedding, limit):
+        self.calls.append({"method": "search", "user_id": user_id, "query_embedding": query_embedding, "limit": limit})
         return [
             {
-                "memory_id": "mem-1",
-                "user_id": kwargs["user_id"],
+                "summary_id": "sum-1",
+                "user_id": user_id,
                 "content": "User thích phim tâm lý.",
-                "catalogs": ["interest"],
+                "importance": 3,
+                "created_at": 1718360000.0,
             }
         ]
+
+    async def get_recent(self, user_id, limit):
+        self.calls.append({"method": "get_recent", "user_id": user_id, "limit": limit})
+        return [
+            {
+                "summary_id": "sum-2",
+                "user_id": user_id,
+                "content": "User nói chào Bé Bảy.",
+                "importance": 4,
+                "created_at": 1718370000.0,
+            }
+        ]
+
+
+class FakeEmbeddingService:
+    async def get_embedding(self, text):
+        return [0.1] * 1024
 
 
 class FakeProfileStore:
@@ -49,10 +67,24 @@ class FakeProfileStore:
 
 
 @pytest.mark.asyncio
-async def test_search_memory_tool_returns_disabled_message():
-    tool = SearchMemoryTool(timeline_search=None)
-    result = await tool.execute(user_id="123", mode="semantic", query="phim")
-    assert "vô hiệu hóa" in result
+async def test_search_memory_tool_execution():
+    store = FakeTimelineSearch()
+    embeddings = FakeEmbeddingService()
+    tool = SearchMemoryTool(timeline_summary_store=store, embedding_service=embeddings)
+
+    # Test semantic mode
+    result_semantic = await tool.execute(user_id="12345", mode="semantic", query="phim")
+    assert "Tìm thấy 1 ký ức" in result_semantic
+    assert "User thích phim tâm lý" in result_semantic
+    assert "summary_id=sum-1" in result_semantic
+    assert store.calls[-1]["method"] == "search"
+
+    # Test recent mode
+    result_recent = await tool.execute(user_id="12345", mode="recent")
+    assert "Tìm thấy 1 ký ức" in result_recent
+    assert "User nói chào Bé Bảy" in result_recent
+    assert "summary_id=sum-2" in result_recent
+    assert store.calls[-1]["method"] == "get_recent"
 
 
 @pytest.mark.asyncio
