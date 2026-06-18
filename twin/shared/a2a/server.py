@@ -14,6 +14,7 @@ from twin.shared.a2a.types import (
     Part,
     TaskStatus,
 )
+from twin.shared.observability import tracing_context_from_parent
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +105,7 @@ class A2AServer:
 
         try:
             if method == "tasks/send":
-                result = await self._handle_send_task(params)
+                result = await self._handle_send_task(params, request)
             elif method == "tasks/get":
                 result = await self._handle_get_task(params)
             elif method == "tasks/cancel":
@@ -126,10 +127,11 @@ class A2AServer:
                 "error": {"code": -32000, "message": str(e)},
             })
 
-    async def _handle_send_task(self, params: dict) -> dict:
+    async def _handle_send_task(self, params: dict, request: web.Request) -> dict:
         task_id = params.get("id", str(uuid.uuid4()))
         skill = params.get("skill", "chat")
         session_id = params.get("sessionId")
+        trace_parent = self._langsmith_parent_from_request(request)
 
         task = A2ATask(
             id=task_id,
@@ -149,7 +151,9 @@ class A2AServer:
             task.status = TaskStatus.FAILED
             return self._task_to_dict(task)
 
-        asyncio.create_task(self._execute_handler(task_id, task, handler, params))
+        asyncio.create_task(
+            self._execute_handler(task_id, task, handler, params, trace_parent)
+        )
 
         return self._task_to_dict(task)
 
@@ -159,12 +163,14 @@ class A2AServer:
         task: A2ATask,
         handler: TaskHandler,
         params: dict,
+        trace_parent: dict[str, str] | None = None,
     ):
         self._task_buffers[task_id] = []
         try:
-            async for message in handler(params):
-                self._task_buffers[task_id].append(message)
-                await self._broadcast_to_stream(task_id, message)
+            with tracing_context_from_parent(trace_parent):
+                async for message in handler(params):
+                    self._task_buffers[task_id].append(message)
+                    await self._broadcast_to_stream(task_id, message)
             task.status = TaskStatus.COMPLETED
         except Exception as e:
             logger.exception(f"Task {task_id} handler failed")
@@ -292,3 +298,13 @@ class A2AServer:
                 part["file_url"] = p.file_url
             result["parts"].append(part)
         return result
+
+    @staticmethod
+    def _langsmith_parent_from_request(request: web.Request) -> dict[str, str] | None:
+        headers = {
+            key: value
+            for key, value in request.headers.items()
+            if key.lower().startswith("langsmith")
+            or key.lower() in {"baggage", "traceparent"}
+        }
+        return headers or None

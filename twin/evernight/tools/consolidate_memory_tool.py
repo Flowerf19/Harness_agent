@@ -5,6 +5,8 @@ import json
 import logging
 from typing import Any, Optional
 
+from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
+from twin.shared.observability.langsmith import traceable
 from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
 
 logger = logging.getLogger(__name__)
@@ -106,6 +108,11 @@ class ConsolidateMemoryTool(BaseTool):
     def visible_to_agents(self) -> Optional[set[str]]:
         return {"evernight"}
 
+    @traceable(
+        name="memory.consolidate",
+        run_type="chain",
+        tags=["memory", "consolidation", "evernight"],
+    )
     async def execute(
         self,
         scope: str,
@@ -122,11 +129,29 @@ class ConsolidateMemoryTool(BaseTool):
             "ConsolidateMemoryTool: scope=%s scope_id=%s reason=%s max_messages=%d",
             scope, scope_id, reason, max_messages,
         )
+        trace_base = {
+            "workflow": "evernight.memory_consolidation",
+            "workflow_step": "memory.consolidate",
+            "agent_name": "evernight",
+            "provider": self._provider_name(),
+            "model": self._model_name(),
+            "scope": scope,
+            "scope_id": scope_id,
+            "reason": reason,
+            "max_messages": max_messages,
+        }
 
         try:
             # 1. Read T1 messages
-            t1_entries = await self.memory_manager.t1.get_context(
-                scope, scope_id, limit=max_messages,
+            t1_entries = await self._read_t1_context(
+                scope,
+                scope_id,
+                max_messages,
+                trace_base,
+                langsmith_extra=langsmith_extra(
+                    tags=["memory", "t1", "read"],
+                    metadata={**trace_base, "workflow_step": "memory.t1_read"},
+                ),
             )
             if not t1_entries:
                 return json.dumps({
@@ -140,7 +165,14 @@ class ConsolidateMemoryTool(BaseTool):
             # 2. Read current profile (channel scope may not have profile)
             profile_text = ""
             try:
-                profile_text = await self.memory_manager.profile.read_raw(scope_id)
+                profile_text = await self._read_profile(
+                    scope_id,
+                    trace_base,
+                    langsmith_extra=langsmith_extra(
+                        tags=["memory", "t3", "read"],
+                        metadata={**trace_base, "workflow_step": "memory.t3_profile_read"},
+                    ),
+                )
             except Exception as exc:
                 logger.debug("ConsolidateMemoryTool: no profile for scope_id=%s: %s", scope_id, exc)
 
@@ -149,8 +181,13 @@ class ConsolidateMemoryTool(BaseTool):
                 profile=profile_text,
                 messages=messages_text,
             )
-            response = await self.llm_service.generate_response(
+            response = await call_with_langsmith_extra(
+                self.llm_service.generate_response,
                 messages=[{"role": "user", "content": prompt}],
+                langsmith_extra=langsmith_extra(
+                    tags=["memory", "consolidation", "summarizer", "llm"],
+                    metadata={**trace_base, "workflow_step": "memory.summarizer"},
+                ),
             )
             content = getattr(response, "content", None) or str(response)
 
@@ -186,16 +223,34 @@ class ConsolidateMemoryTool(BaseTool):
                     if not t_summary:
                         continue
                     try:
-                        embedding = await self.embedding_service.get_embedding(
-                            f"passage: {t_summary}"
+                        embedding = await self._embed_summary(
+                            t_summary,
+                            trace_base,
+                            topic_item,
+                            langsmith_extra=langsmith_extra(
+                                tags=["memory", "t2", "embedding"],
+                                metadata={
+                                    **trace_base,
+                                    "workflow_step": "memory.t2_embed_summary",
+                                    "topic": topic_item.get("topic", "general"),
+                                },
+                            ),
                         )
-                        sid = await self.timeline_summary_store.store_summary(
-                            user_id=scope_id,
-                            summary=t_summary,
-                            embedding=embedding,
-                            topic=topic_item.get("topic", "general"),
-                            topic_display=topic_item.get("topic_display", ""),
-                            importance=int(topic_item.get("importance", 3)),
+                        sid = await self._store_t2_summary(
+                            scope_id,
+                            t_summary,
+                            embedding,
+                            topic_item,
+                            trace_base,
+                            langsmith_extra=langsmith_extra(
+                                tags=["memory", "t2", "store"],
+                                metadata={
+                                    **trace_base,
+                                    "workflow_step": "memory.t2_store_summary",
+                                    "topic": topic_item.get("topic", "general"),
+                                    "importance": int(topic_item.get("importance", 3)),
+                                },
+                            ),
                         )
                         summary_ids.append(sid)
                     except Exception as exc:
@@ -217,8 +272,19 @@ class ConsolidateMemoryTool(BaseTool):
                     continue
                 try:
                     for bullet in bullets:
-                        await self.memory_manager.profile.append_raw(
-                            scope_id, section, bullet,
+                        await self._append_profile_bullet(
+                            scope_id,
+                            section,
+                            bullet,
+                            trace_base,
+                            langsmith_extra=langsmith_extra(
+                                tags=["memory", "t3", "append"],
+                                metadata={
+                                    **trace_base,
+                                    "workflow_step": "memory.t3_profile_append",
+                                    "section": section,
+                                },
+                            ),
                         )
                     updated_sections.append(section)
                 except Exception as exc:
@@ -253,3 +319,70 @@ class ConsolidateMemoryTool(BaseTool):
             author = getattr(entry, "author_name", None) or role
             lines.append(f"[{author}]: {content}")
         return "\n".join(lines)
+
+    @traceable(name="memory.t1_read", run_type="retriever", tags=["memory", "t1"])
+    async def _read_t1_context(
+        self,
+        scope: str,
+        scope_id: str,
+        max_messages: int,
+        trace_base: dict[str, Any],
+    ) -> list:
+        del trace_base
+        return await self.memory_manager.t1.get_context(
+            scope, scope_id, limit=max_messages,
+        )
+
+    @traceable(name="memory.t3_profile_read", run_type="retriever", tags=["memory", "t3"])
+    async def _read_profile(self, scope_id: str, trace_base: dict[str, Any]) -> str:
+        del trace_base
+        return await self.memory_manager.profile.read_raw(scope_id)
+
+    @traceable(name="memory.t2_embed_summary", run_type="embedding", tags=["memory", "t2"])
+    async def _embed_summary(
+        self,
+        summary: str,
+        trace_base: dict[str, Any],
+        topic_item: dict[str, Any],
+    ) -> list[float]:
+        del trace_base, topic_item
+        return await self.embedding_service.get_embedding(f"passage: {summary}")
+
+    @traceable(name="memory.t2_store_summary", run_type="tool", tags=["memory", "t2"])
+    async def _store_t2_summary(
+        self,
+        scope_id: str,
+        summary: str,
+        embedding: list[float],
+        topic_item: dict[str, Any],
+        trace_base: dict[str, Any],
+    ) -> str:
+        del trace_base
+        return await self.timeline_summary_store.store_summary(
+            user_id=scope_id,
+            summary=summary,
+            embedding=embedding,
+            topic=topic_item.get("topic", "general"),
+            topic_display=topic_item.get("topic_display", ""),
+            importance=int(topic_item.get("importance", 3)),
+        )
+
+    @traceable(name="memory.t3_profile_append", run_type="tool", tags=["memory", "t3"])
+    async def _append_profile_bullet(
+        self,
+        scope_id: str,
+        section: str,
+        bullet: str,
+        trace_base: dict[str, Any],
+    ) -> bool:
+        del trace_base
+        return await self.memory_manager.profile.append_raw(scope_id, section, bullet)
+
+    def _provider_name(self) -> str:
+        class_name = self.llm_service.__class__.__name__ if self.llm_service else ""
+        if "Gemini" in class_name:
+            return "gemini"
+        return "openai_compatible"
+
+    def _model_name(self) -> str:
+        return str(getattr(self.llm_service, "model", "unknown") or "unknown")

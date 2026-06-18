@@ -3,9 +3,9 @@ import os
 from typing import Dict, List, Optional, Union
 
 import aiohttp
-from langsmith import traceable
 
 from twin.shared.config.settings import Config
+from twin.shared.observability.langsmith import traceable
 from .base_llm_service import (
     BaseLLMService,
     LLM_ERROR_BAD_FORMAT,
@@ -52,7 +52,12 @@ class GeminiService(BaseLLMService):
                 })
         return function_declarations
 
-    @traceable(name="Gemini_Generate", run_type="llm", tags=["gemini", "generation"])
+    @traceable(
+        name="llm.gemini.generate",
+        run_type="llm",
+        tags=["gemini", "generation"],
+        metadata={"provider": "gemini"},
+    )
     async def generate_response(
         self,
         messages: List[Dict[str, str]],

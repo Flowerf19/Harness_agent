@@ -9,6 +9,7 @@ from typing import AsyncIterator, Optional
 import aiohttp
 
 from twin.shared.a2a.types import A2AMessage, A2ATask, AgentCard, Part, TaskStatus
+from twin.shared.observability import a2a_parent_headers
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,8 @@ class A2AClient:
 
     async def send_task(self, params: dict) -> A2ATask:
         session = await self._get_session()
+        params = dict(params)
+        trace_headers = params.pop("_langsmith_parent", None) or a2a_parent_headers()
         payload = {
             "jsonrpc": "2.0",
             "method": "tasks/send",
@@ -53,7 +56,7 @@ class A2AClient:
         async with session.post(
             f"{self.base_url}/",
             json=payload,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **trace_headers},
         ) as resp:
             data = await resp.json()
             if "result" in data:
@@ -62,6 +65,7 @@ class A2AClient:
 
     async def get_task(self, task_id: str) -> Optional[A2ATask]:
         session = await self._get_session()
+        trace_headers = a2a_parent_headers()
         payload = {
             "jsonrpc": "2.0",
             "method": "tasks/get",
@@ -72,7 +76,7 @@ class A2AClient:
             async with session.post(
                 f"{self.base_url}/",
                 json=payload,
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", **trace_headers},
             ) as resp:
                 data = await resp.json()
                 if "result" in data:
@@ -84,9 +88,10 @@ class A2AClient:
 
     async def subscribe_stream(self, task_id: str) -> AsyncIterator[A2AMessage]:
         session = await self._get_session()
+        trace_headers = a2a_parent_headers()
         async with session.get(
             f"{self.base_url}/tasks/{task_id}/stream",
-            headers={"Accept": "text/event-stream"},
+            headers={"Accept": "text/event-stream", **trace_headers},
             timeout=aiohttp.ClientTimeout(total=self.timeout, sock_read=self.timeout),
         ) as resp:
             if resp.status != 200:
@@ -128,8 +133,9 @@ class A2AClient:
         session_id: str,
         text: str,
         task_id: str | None = None,
+        trace_parent: dict[str, str] | None = None,
     ) -> str:
-        messages = await self.send_task_and_wait({
+        task_params = {
             "id": task_id or str(uuid.uuid4()),
             "sessionId": session_id,
             "skill": skill,
@@ -137,7 +143,10 @@ class A2AClient:
                 "role": "user",
                 "parts": [{"type": "text", "text": text}],
             },
-        })
+        }
+        if trace_parent:
+            task_params["_langsmith_parent"] = trace_parent
+        messages = await self.send_task_and_wait(task_params)
         return self._last_text(messages)
 
     async def send_data_task(
@@ -155,6 +164,12 @@ class A2AClient:
         }
         if params:
             task_params.update(params)
+        if isinstance(task_params.get("payload"), dict):
+            payload = dict(task_params["payload"])
+            trace_parent = payload.pop("_langsmith_parent", None)
+            task_params["payload"] = payload
+            if trace_parent:
+                task_params["_langsmith_parent"] = trace_parent
 
         messages = await self.send_task_and_wait(task_params)
         for message in reversed(messages):

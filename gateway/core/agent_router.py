@@ -5,6 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Any, TYPE_CHECKING
 
+from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
+from twin.shared.observability.langsmith import traceable
+
 if TYPE_CHECKING:
     from gateway.core.evernight_client import EvernightClient
     from twin.march7.agent import March7Agent
@@ -23,6 +26,7 @@ class AgentRouter:
         self.march7 = march7
         self.evernight_client = evernight_client
 
+    @traceable(name="gateway.route_agent", run_type="chain", tags=["gateway", "router"])
     async def route(
         self,
         agent_name: str,
@@ -39,13 +43,30 @@ class AgentRouter:
         mentioned_users: list[dict[str, Any]] | None = None,
     ) -> str:
         """Route message to the specified agent."""
+        extra = langsmith_extra(
+            tags=["gateway", "router", agent_name],
+            metadata={
+                "workflow": "gateway.route_agent",
+                "agent_name": agent_name,
+                "user_id": user_id,
+                "channel_id": channel_id,
+                "guild_id": guild_id,
+                "allow_silence": allow_silence,
+            },
+        )
         if agent_name == "evernight":
             if self.evernight_client is None:
                 logger.error("Evernight client not configured - cannot route to Evernight")
                 return "Xin lỗi, Evernight hiện chưa được cấu hình."
-            return await self.evernight_client.send_chat(user_id=user_id, content=content)
+            return await call_with_langsmith_extra(
+                self.evernight_client.send_chat,
+                user_id=user_id,
+                content=content,
+                langsmith_extra=extra,
+            )
 
-        return await self.march7.handle_chat(
+        return await call_with_langsmith_extra(
+            self.march7.handle_chat,
             user_id=user_id,
             content=content,
             channel_id=channel_id,
@@ -56,6 +77,7 @@ class AgentRouter:
             allow_silence=allow_silence,
             user_name=user_name,
             mentioned_users=mentioned_users,
+            langsmith_extra=extra,
         )
 
     async def close(self) -> None:

@@ -11,8 +11,10 @@ class FakeA2AClient(A2AClient):
         super().__init__("http://a2a.test")
         self.messages = messages
         self.status = status
+        self.sent_params = []
 
     async def send_task(self, params: dict) -> A2ATask:
+        self.sent_params.append(params)
         return A2ATask(
             id=params["id"],
             session_id=params.get("sessionId"),
@@ -53,6 +55,26 @@ async def test_send_data_task_returns_last_data_part():
     data = await client.send_data_task(skill="get_snapshot", session_id="u1")
 
     assert data == {"snapshot": [{"role": "user"}]}
+
+
+@pytest.mark.asyncio
+async def test_send_data_task_moves_langsmith_parent_without_mutating_payload():
+    client = FakeA2AClient([
+        A2AMessage(role="agent", parts=[Part(type="data", data={"status": "ok"})]),
+    ])
+    parent = {"langsmith-trace": "trace-id"}
+    payload = {"scope": "user", "_langsmith_parent": parent}
+
+    data = await client.send_data_task(
+        skill="consolidate_discussion",
+        session_id="u1",
+        params={"payload": payload},
+    )
+
+    assert data == {"status": "ok"}
+    assert payload["_langsmith_parent"] == parent
+    assert client.sent_params[0]["_langsmith_parent"] == parent
+    assert "_langsmith_parent" not in client.sent_params[0]["payload"]
 
 
 @pytest.mark.asyncio

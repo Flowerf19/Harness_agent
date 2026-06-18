@@ -2,10 +2,10 @@
 import logging
 from typing import Any, List, Optional
 
-from langsmith import traceable
-
 from twin.shared.agent import ChatTurnRunner
 from twin.shared.llm.base_llm_service import BaseLLMService
+from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
+from twin.shared.observability.langsmith import traceable
 from twin.shared.tools.registry import ToolRegistry
 from twin.shared.a2a.types import AgentCard
 from twin.shared.memory import SharedMemoryManager
@@ -108,11 +108,25 @@ class EvernightAgent:
                 return {"status": "failed", "error": "tool_not_found"}
 
             # Execute the tool
-            result_str = await tool.execute(
+            result_str = await call_with_langsmith_extra(
+                tool.execute,
                 scope=scope,
                 scope_id=scope_id,
                 reason=reason,
                 max_messages=max_messages,
+                langsmith_extra=langsmith_extra(
+                    tags=["evernight", "memory", "consolidation"],
+                    metadata={
+                        "workflow": "evernight.memory_consolidation",
+                        "agent_name": "evernight",
+                        "provider": self._llm_type,
+                        "model": self._model_name,
+                        "scope": scope,
+                        "scope_id": scope_id,
+                        "reason": reason,
+                        "max_messages": max_messages,
+                    },
+                ),
             )
 
             # Parse JSON result
@@ -143,7 +157,7 @@ class EvernightAgent:
     # Chat (new capability for Evernight)
     # ------------------------------------------------------------------
 
-    @traceable(name="Evernight_Chat", run_type="chain", tags=["evernight", "chat"])
+    @traceable(name="evernight.chat", run_type="chain", tags=["evernight", "chat"])
     async def handle_chat(self, user_id: str, content: str) -> str:
         try:
             await self.memory.add_message(user_id=user_id, role="user", content=content)
@@ -157,6 +171,23 @@ class EvernightAgent:
                 system_prompt=sys_prompt,
                 max_iterations=10,
                 tool_timeout=TOOL_EXECUTION_TIMEOUT,
+                trace_metadata={
+                    "workflow": "evernight.chat",
+                    "agent_name": "evernight",
+                    "provider": self._llm_type,
+                    "model": self._model_name,
+                    "user_id": user_id,
+                },
+                langsmith_extra=langsmith_extra(
+                    tags=["evernight", "chat_turn", self._llm_type],
+                    metadata={
+                        "workflow": "evernight.chat",
+                        "agent_name": "evernight",
+                        "provider": self._llm_type,
+                        "model": self._model_name,
+                        "user_id": user_id,
+                    },
+                ),
             )
 
             bot_response = turn.content

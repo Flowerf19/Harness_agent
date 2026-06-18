@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 
 from twin.shared.a2a.client import A2AClient
+from twin.shared.observability import a2a_parent_headers
+from twin.shared.observability.langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +18,7 @@ class EvernightClient:
         self.base_url = base_url.rstrip("/")
         self._client = A2AClient(base_url=self.base_url, timeout=timeout)
 
+    @traceable(name="a2a.evernight_chat", run_type="chain", tags=["a2a", "evernight", "chat"])
     async def send_chat(self, user_id: str, content: str) -> str:
         """Send a chat message to Evernight and return the response text."""
         try:
@@ -23,11 +26,13 @@ class EvernightClient:
                 skill="chat",
                 session_id=user_id,
                 text=content,
+                trace_parent=a2a_parent_headers(),
             )
         except Exception:
             logger.exception("Failed to send chat to Evernight at %s", self.base_url)
             return "Xin lỗi, không thể kết nối đến Evernight."
 
+    @traceable(name="a2a.evernight_consolidation", run_type="chain", tags=["a2a", "evernight", "consolidation"])
     async def request_consolidation(self, payload: dict) -> dict:
         """Ask Evernight to consolidate a SUMMARY_REQUESTED payload."""
         session_id = payload.get("scope_id") or "unknown"
@@ -35,7 +40,12 @@ class EvernightClient:
             return await self._client.send_data_task(
                 skill="consolidate_discussion",
                 session_id=session_id,
-                params={"payload": payload},
+                params={
+                    "payload": {
+                        **payload,
+                        "_langsmith_parent": a2a_parent_headers(),
+                    },
+                },
             )
         except Exception as exc:
             logger.exception(

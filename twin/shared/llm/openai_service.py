@@ -3,9 +3,9 @@ import logging
 from typing import Dict, List, Optional, Union
 
 import aiohttp
-from langsmith import traceable
 
 from twin.shared.config.settings import Config
+from twin.shared.observability.langsmith import traceable
 from .base_llm_service import (
     BaseLLMService,
     LLM_ERROR_BAD_FORMAT,
@@ -40,7 +40,12 @@ class OpenAIService(BaseLLMService):
             self.session = aiohttp.ClientSession(timeout=timeout)
         return self.session
 
-    @traceable(name="OpenAI_Generate", run_type="llm", tags=["openai", "generation"])
+    @traceable(
+        name="llm.openai_compatible.generate",
+        run_type="llm",
+        tags=["openai_compatible", "generation"],
+        metadata={"provider": "openai_compatible"},
+    )
     async def generate_response(
         self,
         messages: List[Dict[str, str]],

@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from twin.shared.memory.active import ActiveEntry, ActiveMemory
 from twin.shared.memory.profile import MarkdownProfileStore
+from twin.shared.observability.langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +160,11 @@ class SharedMemoryManager:
 
     # -------------------------------------------------------------- consolidate
 
+    @traceable(
+        name="memory.request_consolidation",
+        run_type="chain",
+        tags=["memory", "consolidation", "request"],
+    )
     async def consolidate_scope(self, scope: str, scope_id: str) -> dict:
         """Consolidate T1 messages via A2A call to Evernight."""
         if self.consolidation_client is None:

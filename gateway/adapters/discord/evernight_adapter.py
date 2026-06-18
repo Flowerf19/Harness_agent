@@ -19,6 +19,7 @@ from underthesea import sent_tokenize
 from gateway.adapters.discord.approval import build_discord_approval_context
 from gateway.adapters.discord.converter import DiscordMessageConverter
 from gateway.core.handler import GatewayChatHandler
+from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
 from twin.shared.tools.approval_context import (
     clear_current_approval_context,
     set_current_approval_context,
@@ -53,7 +54,19 @@ class _EvernightAgentRouter:
             logger.error("Evernight adapter received unsupported agent route: %s", agent_name)
             return ERROR_MESSAGE
 
-        return await self.evernight.handle_chat(user_id=user_id, content=content)
+        return await call_with_langsmith_extra(
+            self.evernight.handle_chat,
+            user_id=user_id,
+            content=content,
+            langsmith_extra=langsmith_extra(
+                tags=["evernight", "discord", "chat"],
+                metadata={
+                    "workflow": "evernight.discord.chat",
+                    "agent_name": "evernight",
+                    "user_id": user_id,
+                },
+            ),
+        )
 
 
 class EvernightDiscordAdapter:

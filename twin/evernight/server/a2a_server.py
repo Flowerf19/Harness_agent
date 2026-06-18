@@ -58,7 +58,8 @@ class EvernightA2AHandler:
         logger.info(f"Evernight handling consolidation via tool for user {session_id}, reason={reason}")
         try:
             result = await self.agent.consolidate_via_tool(
-                user_id=session_id,
+                scope="user",
+                scope_id=session_id,
                 reason=reason,
                 max_messages=max_messages,
             )

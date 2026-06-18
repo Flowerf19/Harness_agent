@@ -5,6 +5,8 @@ import logging
 from typing import Any
 
 from twin.shared.a2a.client import A2AClient
+from twin.shared.observability import a2a_parent_headers
+from twin.shared.observability.langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,7 @@ class ConsolidationClient:
         self.a2a_client = A2AClient(base_url=evernight_url, timeout=timeout)
         logger.info("ConsolidationClient initialized for %s", evernight_url)
 
+    @traceable(name="a2a.consolidate_scope", run_type="chain", tags=["a2a", "consolidation"])
     async def consolidate_scope(
         self,
         scope: str,
@@ -47,6 +50,7 @@ class ConsolidationClient:
                         "scope_id": scope_id,
                         "reason": reason,
                         "max_messages": max_messages,
+                        "_langsmith_parent": a2a_parent_headers(),
                     }
                 },
             )

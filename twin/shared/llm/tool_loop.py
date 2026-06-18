@@ -11,6 +11,8 @@ from typing import Any
 
 from twin.shared.llm.base_llm_service import LLM_ERROR_RESPONSES
 from twin.shared.llm.llm_response import LLMResponse
+from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
+from twin.shared.observability.langsmith import traceable
 from twin.shared.tools.exceptions import BashExecutorUnavailableError
 
 
@@ -37,6 +39,7 @@ class RefineDecision:
     response: str | None = None
 
 
+@traceable(name="tool_loop.run", run_type="chain", tags=["tool_loop"])
 async def run_strict_tool_loop(
     *,
     llm: Any,
@@ -50,16 +53,32 @@ async def run_strict_tool_loop(
     max_iterations: int = 10,
     tool_timeout: int = 60,
     raise_bash_unavailable: bool = False,
+    trace_metadata: dict[str, Any] | None = None,
 ) -> str | LLMResponse:
     """Select one tool, refine with one guide, execute, observe, then continue."""
     llm_response: str | LLMResponse | None = None
+    base_metadata = {
+        **(trace_metadata or {}),
+        "workflow_step": "tool_loop.run",
+        "llm_type": llm_type,
+        "use_native_tools": use_native_tools,
+    }
 
     for iteration in range(max_iterations):
-        llm_response = await llm.generate_response(
+        llm_response = await call_with_langsmith_extra(
+            llm.generate_response,
             messages=messages,
             system_prompt=system_prompt,
             use_native_tools=use_native_tools,
             max_tokens=TOOL_SELECTION_MAX_TOKENS,
+            langsmith_extra=langsmith_extra(
+                tags=["llm", "tool_selection", llm_type],
+                metadata={
+                    **base_metadata,
+                    "tool_loop_iteration": iteration + 1,
+                    "llm_call": "tool_selection",
+                },
+            ),
         )
 
         if not isinstance(llm_response, LLMResponse) or not llm_response.has_tool_calls():
@@ -100,13 +119,25 @@ async def run_strict_tool_loop(
                 missing_required,
             )
 
-        refine_response = await llm.generate_response(
+        refine_response = await call_with_langsmith_extra(
+            llm.generate_response,
             messages=_build_refine_messages(messages, selected),
             system_prompt=_build_refine_system_prompt(
                 system_prompt, tool_guide, selected, missing_required
             ),
             use_native_tools=False,
             max_tokens=TOOL_SELECTION_MAX_TOKENS,
+            langsmith_extra=langsmith_extra(
+                tags=["llm", "tool_refine", llm_type, tool_name],
+                metadata={
+                    **base_metadata,
+                    "tool_loop_iteration": iteration + 1,
+                    "llm_call": "tool_refine",
+                    "selected_tool": tool_name,
+                    "missing_required": ",".join(missing_required),
+                    "allow_tool_switch": allow_tool_switch,
+                },
+            ),
         )
 
         if isinstance(refine_response, str):
@@ -137,7 +168,21 @@ async def run_strict_tool_loop(
 
         try:
             tool_result = await asyncio.wait_for(
-                tool_registry.execute_tool(refined_call["name"], refined_call["arguments"]),
+                call_with_langsmith_extra(
+                    tool_registry.execute_tool,
+                    refined_call["name"],
+                    refined_call["arguments"],
+                    langsmith_extra=langsmith_extra(
+                        tags=["tool", refined_call["name"]],
+                        metadata={
+                            **base_metadata,
+                            "tool_loop_iteration": iteration + 1,
+                            "tool_name": refined_call["name"],
+                            "selected_tool": tool_name,
+                            "tool_call_id": refined_call["id"],
+                        },
+                    ),
+                ),
                 timeout=tool_timeout,
             )
             logger.info("Tool '%s' executed successfully", refined_call["name"])

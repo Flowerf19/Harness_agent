@@ -16,6 +16,7 @@ Design Philosophy:
 import logging
 from typing import Dict, List, Optional, Any
 
+from twin.shared.observability.langsmith import traceable
 from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
 from twin.shared.tools.mcp_protocol import ToolDefinition
 
@@ -198,6 +199,7 @@ class ToolRegistry:
     # EXECUTION METHODS
     # ==========================================
 
+    @traceable(name="tool.execute", run_type="tool", tags=["tool"])
     async def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """
         Execute a tool by name with given arguments.
