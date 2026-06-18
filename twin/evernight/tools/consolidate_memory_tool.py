@@ -9,7 +9,7 @@ from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
 
 logger = logging.getLogger(__name__)
 
-_SUMMARIZER_PROMPT = """Bạn là Memory Summarizer. Đọc cuộc trò chuyện và trích xuất thông tin đáng nhớ.
+_SUMMARIZER_PROMPT = """Bạn là Memory Summarizer. Đọc cuộc trò chuyện và trích xuất thông tin đáng nhớ theo từng topic.
 
 === HỒ SƠ HIỆN TẠI ===
 {profile}
@@ -18,32 +18,40 @@ _SUMMARIZER_PROMPT = """Bạn là Memory Summarizer. Đọc cuộc trò chuyện
 {messages}
 
 Nhiệm vụ:
-1. Tóm tắt cuộc trò chuyện (2-3 câu, tập trung vào topics chính)
-2. Trích xuất facts mới đáng lưu vào hồ sơ
-3. Nếu fact mới mâu thuẫn với hồ sơ cũ → ghi đè
-4. Nếu fact mới đã có trong hồ sơ → bỏ qua
+1. Lọc noise (chào hỏi đơn thuần, emoji phiếm, thông tin tạm thời vô nghĩa).
+2. Nếu session TOÀN noise hoặc không có gì đáng nhớ → set has_meaningful_content=false, topics=[].
+3. Với nội dung có ý nghĩa: nhóm theo topic, mỗi topic viết 1-2 câu summary ngắn.
+4. Tối đa 5 topics. Topic slug: lowercase, underscore, tự đặt (ví dụ: work, interest, health, travel, relationship...).
+5. Trích xuất facts mới đáng lưu vào hồ sơ (bỏ qua nếu đã có hoặc mâu thuẫn thì ghi đè).
 
 Return JSON:
 {{
-  "timeline_summary": "User nói về...",
+  "has_meaningful_content": true,
+  "topics": [
+    {{
+      "topic": "work",
+      "topic_display": "Công việc",
+      "summary": "User đang làm dự án X, deadline tuần tới.",
+      "importance": 4
+    }}
+  ],
   "profile_updates": {{
     "basic": [],
     "work": ["Đang làm dự án X"],
-    "interest": ["Thích Rust"],
+    "interest": [],
     "relationship": [],
     "habit": [],
     "psychological": [],
     "rules": [],
     "contact": []
-  }},
-  "importance": 4
+  }}
 }}
 
-Rules:
-- importance 5: identity/contact critical
-- importance 4: work/relationship/habit quan trọng  
-- importance 3: interest/event thông thường
-- importance 2-1: casual, temporary
+Rules importance:
+- 5: identity/contact critical
+- 4: work/relationship/habit quan trọng
+- 3: interest/event thông thường
+- 2-1: casual, temporary
 
 Chỉ return JSON, không giải thích."""
 
@@ -150,32 +158,59 @@ class ConsolidateMemoryTool(BaseTool):
             try:
                 data = json.loads(content)
             except json.JSONDecodeError as exc:
-                logger.error("ConsolidateMemoryTool: JSON parse failed: %s", exc)
+                logger.error("ConsolidateMemoryTool: JSON parse failed: %s\nRaw: %s", exc, content[:500])
                 return json.dumps({
                     "status": "failed",
                     "reason": "parse_failed",
                     "error": str(exc),
                 })
 
-            timeline_summary = data.get("timeline_summary", "")
-            profile_updates = data.get("profile_updates", {})
-            importance = data.get("importance", 3)
+            # 5. Store N topic summaries in T2
+            summary_ids: list[str] = []
+            has_meaningful = data.get("has_meaningful_content", True)
+            topics = data.get("topics", [])
 
-            # 5. Store timeline summary in T2
-            summary_id = None
-            if timeline_summary:
-                try:
-                    embedding = await self.embedding_service.get_embedding(timeline_summary)
-                    summary_id = await self.timeline_summary_store.store_summary(
-                        user_id=scope_id,
-                        content=timeline_summary,
-                        embedding=embedding,
-                        importance=importance,
-                    )
-                except Exception as exc:
-                    logger.warning("ConsolidateMemoryTool: timeline store failed: %s", exc)
+            # Fallback: old format with flat timeline_summary → wrap as single topic
+            if not topics and data.get("timeline_summary"):
+                topics = [{
+                    "topic": "general",
+                    "topic_display": "Tổng hợp",
+                    "summary": data["timeline_summary"],
+                    "importance": data.get("importance", 3),
+                }]
+                has_meaningful = bool(topics[0]["summary"])
+
+            if has_meaningful and topics:
+                for topic_item in topics:
+                    t_summary = str(topic_item.get("summary", "")).strip()
+                    if not t_summary:
+                        continue
+                    try:
+                        embedding = await self.embedding_service.get_embedding(
+                            f"passage: {t_summary}"
+                        )
+                        sid = await self.timeline_summary_store.store_summary(
+                            user_id=scope_id,
+                            summary=t_summary,
+                            embedding=embedding,
+                            topic=topic_item.get("topic", "general"),
+                            topic_display=topic_item.get("topic_display", ""),
+                            importance=int(topic_item.get("importance", 3)),
+                        )
+                        summary_ids.append(sid)
+                    except Exception as exc:
+                        logger.warning(
+                            "ConsolidateMemoryTool: timeline store failed topic=%s: %s",
+                            topic_item.get("topic"), exc,
+                        )
+            else:
+                logger.info(
+                    "ConsolidateMemoryTool: session has no meaningful content — skipping T2 store (scope=%s/%s)",
+                    scope, scope_id,
+                )
 
             # 6. Update profile T3
+            profile_updates = data.get("profile_updates", {})
             updated_sections = []
             for section, bullets in profile_updates.items():
                 if not bullets:
@@ -195,8 +230,9 @@ class ConsolidateMemoryTool(BaseTool):
             # 7. Return result
             return json.dumps({
                 "status": "ok",
-                "timeline_summary": timeline_summary,
-                "summary_id": summary_id,
+                "has_meaningful_content": has_meaningful,
+                "topics_stored": len(summary_ids),
+                "summary_ids": summary_ids,
                 "profile_updates": profile_updates,
                 "updated_sections": updated_sections,
                 "messages_summarized": len(t1_entries),

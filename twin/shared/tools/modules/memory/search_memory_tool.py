@@ -9,7 +9,7 @@ from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
 
 logger = logging.getLogger(__name__)
 
-_VALID_TOOL_MODES = {"auto", "semantic", "time", "recent"}
+_VALID_TOOL_MODES = {"auto", "semantic", "time", "recent", "hybrid"}
 _MAX_LIMIT = 20
 
 
@@ -39,13 +39,17 @@ class SearchMemoryTool(BaseTool):
                 },
                 "mode": {
                     "type": "string",
-                    "enum": ["auto", "semantic", "time", "recent"],
+                    "enum": ["auto", "semantic", "time", "recent", "hybrid"],
                     "default": "auto",
-                    "description": "auto, semantic, time, recent.",
+                    "description": "auto, semantic, time, recent, hybrid.",
                 },
                 "query": {
                     "type": "string",
                     "description": "Truy vấn semantic.",
+                },
+                "topic": {
+                    "type": "string",
+                    "description": "Lọc theo topic slug (ví dụ: work, interest). Tùy chọn.",
                 },
                 "hours": {
                     "type": "integer",
@@ -70,6 +74,7 @@ class SearchMemoryTool(BaseTool):
         user_id: str,
         mode: str = "auto",
         query: Optional[str] = None,
+        topic: Optional[str] = None,
         hours: Optional[int] = 24,
         days: Optional[int] = None,
         limit: int = 5,
@@ -77,6 +82,7 @@ class SearchMemoryTool(BaseTool):
         user_id = str(user_id or "").strip()
         mode = (mode or "auto").strip()
         query = (query or "").strip() or None
+        topic = (topic or "").strip() or None
 
         if not user_id:
             return "Lỗi: Thiếu user_id."
@@ -94,19 +100,21 @@ class SearchMemoryTool(BaseTool):
         limit = self._bounded_limit(limit)
         resolved_mode = mode
         if resolved_mode == "auto":
-            resolved_mode = "semantic" if query else "recent"
+            resolved_mode = "hybrid" if query else "recent"
 
-        if resolved_mode == "semantic":
+        if resolved_mode in ("semantic", "hybrid"):
             if not query:
-                return "Lỗi: Chế độ semantic yêu cầu tham số 'query'."
+                return "Lỗi: Chế độ semantic/hybrid yêu cầu tham số 'query'."
             if self.embedding_service is None:
                 return "Lỗi: embedding_service chưa được cấu hình."
             try:
-                embedding = await self.embedding_service.get_embedding(query)
+                embedding = await self.embedding_service.get_embedding(f"query: {query}")
                 memories = await self.timeline_summary_store.search(
                     user_id=user_id,
                     query_embedding=embedding,
                     limit=limit,
+                    query_text=query if resolved_mode == "hybrid" else None,
+                    topic_filter=topic,
                 )
             except Exception as e:
                 logger.error("SearchMemoryTool: semantic search failed: %s", e, exc_info=True)
@@ -158,8 +166,19 @@ class SearchMemoryTool(BaseTool):
 
         lines = [f"Tìm thấy {len(memories)} ký ức:"]
         for index, memory in enumerate(memories, start=1):
-            content = str(SearchMemoryTool._field(memory, "content", str(memory))).strip()
-            lines.append(f"{index}. {content}")
+            content = (
+                SearchMemoryTool._field(memory, "summary")
+                or SearchMemoryTool._field(memory, "content")
+                or str(memory)
+            )
+            content = str(content).strip()
+            topic_val = SearchMemoryTool._field(memory, "topic")
+            topic_display = SearchMemoryTool._field(memory, "topic_display")
+            label = topic_display or topic_val
+            if label:
+                lines.append(f"{index}. [{label}] {content}")
+            else:
+                lines.append(f"{index}. {content}")
             metadata = SearchMemoryTool._metadata(memory)
             if metadata:
                 lines.append(f"   ({'; '.join(metadata)})")

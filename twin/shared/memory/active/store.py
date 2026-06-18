@@ -54,7 +54,10 @@ class ActiveStore:
     async def list_entries(
         self, scope: str, scope_id: str, limit: int = 50
     ) -> list[ActiveEntry]:
-        ids = await self.redis.zrange(self._index_key(scope, scope_id), 0, limit - 1)
+        # Read the `limit` most-recent entries (ZSET ordered by ascending ts),
+        # then keep chronological order. Reading the head would pin the window
+        # to the oldest messages once a scope exceeds `limit`.
+        ids = await self.redis.zrange(self._index_key(scope, scope_id), -limit, -1)
         entries: list[ActiveEntry] = []
         for raw_id in ids:
             entry_id = raw_id.decode() if isinstance(raw_id, bytes) else raw_id

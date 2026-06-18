@@ -54,7 +54,7 @@ Evernight nhận tác vụ xử lý tóm tắt trí nhớ (Consolidation) từ M
 Hai agent chia nhau **một stack memory duy nhất**, tách 3 tầng vì mỗi tầng phục vụ một *latency budget* khác nhau: hot-path phải nhanh, semantic recall chạy async, profile thì biên dịch sẵn. Toàn bộ local-first (LLM + embeddings self-hosted qua LM Studio), không phụ thuộc cloud.
 
 - **T1 — active (working memory ngắn hạn):** cửa sổ trượt các message gần nhất theo từng scope (1-1 user hoặc channel) trong Redis. Nạp thẳng vào context mỗi lượt chat. Ngưỡng token kích hoạt consolidation; sau khi tổng hợp, T1 bị cắt bớt nhưng giữ lại phần đuôi gần nhất để giữ mạch hội thoại.
-- **T2 — timeline (semantic memory dài hạn), trên Redis Stack:** Lưu trữ các snapshot tóm tắt quá trình trò chuyện dưới dạng `TimelineSummary` (Redis HASH với vector embedding). Truy hồi ngữ nghĩa qua KNN vector search (`TimelineSummaryStore.search`).
+- **T2 — timeline (semantic memory dài hạn), trên Redis Stack:** Lưu trữ các snapshot tóm tắt quá trình trò chuyện dưới dạng `TimelineSummary` (Redis HASH với vector embedding). Truy hồi ngữ nghĩa qua KNN vector search (`TimelineSummaryStore.search`). Dim index phải khớp `EMBEDDING_VECTOR_SIZE`; đổi dim → drop & tạo lại RediSearch index `timeline_summaries`.
 - **T3 — profile:** một markdown profile các section cố định được cập nhật trực tiếp sau mỗi chu kỳ tóm tắt, sau đó inject vào system prompt mỗi lượt. Profile lưu giữ các fact cốt lõi một cách cô đọng.
 
 **Vòng đời (A2A Consolidation):**
@@ -66,12 +66,13 @@ Hệ thống sử dụng cơ chế A2A trực tiếp thay vì các pipeline tu�
 
 ### Plan trạng thái
 
-- [Memory Rewrite](.agents/plans/memory-rewrite.md) — T1/T2/T3 chạy qua `twin/shared/memory/`, T2 dùng Redis Stack VECTOR HNSW 1024, T3 là Markdown 8 section. **Tiến độ: Phase 11/11 ✓**.
+- [Memory Rewrite](.agents/plans/memory-rewrite.md) — T1/T2/T3 chạy qua `twin/shared/memory/`, T2 dùng Redis Stack VECTOR HNSW (`EMBEDDING_VECTOR_SIZE`-dim), T3 là Markdown 8 section. **Tiến độ: Phase 11/11 ✓**.
 - Unified Discussion Memory: đã được hấp thụ vào memory rewrite; flow hiện tại dùng hoàn toàn cơ chế **A2A Consolidation** (InactivityTrigger → ConsolidateMemoryTool), thay thế hoàn toàn `SharedMemoryManager → Consolidator → DebouncedScheduler` cũ.
 
 ### Gotcha runtime (dễ quên)
 
 - Channel memory chỉ observe channel được phép, không nghe toàn server. Reply trigger gồm cả reply-to-bot.
+- T1 đọc entry mới nhất trước (newest-first). Consolidation tự trigger khi token tích lũy vượt `TOKEN_THRESHOLD=2000` (xem `twin/shared/memory/active/constants.py`).
 - T2 timeline là user-centric: channel scope **extract 1 lần** rồi route mỗi memory về đúng participant nó nói về (`subject_user_id`), **không** fan-out per-author; Redis document dùng `user_id` thật (của subject) làm key trong `TimelineSummaryStore`.
 - Redis Stack RediSearch index phải ở DB 0; dùng `TIMELINE_REDIS_DB=0` cho T2, còn T1 có thể dùng DB riêng theo agent.
 - T3 profile inject vào system prompt mỗi turn qua `MarkdownProfileStore.get_system_prompt_context()`.
@@ -145,10 +146,17 @@ Nhóm env vars chính (chi tiết ở [.agents/PROJECT_CONTEXT.md](.agents/PROJE
 - Evernight: `EVERNIGHT_A2A_PORT`, `EVERNIGHT_REDIS_DB`, `POLL_INTERVAL`, `SELF_HEAL_ENABLED`
 - Discord/Gateway: `DISCORD_MARCH7_TOKEN`, `DISCORD_EVERNIGHT_TOKEN`, `GATEWAY_ENABLED_PLATFORMS`
 - T1 budget: `T1_CONTEXT_MAX_TOKENS`, `T1_CONTEXT_MAX_MESSAGES`
-- Embeddings/T2: `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL_NAME`, `EMBEDDING_VECTOR_SIZE=1024`
+- Embeddings/T2: `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL_NAME`, `EMBEDDING_VECTOR_SIZE`, `EMBEDDING_API_URL`, `EMBEDDING_API_KEY`
+- LLM: `LLM_PROVIDER`, `OPENAI_API_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL` (OpenAI-compat; đặt URL/key theo provider)
 
 > [!NOTE]
 > Docker dùng `redis/redis-stack-server` — cùng service phục vụ cả T1 và T2.
+
+> [!IMPORTANT]
+> Mọi entrypoint gọi `load_dotenv(override=True)` — file `.env` LUÔN đè block `environment:` trong docker-compose. **`.env` là nguồn sự thật.** Sau khi đổi `.env`, recreate container (không cần rebuild image):
+> ```bash
+> docker compose -f docker/docker-compose.yml up -d --force-recreate march7 evernight
+> ```
 
 LLM + embeddings (OpenAI-compat / Gemini native qua factory): xem [twin/shared/llm/README.md](twin/shared/llm/README.md).
 
@@ -168,6 +176,8 @@ pytest tests/e2e/ -v
 - Trạng thái containers: `docker compose -f docker/docker-compose.yml ps`
 - Logs: `docker compose -f docker/docker-compose.yml logs -f march7 evernight`
 - A2A health: port `8000` và `8001`
+- **LM Studio**: phải bind `0.0.0.0` (`lms server start --host 0.0.0.0`) để container gọi được qua `host.docker.internal:1234`.
+- **Đổi embedding dim**: sau khi đổi `EMBEDDING_VECTOR_SIZE`, drop và tạo lại RediSearch index `timeline_summaries` (T2 data cũ không tương thích).
 
 ## Tài liệu liên quan
 

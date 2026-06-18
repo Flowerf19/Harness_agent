@@ -71,7 +71,7 @@ async def build_shared_agent_runtime(
 
     timeline_summary_store = TimelineSummaryStore(
         redis_client=timeline_redis_client,
-        embedding_dim=1024,
+        embedding_dim=Config.EMBEDDING_VECTOR_SIZE,
     )
     await timeline_summary_store.initialize()
 

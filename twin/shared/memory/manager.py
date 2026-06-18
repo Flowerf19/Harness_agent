@@ -15,7 +15,7 @@ def format_preflight_for_prompt(summaries: list[dict]) -> str:
         return ""
     lines = ["## Ngữ cảnh nhớ liên quan (dùng tự nhiên, không lộ nguồn)"]
     for s in summaries:
-        content = s.get("content", "")
+        content = s.get("summary") or s.get("content", "")
         if len(content) > 240:
             content = content[:240] + "…"
         lines.append(f"- {content}")
@@ -241,8 +241,8 @@ class SharedMemoryManager:
         if self.timeline_summary_store is None or not current_query:
             return ""
         try:
-            query_embedding = await self.embedding_service.get_embedding(current_query)
-            summaries = await self.timeline_summary_store.search(user_id, query_embedding, limit=5)
+            query_embedding = await self.embedding_service.get_embedding(f"query: {current_query}")
+            summaries = await self.timeline_summary_store.search(user_id, query_embedding, limit=5, query_text=current_query)
             return format_preflight_for_prompt(summaries)
         except Exception as exc:
             logger.debug("T2: preflight failed user=%s: %s", user_id, exc)

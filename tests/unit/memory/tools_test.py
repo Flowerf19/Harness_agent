@@ -12,13 +12,21 @@ class FakeTimelineSearch:
     def __init__(self):
         self.calls: list[dict] = []
 
-    async def search(self, user_id, query_embedding, limit):
-        self.calls.append({"method": "search", "user_id": user_id, "query_embedding": query_embedding, "limit": limit})
+    async def search(self, user_id, query_embedding, limit, *, query_text=None, topic_filter=None):
+        self.calls.append({
+            "method": "search",
+            "user_id": user_id,
+            "query_embedding": query_embedding,
+            "limit": limit,
+            "query_text": query_text,
+            "topic_filter": topic_filter,
+        })
         return [
             {
                 "summary_id": "sum-1",
                 "user_id": user_id,
-                "content": "User thích phim tâm lý.",
+                "summary": "User thích phim tâm lý.",
+                "topic": "interest",
                 "importance": 3,
                 "created_at": 1718360000.0,
             }
@@ -30,7 +38,7 @@ class FakeTimelineSearch:
             {
                 "summary_id": "sum-2",
                 "user_id": user_id,
-                "content": "User nói chào Bé Bảy.",
+                "summary": "User nói chào Bé Bảy.",
                 "importance": 4,
                 "created_at": 1718370000.0,
             }
@@ -38,8 +46,12 @@ class FakeTimelineSearch:
 
 
 class FakeEmbeddingService:
+    def __init__(self):
+        self.calls: list[str] = []
+
     async def get_embedding(self, text):
-        return [0.1] * 1024
+        self.calls.append(text)
+        return [0.1] * 384
 
 
 class FakeProfileStore:
@@ -67,24 +79,68 @@ class FakeProfileStore:
 
 
 @pytest.mark.asyncio
-async def test_search_memory_tool_execution():
+async def test_search_memory_tool_semantic():
     store = FakeTimelineSearch()
     embeddings = FakeEmbeddingService()
     tool = SearchMemoryTool(timeline_summary_store=store, embedding_service=embeddings)
 
-    # Test semantic mode
-    result_semantic = await tool.execute(user_id="12345", mode="semantic", query="phim")
-    assert "Tìm thấy 1 ký ức" in result_semantic
-    assert "User thích phim tâm lý" in result_semantic
-    assert "summary_id=sum-1" in result_semantic
+    result = await tool.execute(user_id="12345", mode="semantic", query="phim")
+    assert "Tìm thấy 1 ký ức" in result
+    assert "User thích phim tâm lý" in result
+    assert "summary_id=sum-1" in result
     assert store.calls[-1]["method"] == "search"
+    # query prefix e5 applied
+    assert embeddings.calls[-1] == "query: phim"
+    # semantic mode: query_text=None (no BM25)
+    assert store.calls[-1]["query_text"] is None
 
-    # Test recent mode
-    result_recent = await tool.execute(user_id="12345", mode="recent")
-    assert "Tìm thấy 1 ký ức" in result_recent
-    assert "User nói chào Bé Bảy" in result_recent
-    assert "summary_id=sum-2" in result_recent
+
+@pytest.mark.asyncio
+async def test_search_memory_tool_hybrid():
+    store = FakeTimelineSearch()
+    embeddings = FakeEmbeddingService()
+    tool = SearchMemoryTool(timeline_summary_store=store, embedding_service=embeddings)
+
+    result = await tool.execute(user_id="12345", mode="hybrid", query="phim")
+    assert "Tìm thấy 1 ký ức" in result
+    last_call = store.calls[-1]
+    assert last_call["method"] == "search"
+    assert last_call["query_text"] == "phim"
+    assert embeddings.calls[-1] == "query: phim"
+
+
+@pytest.mark.asyncio
+async def test_search_memory_tool_auto_with_query_resolves_hybrid():
+    store = FakeTimelineSearch()
+    embeddings = FakeEmbeddingService()
+    tool = SearchMemoryTool(timeline_summary_store=store, embedding_service=embeddings)
+
+    await tool.execute(user_id="12345", mode="auto", query="phim")
+    # auto + query → hybrid
+    assert store.calls[-1]["query_text"] == "phim"
+
+
+@pytest.mark.asyncio
+async def test_search_memory_tool_recent():
+    store = FakeTimelineSearch()
+    embeddings = FakeEmbeddingService()
+    tool = SearchMemoryTool(timeline_summary_store=store, embedding_service=embeddings)
+
+    result = await tool.execute(user_id="12345", mode="recent")
+    assert "Tìm thấy 1 ký ức" in result
+    assert "User nói chào Bé Bảy" in result
+    assert "summary_id=sum-2" in result
     assert store.calls[-1]["method"] == "get_recent"
+
+
+@pytest.mark.asyncio
+async def test_search_memory_tool_topic_filter():
+    store = FakeTimelineSearch()
+    embeddings = FakeEmbeddingService()
+    tool = SearchMemoryTool(timeline_summary_store=store, embedding_service=embeddings)
+
+    await tool.execute(user_id="12345", mode="hybrid", query="phim", topic="interest")
+    assert store.calls[-1]["topic_filter"] == "interest"
 
 
 @pytest.mark.asyncio
