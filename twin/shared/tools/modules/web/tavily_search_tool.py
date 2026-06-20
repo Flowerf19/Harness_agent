@@ -1,49 +1,82 @@
 """
-TavilySearchTool - Web Search MCP Tool.
+TavilySearchTool - Web Search Tool.
 
-Tool for searching the web via Tavily API.
+Tool for searching the web via Tavily remote MCP.
 Provides real-time web search capabilities for the AI agent.
 
 Architecture:
 - Inherits from BaseTool
-- Uses TavilyClient for API communication
+- Uses Tavily MCP as the remote backend
 - Graceful degradation when API unavailable
 """
 
 import logging
 import json
+from dataclasses import dataclass
 from typing import Dict, Any, Optional, List
 
 from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
-from twin.shared.external.tavily_client import TavilyClient, TavilyApiError, SearchResult
+from twin.shared.tools.mcp_client import MCPClient
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class SearchResult:
+    """Structured search result for LLM consumption."""
+    query: str
+    answer: Optional[str]
+    sources: List[dict]
+    topic: Optional[str]
+    time_range: Optional[str]
+    result_count: int
+
+
+class TavilyApiError(Exception):
+    """Exception raised when Tavily MCP search fails."""
+
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        original_error: Optional[Exception] = None,
+    ):
+        self.message = message
+        self.status_code = status_code
+        self.original_error = original_error
+        super().__init__(f"Tavily MCP Error: {message}")
+
+
 class TavilySearchTool(BaseTool):
     """
-    Web Search Tool using Tavily API.
+    Web Search Tool using Tavily.
 
     Searches the web for real-time information.
     Useful for current events, facts, or topics not in training data.
 
     Attributes:
-        tavily_client: TavilyClient instance for API calls
+        tavily_mcp_client: MCPClient instance for Tavily remote MCP calls.
 
     Example:
-        tool = TavilySearchTool(tavily_client)
+        tool = TavilySearchTool(tavily_mcp_client)
         result = await tool.execute(query="latest AI news")
     """
 
-    def __init__(self, tavily_client: Optional[TavilyClient] = None):
+    def __init__(
+        self,
+        tavily_mcp_client: Optional[MCPClient] = None,
+    ):
         """
         Initialize TavilySearchTool.
 
         Args:
-            tavily_client: TavilyClient for API calls (can be None for graceful degradation)
+            tavily_mcp_client: Remote MCP client for Tavily MCP execution.
         """
-        self.tavily_client = tavily_client
-        logger.debug(f"TavilySearchTool initialized - client: {tavily_client is not None}")
+        self.tavily_mcp_client = tavily_mcp_client
+        logger.debug(
+            "TavilySearchTool initialized - mcp_client=%s",
+            tavily_mcp_client is not None,
+        )
 
     # ==========================================
     # BASE TOOL PROPERTIES
@@ -113,7 +146,7 @@ class TavilySearchTool(BaseTool):
         format: str = "user",
     ) -> str:
         """
-        Execute web search via Tavily API.
+        Execute web search via Tavily MCP.
 
         Args:
             query: Search query string
@@ -132,14 +165,6 @@ class TavilySearchTool(BaseTool):
         if not query or not query.strip():
             return "Lỗi: Vui lòng nhập từ khóa tìm kiếm."
 
-        # Check if client is available
-        if not self.tavily_client:
-            return "Lỗi: Web Search chưa được cấu hình. Vui lòng cấu hình TAVILY_API_KEY."
-
-        # Check if API is configured
-        if not self.tavily_client.is_configured():
-            return "Lỗi: Web Search chưa được kích hoạt. Vui lòng thêm TAVILY_API_KEY vào cấu hình."
-
         # Validate parameters
         if search_depth not in ["basic", "advanced"]:
             search_depth = "basic"
@@ -149,15 +174,13 @@ class TavilySearchTool(BaseTool):
         if format not in ["user", "llm"]:
             format = "user"
 
-        # Execute search
         try:
             logger.debug(f"🌐 Web search: query='{query[:50]}...', depth={search_depth}")
 
-            response = await self.tavily_client.search(
+            response = await self._search_with_mcp(
                 query=query.strip(),
                 search_depth=search_depth,
                 max_results=max_results,
-                include_answer=True,
                 topic=topic,
                 include_domains=include_domains,
                 exclude_domains=exclude_domains,
@@ -171,16 +194,171 @@ class TavilySearchTool(BaseTool):
                 return self.format_for_user(response)
 
         except TavilyApiError as e:
-            logger.error(f"Tavily API error: {e.message}")
+            logger.error(f"Tavily MCP error: {e.message}")
             return f"Lỗi tìm kiếm: {self._user_friendly_error(e)}"
 
         except Exception as e:
             logger.error(f"Unexpected error in TavilySearchTool: {e}")
             raise ToolExecutionError(self.name, f"Lỗi không xác định: {e}", original_error=e)
 
+    async def _search_with_mcp(
+        self,
+        *,
+        query: str,
+        search_depth: str,
+        max_results: int,
+        topic: Optional[str],
+        include_domains: Optional[List[str]],
+        exclude_domains: Optional[List[str]],
+        time_range: Optional[str],
+    ) -> Dict[str, Any]:
+        if not self.tavily_mcp_client:
+            raise TavilyApiError("Tavily MCP client not configured")
+
+        result_text = await self.tavily_mcp_client.call_tool(
+            "tavily_search",
+            self._build_mcp_arguments(
+                query=query,
+                search_depth=search_depth,
+                max_results=max_results,
+                topic=topic,
+                include_domains=include_domains,
+                exclude_domains=exclude_domains,
+                time_range=time_range,
+            ),
+            timeout=30,
+        )
+        return self._normalize_mcp_response(
+            self._parse_mcp_result(result_text),
+            max_results=max_results,
+        )
+
+    def _build_mcp_arguments(
+        self,
+        *,
+        query: str,
+        search_depth: str,
+        max_results: int,
+        topic: Optional[str],
+        include_domains: Optional[List[str]],
+        exclude_domains: Optional[List[str]],
+        time_range: Optional[str],
+    ) -> Dict[str, Any]:
+        arguments: Dict[str, Any] = {
+            "query": query,
+            "search_depth": search_depth,
+            # Tavily MCP currently enforces max_results >= 5.
+            "max_results": max(5, min(20, max_results)),
+        }
+        if topic == "news":
+            arguments["time_range"] = time_range or "week"
+        elif topic:
+            arguments["topic"] = "general"
+        if include_domains:
+            arguments["include_domains"] = include_domains
+        if exclude_domains:
+            arguments["exclude_domains"] = exclude_domains
+        if time_range:
+            arguments["time_range"] = time_range
+        return arguments
+
+    def _parse_mcp_result(self, result_text: str) -> Dict[str, Any]:
+        if not result_text:
+            return {"answer": None, "results": []}
+        if result_text.startswith("Lỗi:") or result_text.startswith("Tavily API error:"):
+            raise TavilyApiError(result_text)
+        try:
+            data = json.loads(result_text)
+        except json.JSONDecodeError:
+            return self._parse_tavily_mcp_text(result_text)
+        if not isinstance(data, dict):
+            return {"answer": None, "results": []}
+        return data
+
+    def _parse_tavily_mcp_text(self, result_text: str) -> Dict[str, Any]:
+        answer: Optional[str] = None
+        results: List[Dict[str, Any]] = []
+        current: Optional[Dict[str, Any]] = None
+        current_field: Optional[str] = None
+        in_images = False
+
+        for raw_line in result_text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith("Answer:"):
+                answer = line.removeprefix("Answer:").strip()
+                current_field = None
+                continue
+            if line == "Detailed Results:":
+                current_field = None
+                continue
+            if line == "Images:":
+                in_images = True
+                current_field = None
+                continue
+            if in_images:
+                continue
+            if line.startswith("Title:"):
+                if current:
+                    results.append(current)
+                current = {
+                    "title": line.removeprefix("Title:").strip(),
+                    "url": "",
+                    "content": "",
+                    "score": 0,
+                }
+                current_field = "title"
+                continue
+            if current is None:
+                continue
+            if line.startswith("URL:"):
+                current["url"] = line.removeprefix("URL:").strip()
+                current_field = "url"
+            elif line.startswith("Content:"):
+                current["content"] = line.removeprefix("Content:").strip()
+                current_field = "content"
+            elif line.startswith("Raw Content:"):
+                current["raw_content"] = line.removeprefix("Raw Content:").strip()
+                current_field = "raw_content"
+            elif line.startswith("Favicon:"):
+                current["favicon"] = line.removeprefix("Favicon:").strip()
+                current_field = "favicon"
+            elif current_field in {"content", "raw_content"}:
+                current[current_field] = f"{current[current_field]}\n{line}".strip()
+
+        if current:
+            results.append(current)
+        if not answer and not results:
+            return {
+                "answer": None,
+                "results": [
+                    {
+                        "title": "Tavily MCP",
+                        "url": "",
+                        "content": result_text,
+                        "score": 0,
+                    }
+                ],
+            }
+        return {"answer": answer, "results": results}
+
+    def _normalize_mcp_response(
+        self,
+        response: Dict[str, Any],
+        *,
+        max_results: int,
+    ) -> Dict[str, Any]:
+        results = response.get("results", [])
+        if isinstance(results, list):
+            response["results"] = results[:max_results]
+        else:
+            response["results"] = []
+        return response
+
     def _format_results(self, response: Dict[str, Any]) -> str:
         """
-        Format Tavily API response to human-readable string.
+        Format Tavily MCP response to human-readable string.
 
         Args:
             response: API response dict with 'answer' and 'results'
@@ -325,6 +503,8 @@ class TavilySearchTool(BaseTool):
             return "API key không hợp lệ. Vui lòng kiểm tra TAVILY_API_KEY."
         elif error.status_code == 429:
             return "Đã vượt quá giới hạn request. Vui lòng thử lại sau."
+        elif "not configured" in error.message.lower():
+            return "Web Search chưa được cấu hình. Vui lòng cấu hình TAVILY_API_KEY."
         elif "timeout" in error.message.lower():
             return "Không thể kết nối đến server tìm kiếm. Vui lòng thử lại."
         elif "network" in error.message.lower():
@@ -333,4 +513,4 @@ class TavilySearchTool(BaseTool):
             return f"Lỗi hệ thống: {error.message}"
 
     def __repr__(self) -> str:
-        return f"<TavilySearchTool: client={self.tavily_client is not None}>"
+        return f"<TavilySearchTool: mcp_client={self.tavily_mcp_client is not None}>"

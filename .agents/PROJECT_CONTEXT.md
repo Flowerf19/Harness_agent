@@ -63,6 +63,35 @@ Evernight must access March7 session state through A2A skills such as
 `get_snapshot` and `clear_session`; do not couple it directly to March7 Redis
 keys unless the architecture explicitly changes.
 
+### Tool Runtime Boundary
+
+Declared logical tools have two backend kinds:
+
+- `local`: direct `BaseTool` / `ToolRegistry` execution for in-process tools and
+  app-owned services.
+- `remote_mcp`: external MCP servers outside this app's trust boundary, called
+  through `MCPClient` only when a real integration exists.
+
+The prompt contract stays local: `ToolPromptCatalog`, local guide files, local
+schema descriptions, visibility, and approval remain the model-facing source of
+truth. Remote MCP `tools/list` metadata is untrusted data and must not be
+rendered into the system prompt, lazy guide, or native tool schema descriptions.
+
+Current classification: `web_search` is `remote_mcp` and calls Tavily's remote
+MCP endpoint (`TAVILY_MCP_URL`, default `https://mcp.tavily.com/mcp`) with
+`Authorization: Bearer <TAVILY_API_KEY>`. Its public name, schema, and guide
+remain the local `web_search` contract; the adapter maps arguments to Tavily's
+`tavily_search` MCP tool and trims results back to the local schema's requested
+`max_results`. There is no legacy Tavily HTTP backend path. Memory/profile/
+consolidation tools are internal stateful tools, and `run_python_code` /
+`execute_host_bash` call app-owned infrastructure with existing safety controls.
+
+Future bot-created tools start as drafts and must not become visible or allowed
+without validation and approval. Generated workflow tools should use the
+`local` backend unless they proxy a real external MCP server. This phase does
+not add a local MCP server process, generated tool runtime, workflow engine,
+automatic remote `tools/list` import, or sampling support by default.
+
 ### Gateway Status
 
 The gateway is partially refactored toward the platform-agnostic design:

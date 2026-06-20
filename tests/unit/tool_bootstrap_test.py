@@ -1,7 +1,9 @@
 import pytest
 
 from twin.shared.llm.base_llm_service import BaseLLMService
+from twin.shared.tools.mcp_client import MCPClient
 from twin.shared.tools.registry import ToolExecutionError, build_tool_registry
+from twin.shared.tools.registry import bootstrap
 
 
 class DummyLLM:
@@ -81,6 +83,19 @@ def test_bootstrap_filters_tool_visibility_by_agent():
     assert "get_profile" in _schema_names(evernight)
     assert "manage_user_profile" not in _schema_names(march7)
     assert "manage_user_profile" in _schema_names(evernight)
+
+
+def test_bootstrap_uses_tavily_remote_mcp_backend_by_default(monkeypatch):
+    monkeypatch.setattr(bootstrap.Config, "TAVILY_API_KEY", "test-key")
+    monkeypatch.setattr(bootstrap.Config, "TAVILY_MCP_URL", "https://mcp.tavily.com/mcp")
+
+    result = _bootstrap_for("march7")
+
+    assert isinstance(result.tavily_mcp_client, MCPClient)
+    assert result.tavily_mcp_client.transport.server_url == "https://mcp.tavily.com/mcp"
+    assert result.tavily_mcp_client.transport.extra_headers == {
+        "Authorization": "Bearer test-key"
+    }
 
 
 @pytest.mark.asyncio

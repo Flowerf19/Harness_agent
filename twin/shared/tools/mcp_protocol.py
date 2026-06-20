@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 # ==========================================
 
 JSONRPC_VERSION = "2.0"
+MCP_PROTOCOL_VERSION = "2025-06-18"
 
 # JSON-RPC Error Codes (Theo spec)
 class JSONRPCErrorCodes(Enum):
@@ -72,7 +73,11 @@ class MCPRequest:
     
     def __post_init__(self):
         # Auto-generate ID if not provided (for requests, not notifications)
-        if self.id is None and self.method != "initialize":
+        if (
+            self.id is None
+            and self.method != "initialize"
+            and not self.method.startswith("notifications/")
+        ):
             self.id = str(uuid.uuid4())
     
     def to_dict(self) -> Dict[str, Any]:
@@ -326,6 +331,7 @@ class MCPMethods:
     
     # Core methods
     INITIALIZE = "initialize"
+    INITIALIZED = "notifications/initialized"
     PING = "ping"
     
     # Tools methods

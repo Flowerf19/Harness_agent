@@ -1,8 +1,9 @@
 """
 MCP Transport - Communication layer for external MCP servers.
 
-Only HTTPTransport is needed. System tools are called directly via ToolRegistry,
-not through MCP protocol. MCP protocol is reserved for external servers only.
+Only HTTPTransport is needed. Declared local tools are called directly via
+ToolRegistry, not through MCP protocol. MCP protocol is reserved for external
+servers only.
 
 Design Pattern: Strategy Pattern
 - Transport is an abstract strategy
@@ -14,10 +15,11 @@ import asyncio
 import json
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import aiohttp
 
-from twin.shared.tools.mcp_protocol import MCPRequest, MCPResponse
+from twin.shared.tools.mcp_protocol import MCP_PROTOCOL_VERSION, MCPRequest, MCPResponse
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +76,14 @@ class HTTPTransport(Transport):
     # MCP protocol headers
     MCP_SESSION_ID_HEADER = "Mcp-Session-Id"
     MCP_PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
-    MCP_PROTOCOL_VERSION = "2024-11-05"
+    MCP_PROTOCOL_VERSION = MCP_PROTOCOL_VERSION
 
-    def __init__(self, server_url: str, timeout: int = 30):
+    def __init__(
+        self,
+        server_url: str,
+        timeout: int = 30,
+        headers: Optional[Dict[str, str]] = None,
+    ):
         """
         Initialize HTTP transport.
 
@@ -85,14 +92,20 @@ class HTTPTransport(Transport):
                         (e.g., "http://localhost:8374/mcp" or
                         "http://host.docker.internal:8374/mcp")
             timeout: Request timeout in seconds (default: 30)
+            headers: Extra headers to include with every MCP request.
         """
         self.server_url = server_url
         self.timeout = timeout
+        self.extra_headers = headers or {}
         self._session: Optional[aiohttp.ClientSession] = None
         self._mcp_session_id: Optional[str] = None
         self._connected = False
 
-        logger.info(f"HTTPTransport initialized (url={server_url}, timeout={timeout}s)")
+        logger.info(
+            "HTTPTransport initialized (url=%s, timeout=%ss)",
+            _redact_url(server_url),
+            timeout,
+        )
 
     async def connect(self) -> None:
         """
@@ -109,7 +122,7 @@ class HTTPTransport(Transport):
             timeout = aiohttp.ClientTimeout(total=self.timeout)
             self._session = aiohttp.ClientSession(timeout=timeout)
             self._connected = True
-            logger.info(f"✅ HTTP Transport connected to {self.server_url}")
+            logger.info("HTTP Transport connected to %s", _redact_url(self.server_url))
         except Exception as e:
             logger.error(f"Failed to create HTTP session: {e}")
             self._connected = False
@@ -149,7 +162,9 @@ class HTTPTransport(Transport):
         """
         headers = {
             "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
         }
+        headers.update(self.extra_headers)
         if self._mcp_session_id:
             headers[self.MCP_SESSION_ID_HEADER] = self._mcp_session_id
         headers[self.MCP_PROTOCOL_VERSION_HEADER] = self.MCP_PROTOCOL_VERSION
@@ -179,10 +194,13 @@ class HTTPTransport(Transport):
 
         session = await self._get_session()
         headers = self._build_request_headers()
+        headers["Mcp-Method"] = request.method
+        if request.params and "name" in request.params:
+            headers["Mcp-Name"] = str(request.params["name"])
         request_dict = request.to_dict()
 
         logger.debug(
-            f"HTTPTransport: POST {self.server_url} | "
+            f"HTTPTransport: POST {_redact_url(self.server_url)} | "
             f"method={request.method} | id={request.id}"
         )
 
@@ -209,6 +227,13 @@ class HTTPTransport(Transport):
                     raise ConnectionError(
                         f"MCP server returned HTTP {response.status}: {error_text}"
                     )
+
+                if request.id is None and response.status in {200, 202, 204}:
+                    return MCPResponse.success({}, request_id=None)
+
+                content_type = response.headers.get("Content-Type", "").lower()
+                if "text/event-stream" in content_type:
+                    return self._parse_sse_response(await response.text())
 
                 # Parse JSON response
                 try:
@@ -238,6 +263,22 @@ class HTTPTransport(Transport):
         except aiohttp.ClientError as e:
             logger.error(f"HTTPTransport: HTTP client error — {e}")
             raise ConnectionError(f"MCP server communication failed: {e}") from e
+
+    def _parse_sse_response(self, response_text: str) -> MCPResponse:
+        for line in response_text.splitlines():
+            line = line.strip()
+            if not line.startswith("data:"):
+                continue
+            data_text = line.removeprefix("data:").strip()
+            if not data_text or data_text == "[DONE]":
+                continue
+            try:
+                return MCPResponse.from_dict(json.loads(data_text))
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Invalid SSE JSON response from MCP server: {data_text[:200]}"
+                ) from exc
+        raise ValueError("Invalid SSE response from MCP server: missing data event")
 
     async def close(self) -> None:
         """
@@ -269,5 +310,13 @@ class HTTPTransport(Transport):
         session_id = f", session={self._mcp_session_id[:8]}..." if self._mcp_session_id else ""
         return (
             f"<HTTPTransport: connected={self._connected}, "
-            f"url={self.server_url}{session_id}>"
+            f"url={_redact_url(self.server_url)}{session_id}>"
         )
+
+
+def _redact_url(url: str) -> str:
+    """Hide query strings so API keys in MCP URLs are not logged."""
+    parts = urlsplit(url)
+    if not parts.query:
+        return url
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "<redacted>", parts.fragment))

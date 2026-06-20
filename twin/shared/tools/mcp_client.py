@@ -1,16 +1,18 @@
 """
 MCP Client - Client for external MCP servers only.
 
-System tools are called directly via ToolRegistry.execute_tool().
+Declared local tools are called directly via ToolRegistry.execute_tool().
 MCPClient is only used when connecting to external MCP servers over HTTP.
 """
 
 import logging
 import asyncio
+import json
 from typing import Dict, Any, Optional
 
 from twin.shared.tools.mcp_transport import Transport
 from twin.shared.tools.mcp_protocol import (
+    MCP_PROTOCOL_VERSION,
     MCPRequest,
     MCPResponse,
     MCPMethods,
@@ -24,8 +26,8 @@ class MCPClient:
     """
     Client for external MCP servers (HTTP transport only).
     
-    Used by MCPProxyTool to call tools on remote MCP servers.
-    System tools use ToolRegistry directly, not this client.
+    Used by remote_mcp tool proxies to call tools on remote MCP servers.
+    Declared local tools use ToolRegistry directly, not this client.
     
     Example:
         transport = HTTPTransport("http://external-server:8374/mcp")
@@ -40,16 +42,38 @@ class MCPClient:
     
     async def initialize(self) -> Dict[str, Any]:
         """Initialize connection with external MCP server."""
-        request = MCPRequest(method=MCPMethods.INITIALIZE)
+        if not self.transport.is_connected():
+            await self.transport.connect()
+
+        request = MCPRequest(
+            method=MCPMethods.INITIALIZE,
+            id="initialize",
+            params={
+                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "march7",
+                    "version": "1.0.0",
+                },
+            },
+        )
         response = await self.transport.send_request(request)
         
         if response.is_success():
             self._initialized = True
+            await self._send_initialized_notification()
             logger.info("MCP Client initialized")
             return response.result or {}
         else:
             error_msg = response.error.message if response.error else "Unknown error"
             raise RuntimeError(f"Failed to initialize MCP Client: {error_msg}")
+
+    async def _send_initialized_notification(self) -> None:
+        request = MCPRequest(method=MCPMethods.INITIALIZED)
+        response = await self.transport.send_request(request)
+        if not response.is_success():
+            error_msg = response.error.message if response.error else "Unknown error"
+            raise RuntimeError(f"Failed to send MCP initialized notification: {error_msg}")
     
     async def list_tools(self) -> list:
         """Get list of available tools from external MCP server."""
@@ -113,10 +137,12 @@ class MCPClient:
         if response.is_success():
             result = response.result or {}
             content_list = result.get("content", [])
-            for item in content_list:
-                if item.get("type") == "text":
-                    return item.get("text", "")
-            return ""
+            if result.get("isError"):
+                return f"Lỗi: {self._content_to_text(content_list) or 'Remote MCP tool failed'}"
+            if "structuredContent" in result:
+                return json.dumps(result["structuredContent"], ensure_ascii=False)
+            content_list = result.get("content", [])
+            return self._content_to_text(content_list)
         else:
             error_msg = response.error.message if response.error else "Unknown error"
             logger.error(f"Tool '{tool_name}' failed: {error_msg}")
@@ -127,6 +153,14 @@ class MCPClient:
         await self.transport.close()
         self._initialized = False
         logger.info("MCP Client closed")
+
+    @staticmethod
+    def _content_to_text(content_list: list) -> str:
+        return "\n".join(
+            item.get("text", "")
+            for item in content_list
+            if item.get("type") == "text" and item.get("text")
+        )
     
     def __repr__(self) -> str:
         return f"<MCPClient: initialized={self._initialized}>"

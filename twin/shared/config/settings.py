@@ -10,9 +10,7 @@ import os
 # Discord message pacing — keeps the bot from looking instant/spammy.
 PART_BREAK_DELAY = float(os.getenv("PART_BREAK_DELAY", "0.6"))
 
-# Tavily search defaults.
-TAVILY_SEARCH_DEPTH = "basic"
-TAVILY_MAX_RESULTS_DEFAULT = 5
+# Tavily MCP defaults.
 TAVILY_TIMEOUT_DEFAULT = 30
 
 # Codebox runtime.
@@ -80,10 +78,8 @@ class Config:
 
     # === Tavily (web search tool) ===
     TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", None)
-    TAVILY_API_URL = os.getenv("TAVILY_API_URL", "https://api.tavily.com")
-    TAVILY_MAX_RESULTS = int(os.getenv("TAVILY_MAX_RESULTS", str(TAVILY_MAX_RESULTS_DEFAULT)))
-    TAVILY_SEARCH_DEPTH = TAVILY_SEARCH_DEPTH
     TAVILY_TIMEOUT = int(os.getenv("TAVILY_TIMEOUT", str(TAVILY_TIMEOUT_DEFAULT)))
+    TAVILY_MCP_URL = os.getenv("TAVILY_MCP_URL", "https://mcp.tavily.com/mcp")
 
     # === Codebox (sandboxed Python) ===
     CODEBOX_API_URL = os.getenv("CODEBOX_API_URL", "http://localhost:8069")

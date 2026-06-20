@@ -3,14 +3,15 @@ from pathlib import Path
 import pytest
 
 from twin.shared.llm.base_llm_service import BaseLLMService
-from twin.shared.tools.registry.base import BaseTool
-from twin.shared.tools.declarations.system_tools import ToolSpec
+from twin.shared.tools.declarations.system_tools import SYSTEM_TOOL_SPECS, ToolSpec
 from twin.shared.tools.prompts.catalog import (
     ToolPromptCatalog,
     ToolPromptSpec,
     read_tool_description,
 )
-from twin.shared.tools.registry import build_tool_registry
+from twin.shared.tools.registry import ToolExecutionError, ToolRegistry, build_tool_registry
+from twin.shared.tools.registry.base import BaseTool
+from twin.shared.tools.registry.bootstrap import DeclaredToolProxy
 
 
 class DummyTool(BaseTool):
@@ -28,6 +29,17 @@ class DummyTool(BaseTool):
 
     async def execute(self, **kwargs):
         return "ok"
+
+
+class RestrictedDummyTool(DummyTool):
+    @property
+    def allowed_agents(self):
+        return {"evernight"}
+
+
+class ExplodingDummyTool(DummyTool):
+    async def execute(self, **kwargs):
+        raise RuntimeError("boom")
 
 
 class DummyLLMService(BaseLLMService):
@@ -99,19 +111,25 @@ def test_native_schema_description_comes_from_tool_description_tag():
     )
 
     schemas = result.registry.get_all_openai_schemas()
+    expected_guides = {
+        "search_memory": "guides/search_memory.md",
+        "get_profile": "guides/get_profile.md",
+        "update_user_profile": "guides/update_user_profile.md",
+        "update_personality": "guides/update_personality.md",
+        "web_search": "guides/web_search.md",
+        "run_python_code": "guides/run_python_code.md",
+        "execute_host_bash": "guides/execute_host_bash.md",
+    }
     descriptions = {
         schema["function"]["name"]: schema["function"]["description"]
         for schema in schemas
     }
 
-    assert descriptions["web_search"] == read_tool_description(
-        "web_search",
-        "guides/web_search.md",
-    )
-    assert descriptions["search_memory"] == read_tool_description(
-        "search_memory",
-        "guides/search_memory.md",
-    )
+    assert [schema["function"]["name"] for schema in schemas] == list(expected_guides)
+    assert descriptions == {
+        name: read_tool_description(name, guide_path)
+        for name, guide_path in expected_guides.items()
+    }
 
 
 def test_visible_tool_without_guide_fails_clearly():
@@ -147,3 +165,145 @@ def test_final_system_prompt_uses_micro_catalog_not_persona_tool_md():
     assert "## search_memory" not in prompt
     assert "Quick routing" not in prompt
     assert "dynamic memory" in prompt
+
+
+def test_current_tool_backend_classification():
+    backends_by_class = {
+        spec.class_name: spec.backend
+        for spec in SYSTEM_TOOL_SPECS
+    }
+
+    assert backends_by_class["TavilySearchTool"] == "remote_mcp"
+    assert {
+        class_name
+        for class_name, backend in backends_by_class.items()
+        if backend == "remote_mcp"
+    } == {"TavilySearchTool"}
+    assert all(
+        backend == "local"
+        for class_name, backend in backends_by_class.items()
+        if class_name != "TavilySearchTool"
+    )
+
+
+def test_catalog_output_is_unchanged_by_backend_metadata():
+    result = build_tool_registry(
+        agent_name="march7",
+        core_manager=None,
+        memory_manager=None,
+        llm_service=object(),
+        base_memory_path="memories",
+    )
+
+    catalog = result.tool_prompt_catalog.render_catalog()
+
+    assert catalog == "\n".join(
+        [
+            f"- execute_host_bash: {read_tool_description('execute_host_bash', 'guides/execute_host_bash.md')}",
+            f"- get_profile: {read_tool_description('get_profile', 'guides/get_profile.md')}",
+            f"- run_python_code: {read_tool_description('run_python_code', 'guides/run_python_code.md')}",
+            f"- search_memory: {read_tool_description('search_memory', 'guides/search_memory.md')}",
+            f"- update_personality: {read_tool_description('update_personality', 'guides/update_personality.md')}",
+            f"- update_user_profile: {read_tool_description('update_user_profile', 'guides/update_user_profile.md')}",
+            f"- web_search: {read_tool_description('web_search', 'guides/web_search.md')}",
+        ]
+    )
+
+
+def test_backend_metadata_does_not_enter_prompt_catalog(tmp_path: Path):
+    guide = tmp_path / "dummy.md"
+    guide.write_text(
+        "<tool_description>\nLocal guide description.\n</tool_description>\n\n"
+        "## dummy_tool\nFull local guide.",
+        encoding="utf-8",
+    )
+    tool = DummyTool()
+    spec = ToolSpec(
+        module="tests.unit.tool_prompt_catalog_test",
+        class_name="DummyTool",
+        guide_path=str(guide),
+        backend="remote_mcp",
+    )
+
+    catalog = ToolPromptCatalog.from_tools_and_specs([tool], [spec])
+
+    assert catalog.render_catalog() == "- dummy_tool: Local guide description."
+    assert "remote_mcp" not in catalog.render_catalog()
+
+
+def test_declared_proxy_description_uses_local_guide_for_remote_backend(tmp_path: Path):
+    guide = tmp_path / "dummy.md"
+    guide.write_text(
+        "<tool_description>\nLocal guide description.\nRemote metadata is not here.\n</tool_description>",
+        encoding="utf-8",
+    )
+    local_spec = ToolSpec(
+        module="tests.unit.tool_prompt_catalog_test",
+        class_name="DummyTool",
+        guide_path=str(guide),
+    )
+    remote_spec = ToolSpec(
+        module="tests.unit.tool_prompt_catalog_test",
+        class_name="DummyTool",
+        guide_path=str(guide),
+        backend="remote_mcp",
+    )
+
+    local_proxy = DeclaredToolProxy(DummyTool(), local_spec)
+    remote_proxy = DeclaredToolProxy(DummyTool(), remote_spec)
+
+    assert remote_proxy.description == "Local guide description."
+    assert remote_proxy.get_openai_schema() == local_proxy.get_openai_schema()
+    assert "remote_mcp" not in remote_proxy.get_openai_schema()["function"]["description"]
+
+
+def test_remote_mcp_visible_declarations_require_local_guide_path():
+    with pytest.raises(ValueError, match="remote_mcp tool declarations require a local guide_path"):
+        ToolSpec(
+            module="tests.unit.tool_prompt_catalog_test",
+            class_name="DummyTool",
+            backend="remote_mcp",
+        )
+
+
+@pytest.mark.asyncio
+async def test_registry_local_execution_checks_permission_before_execution():
+    registry = ToolRegistry(agent_name="march7")
+    registry.register_tool(RestrictedDummyTool())
+
+    with pytest.raises(ToolExecutionError) as exc:
+        await registry.execute_tool("dummy_tool", {})
+
+    assert "không có quyền" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_registry_local_execution_validates_parameters_before_execution():
+    class RequiredDummyTool(DummyTool):
+        @property
+        def parameters_schema(self):
+            return {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            }
+
+    registry = ToolRegistry(agent_name="march7")
+    registry.register_tool(RequiredDummyTool())
+
+    with pytest.raises(ToolExecutionError) as exc:
+        await registry.execute_tool("dummy_tool", {})
+
+    assert "Missing required parameter: 'query'" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_registry_local_execution_wraps_tool_exceptions():
+    registry = ToolRegistry(agent_name="march7")
+    registry.register_tool(ExplodingDummyTool())
+
+    with pytest.raises(ToolExecutionError) as exc:
+        await registry.execute_tool("dummy_tool", {})
+
+    assert str(exc.value) == "Tool 'dummy_tool' failed: boom"
+    assert isinstance(exc.value.original_error, RuntimeError)

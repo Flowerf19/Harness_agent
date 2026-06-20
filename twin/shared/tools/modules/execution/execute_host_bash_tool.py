@@ -193,8 +193,6 @@ class ExecuteHostBashTool(BaseTool):
         """
         Get or create aiohttp session (lazy initialization).
 
-        Pattern từ TavilyClient.
-
         Returns:
             aiohttp.ClientSession: HTTP client session
         """

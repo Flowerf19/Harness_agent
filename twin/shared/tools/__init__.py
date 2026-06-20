@@ -1,9 +1,9 @@
 """
 Tools module for Agent capabilities.
 
-Architecture: Hybrid System/MCP
-- SystemTool: BaseTool subclasses called directly via ToolRegistry
-- MCPProxyTool: BaseTool subclasses that proxy to external MCP servers via MCPClient + HTTPTransport
+Architecture: Local/Remote MCP
+- local: BaseTool subclasses called directly via ToolRegistry
+- remote_mcp: logical tools that proxy to external MCP servers via MCPClient + HTTPTransport
 """
 
 # Core components

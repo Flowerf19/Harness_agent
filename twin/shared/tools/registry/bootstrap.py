@@ -9,11 +9,12 @@ from typing import Any, Optional
 
 from twin.shared.config.settings import Config
 from twin.shared.external.codebox_client import CodeBoxClient
-from twin.shared.external.tavily_client import TavilyClient
 from twin.shared.tools.approval_gate import ApprovalGate
 from twin.shared.tools.registry.base import BaseTool
 from twin.shared.tools.declarations.system_tools import SYSTEM_TOOL_SPECS, ToolSpec
 from twin.shared.tools.dm_client import DMClient
+from twin.shared.tools.mcp_client import MCPClient
+from twin.shared.tools.mcp_transport import HTTPTransport
 from twin.shared.tools.prompts.catalog import ToolPromptCatalog, read_tool_description
 from twin.shared.tools.registry.registry import ToolRegistry
 
@@ -26,7 +27,7 @@ class ToolBootstrapResult:
     tool_prompt_catalog: ToolPromptCatalog
     system_tools: list[BaseTool]
     approval_gate: ApprovalGate
-    tavily_client: Optional[TavilyClient]
+    tavily_mcp_client: Optional[MCPClient]
     codebox_client: Optional[CodeBoxClient]
 
 
@@ -86,8 +87,8 @@ def build_tool_registry(
     embedding_service: Any = None,
     timeline_summary_store: Any = None,
 ) -> ToolBootstrapResult:
-    """Build one registry for an agent from the shared system tool catalog."""
-    tavily_client = _init_tavily_client()
+    """Build one registry for an agent from the shared declared tool catalog."""
+    tavily_mcp_client = _init_tavily_mcp_client()
     codebox_client = _init_codebox_client()
 
     if approval_gate is None:
@@ -102,7 +103,7 @@ def build_tool_registry(
         "profile_store": profile_store,
         "llm_service": llm_service,
         "base_memory_path": base_memory_path,
-        "tavily_client": tavily_client,
+        "tavily_mcp_client": tavily_mcp_client,
         "codebox_client": codebox_client,
         "approval_gate": approval_gate,
         "executor_url": Config.BASH_EXECUTOR_URL,
@@ -124,7 +125,7 @@ def build_tool_registry(
     )
     tool_prompt_catalog.render_catalog()
     logger.info(
-        "System tools loaded for %s: %s - %s",
+        "Declared tools loaded for %s: %s - %s",
         agent_name,
         len(system_tools),
         [tool.name for tool in system_tools],
@@ -135,7 +136,7 @@ def build_tool_registry(
         tool_prompt_catalog=tool_prompt_catalog,
         system_tools=system_tools,
         approval_gate=approval_gate,
-        tavily_client=tavily_client,
+        tavily_mcp_client=tavily_mcp_client,
         codebox_client=codebox_client,
     )
 
@@ -184,13 +185,18 @@ def _build_approval_gate(
     return ApprovalGate(dm_client=dm_client)
 
 
-def _init_tavily_client() -> Optional[TavilyClient]:
+def _init_tavily_mcp_client() -> Optional[MCPClient]:
     if not Config.TAVILY_API_KEY:
         return None
     try:
-        return TavilyClient()
+        transport = HTTPTransport(
+            Config.TAVILY_MCP_URL,
+            timeout=Config.TAVILY_TIMEOUT,
+            headers={"Authorization": f"Bearer {Config.TAVILY_API_KEY}"},
+        )
+        return MCPClient(transport)
     except Exception as exc:
-        logger.warning("Tavily init failed: %s", exc)
+        logger.warning("Tavily MCP init failed: %s", exc)
         return None
 
 

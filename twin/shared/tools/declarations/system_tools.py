@@ -1,12 +1,16 @@
-"""System tool catalog.
+"""Declared logical tool catalog.
 
-This file is the audit point for in-process tools: what exists, where its
-implementation lives, and which agents may see or execute it.
+This file is the audit point for declared tools: what exists, which backend
+kind owns execution, and which agents may see or execute each tool.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional, get_args
+
+
+ToolBackend = Literal["local", "remote_mcp"]
+_TOOL_BACKENDS = frozenset(get_args(ToolBackend))
 
 
 @dataclass(frozen=True)
@@ -17,6 +21,15 @@ class ToolSpec:
     allowed_to: Optional[frozenset[str]] = None
     guide_path: str | None = None
     description_tag: str = "tool_description"
+    backend: ToolBackend = "local"
+
+    def __post_init__(self) -> None:
+        if self.backend not in _TOOL_BACKENDS:
+            raise ValueError(f"Invalid tool backend for {self.class_name}: {self.backend!r}")
+        if self.backend == "remote_mcp" and not self.guide_path:
+            raise ValueError(
+                f"remote_mcp tool declarations require a local guide_path: {self.class_name}"
+            )
 
 
 SYSTEM_TOOL_SPECS: tuple[ToolSpec, ...] = (
@@ -58,6 +71,7 @@ SYSTEM_TOOL_SPECS: tuple[ToolSpec, ...] = (
         module="twin.shared.tools.modules.web.tavily_search_tool",
         class_name="TavilySearchTool",
         guide_path="guides/web_search.md",
+        backend="remote_mcp",
     ),
     ToolSpec(
         module="twin.shared.tools.modules.execution.code_interpreter_tool",

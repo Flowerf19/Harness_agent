@@ -13,9 +13,8 @@ transport, và external services. Dùng file này để chọn test focused; dù
     `tool_bootstrap`, `march7_handle_chat_scope`, `discord_send_response`.
 - `tests/gateway/` — gateway core/adapter + models (`test_gateway`,
   `test_core_handler`, `test_models`).
-- `tests/services/external/` — external I/O clients có circuit breaker / retry /
-  search orchestration (`circuit_breaker`, `codebox_client`, `tavily_client`,
-  `search_orchestrator`, các `*_integration` cần network).
+- `tests/services/external/` — external I/O clients such as `codebox_client`;
+  networked web search now goes through the Tavily MCP-backed tool wrapper.
 - `tests/services/tools/` — tool wrappers (`code_interpreter_tool`,
   `tavily_search_tool`).
 - `tests/services/memories/` — context-level memory (`channel_context`).
@@ -45,8 +44,8 @@ is still preferred over bare `pytest`.
 ## Service Dependencies
 
 - `tests/unit/*` chạy không cần service ngoài (mock Redis/LLM).
-- `tests/services/external/*_integration_test.py` gọi network thật (codebox,
-  tavily) — bỏ qua nếu không có endpoint.
+- `tests/services/external/*_integration_test.py` gọi network thật (ví dụ
+  codebox) — bỏ qua nếu không có endpoint.
 - Flow integration/e2e cần Redis, ưu tiên provision qua Docker
   (xem [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)).
 - Cần `discord.py` cài đặt để collect `tests/unit/discord_send_response_test.py`
@@ -61,7 +60,8 @@ is still preferred over bare `pytest`.
 - March7 chat scope / A2A → `tests/unit/march7_handle_chat_scope_test.py`, `a2a_client_test.py`
 - Gateway / Discord → `tests/gateway -q`,
   `tests/unit/discord_send_response_test.py`
-- External services (codebox/tavily/circuit breaker/retry) → `tests/services/external/*`
+- External services (codebox) → `tests/services/external/*`
+- Tavily web search MCP wrapper → `tests/services/tools/tavily_search_tool_test.py`
 - Tool wrappers → `tests/services/tools/*`
 
 ## Last Verified

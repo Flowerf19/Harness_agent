@@ -169,7 +169,8 @@ class TestSessionIdManagement:
 
         assert "Mcp-Session-Id" not in headers
         assert headers["Content-Type"] == "application/json"
-        assert headers["MCP-Protocol-Version"] == "2024-11-05"
+        assert headers["Accept"] == "application/json, text/event-stream"
+        assert headers["MCP-Protocol-Version"] == "2025-06-18"
 
     @pytest.mark.asyncio
     async def test_headers_with_session_id(self, transport):
@@ -178,6 +179,18 @@ class TestSessionIdManagement:
         headers = transport._build_request_headers()
 
         assert headers["Mcp-Session-Id"] == "session-abc-123"
+
+    @pytest.mark.asyncio
+    async def test_headers_include_extra_auth_headers(self):
+        """Extra headers are included with MCP request headers."""
+        transport = HTTPTransport(
+            "https://mcp.tavily.com/mcp",
+            headers={"Authorization": "Bearer test-key"},
+        )
+
+        headers = transport._build_request_headers()
+
+        assert headers["Authorization"] == "Bearer test-key"
 
 
 # ============================================================
@@ -251,6 +264,72 @@ class TestSendRequest:
 
         _, call_kwargs = mock_session.post.call_args
         assert call_kwargs["headers"]["Mcp-Session-Id"] == "existing-session"
+
+    @pytest.mark.asyncio
+    async def test_send_request_includes_mcp_method_and_name_headers(self, transport, sample_success_response):
+        """Request headers mirror MCP method and tool name."""
+        cm = _make_mock_response(
+            status=200,
+            headers={},
+            json_data=sample_success_response,
+        )
+        mock_session = _make_mock_session(post_return=cm)
+
+        transport._session = mock_session
+        transport._connected = True
+
+        request = MCPRequest(
+            method="tools/call",
+            params={"name": "tavily_search", "arguments": {"query": "test"}},
+            id="req-1",
+        )
+        await transport.send_request(request)
+
+        _, call_kwargs = mock_session.post.call_args
+        assert call_kwargs["headers"]["Mcp-Method"] == "tools/call"
+        assert call_kwargs["headers"]["Mcp-Name"] == "tavily_search"
+
+    @pytest.mark.asyncio
+    async def test_send_notification_accepts_empty_accepted_response(self, transport):
+        """MCP notifications can return 202 without a JSON-RPC body."""
+        cm = _make_mock_response(status=202, headers={})
+        mock_session = _make_mock_session(post_return=cm)
+
+        transport._session = mock_session
+        transport._connected = True
+
+        request = MCPRequest(method="notifications/initialized")
+        response = await transport.send_request(request)
+
+        assert request.id is None
+        assert response.is_success() is True
+        assert response.result == {}
+
+    @pytest.mark.asyncio
+    async def test_send_request_parses_sse_json_response(self, transport, sample_request):
+        """Streamable HTTP may return a JSON-RPC response as SSE data."""
+        cm = _make_mock_response(
+            status=200,
+            headers={"Content-Type": "text/event-stream"},
+            text_data='event: message\ndata: {"jsonrpc":"2.0","result":{"ok":true},"id":"test-123"}\n\n',
+        )
+        mock_session = _make_mock_session(post_return=cm)
+
+        transport._session = mock_session
+        transport._connected = True
+
+        response = await transport.send_request(sample_request)
+
+        assert response.is_success() is True
+        assert response.result == {"ok": True}
+
+    def test_repr_redacts_query_string(self):
+        transport = HTTPTransport("https://mcp.tavily.com/mcp/?tavilyApiKey=secret")
+
+        rendered = repr(transport)
+
+        assert "secret" not in rendered
+        assert "<redacted>" in rendered
 
 
 # ============================================================
