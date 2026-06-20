@@ -25,7 +25,7 @@ Tìm kiếm web hiện tại qua Tavily.
 - `search_depth`: `basic` mặc định, `advanced` khi cần sâu hơn.
 - `max_results`: 1-10, thường 3-5.
 - `topic`: `news` cho tin nóng, `general` cho còn lại.
-- `time_range`: `day`, `week`, `month`, `year` khi cần giới hạn thờigian gian.
+- `time_range`: `day`, `week`, `month`, `year` khi cần giới hạn thời gian.
 - `include_domains`/`exclude_domains` khi user yêu cầu nguồn cụ thể.
 
 ### Quy tắc
