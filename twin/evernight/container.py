@@ -31,7 +31,6 @@ class EvernightContainer:
         self.profile_store = None
         self.state_repo = None
         self.summary_policy = None
-        self.timeline_summary_store = None
 
     @classmethod
     def get_instance(cls, config: EvernightConfig = None):

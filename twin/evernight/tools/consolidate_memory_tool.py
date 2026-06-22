@@ -184,6 +184,7 @@ class ConsolidateMemoryTool(BaseTool):
             response = await call_with_langsmith_extra(
                 self.llm_service.generate_response,
                 messages=[{"role": "user", "content": prompt}],
+                include_tool_catalog=False,
                 langsmith_extra=langsmith_extra(
                     tags=["memory", "consolidation", "summarizer", "llm"],
                     metadata={**trace_base, "workflow_step": "memory.summarizer"},

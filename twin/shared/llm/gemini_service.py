@@ -63,6 +63,7 @@ class GeminiService(BaseLLMService):
         messages: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
         use_native_tools: bool = False,
+        include_tool_catalog: bool = True,
         max_tokens: Optional[int] = None,
     ) -> Union[str, LLMResponse]:
         """
@@ -72,6 +73,8 @@ class GeminiService(BaseLLMService):
             messages: Mảng tin nhắn theo chuẩn [{"role": "user/assistant", "content": "..."}]
             system_prompt: Dữ liệu Tiềm thức từ Tầng 3 (Dynamic Core Memory).
             use_native_tools: Nếu True, sử dụng Native Function Calling (API Tool Calling).
+            include_tool_catalog: Nếu True, bao gồm tool catalog trong system prompt.
+            max_tokens: Per-call output token cap.
 
         Returns:
             LLMResponse object with content, token metadata, and tool_calls if present.
@@ -84,7 +87,7 @@ class GeminiService(BaseLLMService):
         session = await self._get_session()
 
         # 1. Trộn hệ tư tưởng (System Prompt)
-        final_system_prompt = self._build_final_system_prompt(system_prompt)
+        final_system_prompt = self._build_final_system_prompt(system_prompt, include_tool_catalog=include_tool_catalog)
 
         # 2. Biên dịch mảng `messages` sang chuẩn Gemini
         gemini_contents = []

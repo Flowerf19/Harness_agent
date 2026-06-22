@@ -33,13 +33,13 @@ class EvernightAgent:
         self.memory = memory_manager
         self.episodic = episodic_memory or self.memory
         self.llm = llm_service or kwargs.pop("llm_client", None)
+        if self.llm is None:
+            raise ValueError("llm_service or llm_client must be provided")
         self._embedding_service = kwargs.pop("embedding_service", None)
         self.tool_registry = tool_registry
         self.use_native_tools = use_native_tools
         self.march7_url = march7_url
         self.consolidator = consolidator
-        self.use_native_tools = use_native_tools
-        self.march7_url = march7_url
 
         self._chat_turn = ChatTurnRunner(
             llm=self.llm,

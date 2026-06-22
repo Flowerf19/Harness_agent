@@ -48,6 +48,7 @@ class DummyLLMService(BaseLLMService):
         messages,
         system_prompt=None,
         use_native_tools=False,
+        include_tool_catalog=True,
         max_tokens=None,
     ):
         return "ok"

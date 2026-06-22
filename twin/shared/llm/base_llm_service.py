@@ -71,13 +71,14 @@ class BaseLLMService(abc.ABC):
             self.logger.error(f"❌ Error loading prompt {filename}: {e}")
             return ""
 
-    def _build_final_system_prompt(self, dynamic_core_prompt: str = "") -> str:
+    def _build_final_system_prompt(self, dynamic_core_prompt: str = "", include_tool_catalog: bool = True) -> str:
         """
         Trộn lẫn Tính cách tĩnh (từ file .md) và Trí nhớ Tiềm thức (Từ Tầng 3).
         Tool schemas được inject qua Native Function Calling (API Tool Calling).
 
         Args:
             dynamic_core_prompt: Hồ sơ user từ T3
+            include_tool_catalog: If True, include the short tool catalog in the prompt.
         """
         parts = []
 
@@ -88,7 +89,7 @@ class BaseLLMService(abc.ABC):
             parts.append(f"=== HƯỚNG DẪN HỘI THOẠI ===\n{self.static_soul}")
 
         # 2. Nhét micro-catalog tool. Full guide chỉ load sau khi chọn tool.
-        if self.tool_prompt_catalog:
+        if include_tool_catalog and self.tool_prompt_catalog:
             tool_catalog = self.tool_prompt_catalog.render_catalog()
             if tool_catalog:
                 parts.append(f"=== CÔNG CỤ ===\n{tool_catalog}")
@@ -108,6 +109,7 @@ class BaseLLMService(abc.ABC):
         messages: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
         use_native_tools: bool = False,
+        include_tool_catalog: bool = True,
         max_tokens: Optional[int] = None,
     ) -> Union[str, LLMResponse]:
         """
@@ -117,6 +119,7 @@ class BaseLLMService(abc.ABC):
             messages: List of message dicts with "role" and "content" keys
             system_prompt: Dynamic core memory context from T3
             use_native_tools: If True, use Native Function Calling (API Tool Calling)
+            include_tool_catalog: If True, include the short tool catalog in the system prompt
             max_tokens: Per-call output token cap; falls back to Config.LLM_MAX_TOKENS
                 when None. Reasoning models need a larger budget for structured calls.
 

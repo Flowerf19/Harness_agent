@@ -30,7 +30,6 @@ class March7Container:
         self.timeline_redis_client = None
         self.timeline_summary_store = None
         self.profile_store = None
-        self.profile_store = None
         self.consolidation_client = None
 
     @classmethod
@@ -60,7 +59,6 @@ class March7Container:
         self.timeline_redis_client = self.runtime.timeline_redis_client
         self.timeline_summary_store = self.runtime.timeline_summary_store
         self.profile_store = self.runtime.profile_store
-        self.profile_store = self.runtime.profile_store
 
         tools = build_tool_registry(
             agent_name="march7",
@@ -70,6 +68,8 @@ class March7Container:
             llm_service=self.llm_service,
             base_memory_path=self.config.persona_path,
             use_evernight_dm_approval=True,
+            embedding_service=self.embedding_service,
+            timeline_summary_store=self.timeline_summary_store,
         )
         self.tool_registry = tools.registry
         self.llm_service.set_tool_registry(self.tool_registry)

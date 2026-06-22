@@ -51,10 +51,11 @@ class OpenAIService(BaseLLMService):
         messages: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
         use_native_tools: bool = False,
+        include_tool_catalog: bool = True,
         max_tokens: Optional[int] = None,
     ) -> Union[str, LLMResponse]:
         session = await self._get_session()
-        final_system_prompt = self._build_final_system_prompt(system_prompt)
+        final_system_prompt = self._build_final_system_prompt(system_prompt, include_tool_catalog=include_tool_catalog)
 
         # Strict chat templates (Qwen-derived, e.g. LM Studio) raise
         # "No user query found in messages" when the first non-system message
