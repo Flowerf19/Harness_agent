@@ -72,6 +72,7 @@ async def run_strict_tool_loop(
             use_native_tools=use_native_tools,
             max_tokens=TOOL_SELECTION_MAX_TOKENS,
             langsmith_extra=langsmith_extra(
+                name="tool_select",
                 tags=["llm", "tool_selection", llm_type],
                 metadata={
                     **base_metadata,
@@ -128,6 +129,7 @@ async def run_strict_tool_loop(
             use_native_tools=False,
             max_tokens=TOOL_SELECTION_MAX_TOKENS,
             langsmith_extra=langsmith_extra(
+                name="tool_refine",
                 tags=["llm", "tool_refine", llm_type, tool_name],
                 metadata={
                     **base_metadata,

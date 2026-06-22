@@ -79,25 +79,7 @@ class GatewayChatHandler(GatewayHandler):
         allow_silence_candidate = bool(hints.get("allow_silence", False))
 
         if should_observe and agent_name == "march7":
-            await call_with_langsmith_extra(
-                self._observe_message,
-                msg=msg,
-                content=content,
-                langsmith_extra=langsmith_extra(
-                    tags=["memory", "observe", agent_name],
-                    metadata={
-                        "workflow": "gateway.observe_message",
-                        "agent_name": agent_name,
-                        "platform": msg.user.platform_name,
-                        "channel_type": msg.channel.channel_type,
-                        "channel_id": msg.channel.channel_id,
-                        "guild_id": msg.channel.guild_id,
-                        "user_id": msg.user.platform_id,
-                        "message_id": msg.message_id,
-                        "scope_key": self._scope_key(msg, hints),
-                    },
-                ),
-            )
+            await self._observe_message(msg, content)
 
         if not should_respond:
             return ""
@@ -192,7 +174,6 @@ class GatewayChatHandler(GatewayHandler):
         logger.info("Got response from %s: %.80s", agent_name, response)
         return response
 
-    @traceable(name="memory.observe_input", run_type="chain", tags=["memory", "observe"])
     async def _observe_message(self, msg: UnifiedMessage, content: str) -> None:
         if not self._agent_router:
             return

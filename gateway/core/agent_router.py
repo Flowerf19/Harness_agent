@@ -6,7 +6,6 @@ import logging
 from typing import Any, TYPE_CHECKING
 
 from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
-from twin.shared.observability.langsmith import traceable
 
 if TYPE_CHECKING:
     from gateway.core.evernight_client import EvernightClient
@@ -26,7 +25,6 @@ class AgentRouter:
         self.march7 = march7
         self.evernight_client = evernight_client
 
-    @traceable(name="gateway.route_agent", run_type="chain", tags=["gateway", "router"])
     async def route(
         self,
         agent_name: str,
