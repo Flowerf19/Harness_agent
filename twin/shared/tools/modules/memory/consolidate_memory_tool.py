@@ -1,4 +1,4 @@
-"""ConsolidateMemoryTool - Evernight tool to consolidate T1 into T2/T3."""
+"""ConsolidateMemoryTool - consolidate T1 active memory into T2 timeline + T3 profile."""
 from __future__ import annotations
 
 import json
@@ -59,7 +59,7 @@ Chỉ return JSON, không giải thích."""
 
 
 class ConsolidateMemoryTool(BaseTool):
-    """Evernight tool: consolidate T1 messages into T2 timeline + T3 profile."""
+    """Consolidate T1 messages into T2 timeline + T3 profile."""
 
     def __init__(
         self,
