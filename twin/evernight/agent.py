@@ -5,7 +5,7 @@ from typing import Any, List, Optional
 from twin.shared.agent import ChatTurnRunner
 from twin.shared.llm.base_llm_service import BaseLLMService
 from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
-from twin.shared.observability.langsmith import traceable
+from twin.shared.observability.langsmith import summarize_trace_output, traceable
 from twin.shared.tools.registry import ToolRegistry
 from twin.shared.a2a.types import AgentCard
 from twin.shared.memory import SharedMemoryManager
@@ -157,7 +157,12 @@ class EvernightAgent:
     # Chat (new capability for Evernight)
     # ------------------------------------------------------------------
 
-    @traceable(name="evernight.chat", run_type="chain", tags=["evernight"])
+    @traceable(
+        name="evernight.chat",
+        run_type="chain",
+        tags=["evernight"],
+        process_outputs=summarize_trace_output,
+    )
     async def handle_chat(self, user_id: str, content: str) -> str:
         try:
             await self.memory.add_message(user_id=user_id, role="user", content=content)
@@ -178,16 +183,6 @@ class EvernightAgent:
                     "model": self._model_name,
                     "user_id": user_id,
                 },
-                langsmith_extra=langsmith_extra(
-                    tags=[self._llm_type],
-                    metadata={
-                        "workflow": "evernight.chat",
-                        "agent_name": "evernight",
-                        "provider": self._llm_type,
-                        "model": self._model_name,
-                        "user_id": user_id,
-                    },
-                ),
             )
 
             bot_response = turn.content

@@ -12,7 +12,6 @@ from typing import Any
 
 from twin.shared.llm.base_llm_service import LLM_ERROR_RESPONSES
 from twin.shared.llm.llm_response import LLMResponse
-from twin.shared.observability.langsmith import summarize_trace_output, traceable
 
 from .agent_loop import AgentLoop, TOOL_SELECTION_MAX_TOKENS
 
@@ -57,12 +56,6 @@ class ChatTurnRunner:
             return "gemini"
         return "openai"
 
-    @traceable(
-        name="chat_turn.run",
-        run_type="chain",
-        tags=["chat_turn"],
-        process_outputs=summarize_trace_output,
-    )
     async def run(
         self,
         *,

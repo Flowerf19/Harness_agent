@@ -139,7 +139,7 @@ async def test_no_tool_path_calls_decide_then_resolve():
     assert llm.calls[0]["include_tool_catalog"] is True
     # Resolve
     assert llm.calls[1]["use_native_tools"] is False
-    assert llm.calls[1]["include_tool_catalog"] is False
+    assert llm.calls[1]["include_tool_catalog"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -488,8 +488,8 @@ async def test_act_does_not_call_llm():
 # Prompt-scope tests
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_prompt_scope_tool_catalog_included_only_for_decide():
-    """Tool catalog is included for Decide, excluded for Refine and Resolve."""
+async def test_prompt_scope_tool_catalog_included_for_decide_and_resolve():
+    """Tool catalog is included for Decide and Resolve, excluded for Refine."""
     llm = FakeLLM(
         [
             _tool_response({"id": "c1", "name": "search_memory", "arguments": {"query": "x"}}),
@@ -506,7 +506,7 @@ async def test_prompt_scope_tool_catalog_included_only_for_decide():
     assert llm.calls[0]["include_tool_catalog"] is True   # Decide
     assert llm.calls[1]["include_tool_catalog"] is False  # Refine
     assert llm.calls[2]["include_tool_catalog"] is True    # Decide (post-act)
-    assert llm.calls[3]["include_tool_catalog"] is False    # Resolve
+    assert llm.calls[3]["include_tool_catalog"] is True    # Resolve
 
 
 @pytest.mark.asyncio

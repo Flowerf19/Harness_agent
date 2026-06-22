@@ -49,7 +49,7 @@ class Think:
         Returns:
             Raw LLM response string or ``LLMResponse``.
         """
-        include_tool_catalog = stage == "decide"
+        include_tool_catalog = stage in ("decide", "resolve")
         metadata = {
             "workflow_step": f"think.{stage}",
             **(trace_metadata or {}),
