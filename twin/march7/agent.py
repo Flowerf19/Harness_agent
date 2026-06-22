@@ -88,7 +88,7 @@ class March7Agent:
                 "1",
             )
 
-    @traceable(name="march7.chat", run_type="chain", tags=["march7", "chat"])
+    @traceable(name="march7.chat", run_type="chain", tags=["march7"])
     async def handle_chat(
         self,
         user_id: str,
@@ -134,7 +134,7 @@ class March7Agent:
                     "allow_silence": allow_silence,
                 },
                 langsmith_extra=langsmith_extra(
-                    tags=["march7", "chat_turn", self._llm_type],
+                    tags=[self._llm_type],
                     metadata={
                         "workflow": "march7.chat",
                         "agent_name": "march7",

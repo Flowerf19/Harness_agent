@@ -42,7 +42,7 @@ class AgentRouter:
     ) -> str:
         """Route message to the specified agent."""
         extra = langsmith_extra(
-            tags=["gateway", "router", agent_name],
+            tags=["router"],
             metadata={
                 "workflow": "gateway.route_agent",
                 "agent_name": agent_name,

@@ -157,7 +157,7 @@ class EvernightAgent:
     # Chat (new capability for Evernight)
     # ------------------------------------------------------------------
 
-    @traceable(name="evernight.chat", run_type="chain", tags=["evernight", "chat"])
+    @traceable(name="evernight.chat", run_type="chain", tags=["evernight"])
     async def handle_chat(self, user_id: str, content: str) -> str:
         try:
             await self.memory.add_message(user_id=user_id, role="user", content=content)
@@ -179,7 +179,7 @@ class EvernightAgent:
                     "user_id": user_id,
                 },
                 langsmith_extra=langsmith_extra(
-                    tags=["evernight", "chat_turn", self._llm_type],
+                    tags=[self._llm_type],
                     metadata={
                         "workflow": "evernight.chat",
                         "agent_name": "evernight",

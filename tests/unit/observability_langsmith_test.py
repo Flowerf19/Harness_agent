@@ -75,3 +75,21 @@ async def test_call_with_langsmith_extra_skips_plain_functions_when_tracing_is_o
     )
 
     assert result == "ok"
+
+
+def test_langsmith_extra_and_trace_output_summaries_are_compact():
+    extra = observability.langsmith_extra(tags=["chat", "chat", "march7"])
+
+    assert extra["tags"] == ["chat", "march7"]
+    assert observability.summarize_trace_output("secret reply") == {
+        "has_output": True,
+        "output_chars": 12,
+    }
+    class Response:
+        content = "secret reply"
+
+    assert observability.summarize_trace_output(Response()) == {
+        "result_type": "Response",
+        "has_output": True,
+        "output_chars": 12,
+    }

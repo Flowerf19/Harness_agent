@@ -34,6 +34,33 @@ def default_project_name() -> str:
     )
 
 
+def _unique_tags(tags: list[str] | None) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for tag in tags or []:
+        if tag in seen:
+            continue
+        seen.add(tag)
+        unique.append(tag)
+    return unique
+
+
+def summarize_trace_output(output: Any) -> dict[str, Any]:
+    """Keep wrapper spans useful without duplicating full chat replies."""
+    if output is None:
+        return {"has_output": False}
+    if isinstance(output, str):
+        return {"has_output": bool(output), "output_chars": len(output)}
+    content = getattr(output, "content", None)
+    if isinstance(content, str):
+        return {
+            "result_type": type(output).__name__,
+            "has_output": bool(content),
+            "output_chars": len(content),
+        }
+    return {"result_type": type(output).__name__}
+
+
 def _langsmith_traceable(**kwargs: Any):
     trace_kwargs = dict(kwargs)
     trace_kwargs.setdefault("enabled", True)
@@ -43,6 +70,8 @@ def _langsmith_traceable(**kwargs: Any):
 
 def _wrap_noop_or_langsmith(func: Callable[..., Any], trace_kwargs: dict[str, Any]):
     cached: Callable[..., Any] | None = None
+    if "tags" in trace_kwargs:
+        trace_kwargs["tags"] = _unique_tags(trace_kwargs.get("tags"))
 
     def traced_func() -> Callable[..., Any]:
         nonlocal cached
@@ -109,7 +138,7 @@ def langsmith_extra(
 ) -> dict[str, Any]:
     extra: dict[str, Any] = {
         "metadata": _clean_metadata(metadata),
-        "tags": list(tags or []),
+        "tags": _unique_tags(tags),
         "project_name": project_name or default_project_name(),
     }
     if name:

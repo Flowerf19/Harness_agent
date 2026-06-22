@@ -13,7 +13,7 @@ from typing import Any
 from twin.shared.llm.base_llm_service import LLM_ERROR_RESPONSES
 from twin.shared.llm.llm_response import LLMResponse
 from twin.shared.observability import langsmith_extra
-from twin.shared.observability.langsmith import traceable
+from twin.shared.observability.langsmith import summarize_trace_output, traceable
 from twin.shared.llm.tool_loop import run_strict_tool_loop
 
 
@@ -57,7 +57,12 @@ class ChatTurnRunner:
             return "gemini"
         return "openai"
 
-    @traceable(name="chat_turn.run", run_type="chain", tags=["chat_turn"])
+    @traceable(
+        name="chat_turn.run",
+        run_type="chain",
+        tags=["chat_turn"],
+        process_outputs=summarize_trace_output,
+    )
     async def run(
         self,
         *,
@@ -89,10 +94,7 @@ class ChatTurnRunner:
             tool_timeout=tool_timeout,
             raise_bash_unavailable=raise_bash_unavailable,
             trace_metadata=metadata,
-            langsmith_extra=langsmith_extra(
-                tags=["tool_loop", self.llm_type],
-                metadata=metadata,
-            ),
+            langsmith_extra=langsmith_extra(metadata=metadata),
         )
 
         if isinstance(raw_response, LLMResponse):

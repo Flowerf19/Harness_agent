@@ -12,7 +12,7 @@ from typing import Any
 from twin.shared.llm.base_llm_service import LLM_ERROR_RESPONSES
 from twin.shared.llm.llm_response import LLMResponse
 from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
-from twin.shared.observability.langsmith import traceable
+from twin.shared.observability.langsmith import summarize_trace_output, traceable
 from twin.shared.tools.exceptions import BashExecutorUnavailableError
 
 
@@ -39,7 +39,12 @@ class RefineDecision:
     response: str | None = None
 
 
-@traceable(name="tool_loop.run", run_type="chain", tags=["tool_loop"])
+@traceable(
+    name="tool_loop.run",
+    run_type="chain",
+    tags=["tool_loop"],
+    process_outputs=summarize_trace_output,
+)
 async def run_strict_tool_loop(
     *,
     llm: Any,

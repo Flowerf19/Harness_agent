@@ -10,7 +10,7 @@ from typing import Any, TYPE_CHECKING
 from gateway.shared.handler_base import GatewayHandler
 from gateway.shared.model import UnifiedEvent, UnifiedMessage
 from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
-from twin.shared.observability.langsmith import traceable
+from twin.shared.observability.langsmith import summarize_trace_output, traceable
 from twin.shared.tools.exceptions import BashExecutorUnavailableError
 
 if TYPE_CHECKING:
@@ -42,7 +42,7 @@ class GatewayChatHandler(GatewayHandler):
         hints = self._route_hints(msg)
         agent_name = str(hints.get("agent_name") or "march7")
         extra = langsmith_extra(
-            tags=["gateway", "chat", agent_name, msg.user.platform_name],
+            tags=[msg.user.platform_name],
             metadata={
                 "workflow": "gateway.chat",
                 "agent_name": agent_name,
@@ -63,7 +63,12 @@ class GatewayChatHandler(GatewayHandler):
             langsmith_extra=extra,
         )
 
-    @traceable(name="gateway.handle_message", run_type="chain", tags=["gateway", "chat"])
+    @traceable(
+        name="gateway.handle_message",
+        run_type="chain",
+        tags=["gateway", "chat"],
+        process_outputs=summarize_trace_output,
+    )
     async def _handle_message_traced(
         self,
         msg: UnifiedMessage,
@@ -156,7 +161,7 @@ class GatewayChatHandler(GatewayHandler):
             user_name=msg.user.display_name,
             mentioned_users=self._mentioned_users(msg),
             langsmith_extra=langsmith_extra(
-                tags=["gateway", "router", agent_name],
+                tags=["router"],
                 metadata={
                     "workflow": "gateway.route_agent",
                     "agent_name": agent_name,
