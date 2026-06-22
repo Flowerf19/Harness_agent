@@ -16,6 +16,7 @@ import os
 
 from twin.shared.config.settings import Config
 from .base_embedding_service import BaseEmbeddingService
+from .embedding_trace_logger import EmbeddingTraceLogger
 from .gemini_embedding_service import GeminiEmbeddingService
 from .openai_embedding_service import OpenAIEmbeddingService
 
@@ -29,6 +30,16 @@ _OPENAI_ALIASES = {
 _GEMINI_ALIASES = {"gemini", "google"}
 
 
+def _create_trace_logger() -> EmbeddingTraceLogger | None:
+    """Create the trace logger when enabled, otherwise return None."""
+    if not getattr(Config, "EMBEDDING_TRACE_LOG_ENABLED", False):
+        return None
+    return EmbeddingTraceLogger(
+        log_path=Config.EMBEDDING_TRACE_LOG_PATH,
+        enabled=True,
+    )
+
+
 def create_embedding_service(
     provider: str | None = None,
     *,
@@ -38,6 +49,7 @@ def create_embedding_service(
 ) -> BaseEmbeddingService:
     """Construct an embedding service for `provider` (defaults to env config)."""
     resolved = (provider or getattr(Config, "EMBEDDING_PROVIDER", "openai_compat")).lower()
+    trace_logger = _create_trace_logger()
 
     if resolved in _OPENAI_ALIASES:
         return OpenAIEmbeddingService(
@@ -45,6 +57,8 @@ def create_embedding_service(
             api_key=api_key or Config.EMBEDDING_API_KEY,
             api_url=api_url or Config.EMBEDDING_API_URL,
             expected_dim=Config.EMBEDDING_VECTOR_SIZE,
+            trace_logger=trace_logger,
+            provider="openai_compat",
         )
 
     if resolved in _GEMINI_ALIASES:
@@ -57,6 +71,8 @@ def create_embedding_service(
             ),
             output_dimensionality=getattr(Config, "EMBEDDING_VECTOR_SIZE", None),
             expected_dim=Config.EMBEDDING_VECTOR_SIZE,
+            trace_logger=trace_logger,
+            provider="gemini",
         )
 
     raise ValueError(

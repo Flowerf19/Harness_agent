@@ -27,4 +27,6 @@ COPY --from=0 $VIRTUAL_ENV $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 ENV PYTHONPATH=/app
 
+RUN mkdir -p /app/logs && chown -R ${UID}:${GID} /app/logs
+
 USER march7_user

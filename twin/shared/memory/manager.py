@@ -4,6 +4,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from twin.shared.llm.embedding.embedding_trace_logger import (
+    cosine_similarity,
+    token_overlap,
+)
 from twin.shared.memory.active import ActiveEntry, ActiveMemory
 from twin.shared.memory.profile import MarkdownProfileStore
 from twin.shared.observability.langsmith import traceable
@@ -247,12 +251,53 @@ class SharedMemoryManager:
         if self.timeline_summary_store is None or not current_query:
             return ""
         try:
-            query_embedding = await self.embedding_service.get_embedding(f"query: {current_query}")
-            summaries = await self.timeline_summary_store.search(user_id, query_embedding, limit=5, query_text=current_query)
+            query_text = f"query: {current_query}"
+            query_embedding = await self.embedding_service.get_embedding(query_text)
+            summaries = await self.timeline_summary_store.search(
+                user_id, query_embedding, limit=5, query_text=current_query
+            )
+            self._trace_search_results(query_text, current_query, query_embedding, summaries)
             return format_preflight_for_prompt(summaries)
         except Exception as exc:
             logger.debug("T2: preflight failed user=%s: %s", user_id, exc)
             return ""
+
+    def _trace_search_results(
+        self,
+        input_text: str,
+        current_query: str,
+        query_embedding: list[float],
+        summaries: list[dict[str, Any]],
+    ) -> None:
+        """Log every semantic search result for embedding model debugging."""
+        trace_logger = getattr(self.embedding_service, "trace_logger", None)
+        if not trace_logger or not trace_logger.enabled:
+            return
+
+        for rank, summary in enumerate(summaries, start=1):
+            matched_text = summary.get("summary") or summary.get("content", "")
+            matched_embedding = summary.get("embedding")
+            if matched_embedding and query_embedding:
+                cs = cosine_similarity(query_embedding, matched_embedding)
+            else:
+                cs = None
+
+            self.embedding_service._trace_embedding_event(
+                input_text=input_text,
+                vector=query_embedding,
+                raw_dim=None,
+                latency_ms=0.0,
+                cache_hit=True,
+                event_type="SEARCH",
+                query_text=current_query,
+                matched_text=matched_text,
+                cosine_similarity=cs,
+                token_overlap=token_overlap(current_query, matched_text),
+                action="KNN_RESULT" if rank == 1 else "KNN_CANDIDATE",
+                knn_score=summary.get("score"),
+                bm25_score=summary.get("_bm25_score"),
+                rrf_rank=rank,
+            )
 
     async def _mentioned_users_context(
         self,

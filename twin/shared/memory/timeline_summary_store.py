@@ -282,7 +282,7 @@ class TimelineSummaryStore:
             for item in raw:
                 key = item.get(b"id") or item.get("id")
                 extra = item.get(b"extra_attributes") or item.get("extra_attributes") or {}
-                d = _decode_fields(extra)
+                d = self._decode_fields(extra)
                 if key:
                     key_str = key.decode() if isinstance(key, bytes) else key
                     d["summary_id"] = key_str.replace(f"{self.prefix}:", "")
@@ -313,14 +313,7 @@ class TimelineSummaryStore:
             else:
                 continue
 
-            d: dict[str, Any] = {}
-            for j in range(0, len(fields) - 1, 2):
-                field_name = fields[j].decode() if isinstance(fields[j], bytes) else fields[j]
-                try:
-                    field_value: Any = fields[j + 1].decode() if isinstance(fields[j + 1], bytes) else fields[j + 1]
-                except (UnicodeDecodeError, AttributeError):
-                    field_value = fields[j + 1]
-                d[field_name] = field_value
+            d: dict[str, Any] = self._decode_fields(fields)
 
             if key:
                 key_str = key.decode() if isinstance(key, bytes) else key
@@ -336,6 +329,46 @@ class TimelineSummaryStore:
             summaries.append(d)
 
         return summaries
+
+    def _decode_fields(self, mapping: Any) -> dict[str, Any]:
+        """Decode Redis hash fields; unpack embedding bytes to list[float]."""
+        result: dict[str, Any] = {}
+        for k, v in mapping.items():
+            field_name = k.decode() if isinstance(k, bytes) else k
+            try:
+                field_value: Any = v.decode() if isinstance(v, bytes) else v
+            except (UnicodeDecodeError, AttributeError):
+                field_value = v
+
+            if field_name == "embedding":
+                field_value = self._unpack_embedding(field_value)
+            elif field_name == "score":
+                try:
+                    field_value = float(field_value)
+                except (TypeError, ValueError):
+                    pass
+            elif field_name in {"importance", "version"}:
+                try:
+                    field_value = int(field_value)
+                except (TypeError, ValueError):
+                    pass
+            elif field_name == "created_at":
+                try:
+                    field_value = float(field_value)
+                except (TypeError, ValueError):
+                    pass
+
+            result[field_name] = field_value
+        return result
+
+    def _unpack_embedding(self, value: Any) -> list[float]:
+        """Unpack FLOAT32 bytes to a Python list of floats."""
+        if isinstance(value, list):
+            return [float(x) for x in value]
+        if not isinstance(value, (bytes, bytearray)):
+            return []
+        count = len(value) // 4
+        return list(struct.unpack(f"{count}f", value[: count * 4]))
 
     def _pack_embedding(self, embedding: list[float]) -> bytes:
         return struct.pack(f"{len(embedding)}f", *embedding)
@@ -383,17 +416,3 @@ def _rrf_fuse(
 
     ranked = sorted(scores.keys(), key=lambda s: scores[s], reverse=True)
     return [docs[sid] for sid in ranked[:limit]]
-
-
-# -------------------------------------------------------------------- util
-
-def _decode_fields(mapping: Any) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for k, v in mapping.items():
-        field_name = k.decode() if isinstance(k, bytes) else k
-        try:
-            field_value: Any = v.decode() if isinstance(v, bytes) else v
-        except (UnicodeDecodeError, AttributeError):
-            field_value = v
-        result[field_name] = field_value
-    return result

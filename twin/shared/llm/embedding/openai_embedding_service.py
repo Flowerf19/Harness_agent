@@ -7,10 +7,14 @@ the URL/model/key passed to `__init__` or via the factory.
 
 from __future__ import annotations
 
-from typing import List
+import time
+from typing import TYPE_CHECKING, List
 
 from twin.shared.config.settings import Config
 from .base_embedding_service import BaseEmbeddingService
+
+if TYPE_CHECKING:
+    from .embedding_trace_logger import EmbeddingTraceLogger
 
 
 class OpenAIEmbeddingService(BaseEmbeddingService):
@@ -22,13 +26,17 @@ class OpenAIEmbeddingService(BaseEmbeddingService):
         api_key: str | None = None,
         api_url: str | None = None,
         expected_dim: int | None = None,
+        trace_logger: EmbeddingTraceLogger | None = None,
+        provider: str = "openai_compat",
     ):
         super().__init__(
             model_name=model_name,
             expected_dim=expected_dim or Config.EMBEDDING_VECTOR_SIZE,
+            trace_logger=trace_logger,
+            provider=provider,
+            api_url=(api_url or Config.EMBEDDING_API_URL).rstrip("/"),
         )
         self.api_key = api_key or Config.EMBEDDING_API_KEY
-        self.api_url = (api_url or Config.EMBEDDING_API_URL).rstrip("/")
 
     async def initialize(self) -> None:
         if not self.api_key:
@@ -40,8 +48,16 @@ class OpenAIEmbeddingService(BaseEmbeddingService):
 
         cached = self._cache_get(text)
         if cached is not None:
+            self._trace_embedding_event(
+                input_text=text,
+                vector=cached,
+                raw_dim=None,
+                latency_ms=0.0,
+                cache_hit=True,
+            )
             return cached
 
+        started_at = time.perf_counter()
         try:
             session = await self._get_session()
             async with session.post(
@@ -60,7 +76,17 @@ class OpenAIEmbeddingService(BaseEmbeddingService):
                     return []
 
                 data = await response.json()
-                vector = self._fit_vector(data["data"][0]["embedding"])
+                raw_vector = data["data"][0]["embedding"]
+                raw_dim = len(raw_vector)
+                vector = self._fit_vector(raw_vector)
+                latency_ms = (time.perf_counter() - started_at) * 1000
+                self._trace_embedding_event(
+                    input_text=text,
+                    vector=vector,
+                    raw_dim=raw_dim,
+                    latency_ms=latency_ms,
+                    cache_hit=False,
+                )
                 self._cache_put(text, vector)
                 return vector
 

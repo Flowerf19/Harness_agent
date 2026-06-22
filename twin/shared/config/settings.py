@@ -112,3 +112,9 @@ class Config:
     EMBEDDING_API_URL = os.getenv("EMBEDDING_API_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
     EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY")
     EMBEDDING_VECTOR_SIZE = int(os.getenv("EMBEDDING_VECTOR_SIZE", "1024"))
+    EMBEDDING_TRACE_LOG_ENABLED = (
+        os.getenv("EMBEDDING_TRACE_LOG_ENABLED", "false").lower() == "true"
+    )
+    EMBEDDING_TRACE_LOG_PATH = os.getenv(
+        "EMBEDDING_TRACE_LOG_PATH", "logs/embedding_trace.jsonl"
+    )
