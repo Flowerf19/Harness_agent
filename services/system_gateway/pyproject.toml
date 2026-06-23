@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "twin-system-gateway"
+version = "0.1.0"
+description = "Native host service scaffold for Twin system capabilities."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiohttp",
+]
+
+[project.scripts]
+system-gateway = "system_gateway.__main__:main"
+
+[tool.setuptools]
+packages = ["system_gateway", "system_gateway.adapters"]
+
+[tool.setuptools.package-dir]
+system_gateway = "."
+"system_gateway.adapters" = "adapters"

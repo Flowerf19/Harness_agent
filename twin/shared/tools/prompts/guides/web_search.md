@@ -15,7 +15,7 @@ Tìm kiếm web hiện tại qua Tavily.
 
 - Ký ức/user history: dùng `search_memory`.
 - Tính toán/dữ liệu local: dùng `run_python_code`.
-- Lệnh host/log/docker: dùng `execute_host_bash`.
+- Lệnh host/log/docker: dùng `host_system`.
 
 </tool_description>
 

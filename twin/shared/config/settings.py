@@ -21,6 +21,9 @@ CODEBOX_SESSION_TTL_DEFAULT = 1800  # 30 min
 # Bash executor.
 BASH_EXECUTOR_TIMEOUT_DEFAULT = 30
 
+# System Gateway.
+SYSTEM_GATEWAY_TIMEOUT_DEFAULT = 30
+
 # Search / T2 retrieval — only SEMANTIC is currently consumed by the
 # orchestrator; the time/topic knobs were never wired.
 SEARCH_TOP_K_SEMANTIC_DEFAULT = 5
@@ -93,6 +96,12 @@ class Config:
     BASH_EXECUTOR_ALLOWED_ORIGINS = os.getenv(
         "BASH_EXECUTOR_ALLOWED_ORIGINS",
         "march7-bot,http://localhost:8374,http://host.docker.internal:8374",
+    )
+
+    # === System Gateway (native host boundary) ===
+    SYSTEM_GATEWAY_URL = os.getenv("SYSTEM_GATEWAY_URL", "http://host.docker.internal:8380")
+    SYSTEM_GATEWAY_TIMEOUT = int(
+        os.getenv("SYSTEM_GATEWAY_TIMEOUT", str(SYSTEM_GATEWAY_TIMEOUT_DEFAULT))
     )
 
     # === Evernight A2A endpoint (March7 calls Evernight) ===

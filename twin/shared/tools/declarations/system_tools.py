@@ -79,8 +79,15 @@ SYSTEM_TOOL_SPECS: tuple[ToolSpec, ...] = (
         guide_path="guides/run_python_code.md",
     ),
     ToolSpec(
+        module="twin.shared.tools.modules.system.host_system_tool",
+        class_name="HostSystemTool",
+        guide_path="guides/host_system.md",
+    ),
+    ToolSpec(
         module="twin.shared.tools.modules.execution.execute_host_bash_tool",
         class_name="ExecuteHostBashTool",
+        visible_to=frozenset(),
+        allowed_to=frozenset(),
         guide_path="guides/execute_host_bash.md",
     ),
 )

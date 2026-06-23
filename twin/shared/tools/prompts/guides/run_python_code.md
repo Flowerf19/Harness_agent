@@ -14,7 +14,7 @@ Chạy Python hoặc bash trong sandbox CodeBox/Jupyter. Trạng thái được 
 ### Khi không nên dùng
 
 - Thông tin web/current: dùng `web_search`.
-- Trạng thái máy host, docker, log: dùng `execute_host_bash`.
+- Trạng thái máy host, docker, log: dùng `host_system`.
 - Câu hỏi đơn giản có thể trả lờitrực trực tiếp.
 </tool_description>
 

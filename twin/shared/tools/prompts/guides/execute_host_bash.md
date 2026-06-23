@@ -1,18 +1,20 @@
 <tool_description>
-Khi cần kiểm tra host, Docker, log, service, hoặc chạy bash thật.
+LEGACY Linux-only Bash Executor; dùng `host_system` cho host interaction bình thường.
 
 
 ## execute_host_bash
 
-Chạy lệnh bash trên máy host của bot thông qua Bash Executor. Mỗi lần gọi đều cần người dùng duyệt.
+Legacy Linux-only Bash Executor. Tool này được giữ tạm để tương thích demo cũ;
+host interaction bình thường phải đi qua `host_system` và System Gateway.
 
 ### Khi nên dùng
 
-- Kiểm tra host: `sensors`, `free -h`, `df -h`, `docker ps`, `docker logs`, `systemctl status`, `tail` log.
-- User nói rõ muốn xem trạng thái máy hoặc chạy lệnh trên host.
+- Chỉ khi maintainer/dev đang cần dùng đường legacy Linux Bash Executor.
+- Không dùng làm lựa chọn mặc định cho host/Docker/log/service.
 
 ### Khi không nên dùng
 
+- Host interaction bình thường: dùng `host_system`.
 - Tính toán: dùng `run_python_code`.
 - Lệnh trong sandbox hoặc phân tích dữ liệu dự án: dùng `run_python_code` với kernel bash.
 - Lệnh nguy hiểm hoặc thay đổi cấu hình khi user không yêu cầu rõ.

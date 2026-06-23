@@ -1,0 +1,99 @@
+import pytest
+
+from twin.shared.system_gateway.client import (
+    MAX_RESPONSE_BYTES,
+    HostGatewayClient,
+    _loads_json,
+)
+from twin.shared.system_gateway.errors import HostGatewayError
+from twin.shared.system_gateway.types import (
+    GatewayActionResponse,
+    GatewayCapabilities,
+    GatewayHealth,
+)
+
+
+def test_gateway_health_from_dict_coerces_optional_fields():
+    health = GatewayHealth.from_dict({
+        "status": "ok",
+        "version": "0.1.0",
+        "platform": "linux",
+        "uptime": "42",
+    })
+
+    assert health.status == "ok"
+    assert health.version == "0.1.0"
+    assert health.platform == "linux"
+    assert health.uptime == 42
+
+
+def test_gateway_capabilities_from_dict_defaults_to_safe_values():
+    capabilities = GatewayCapabilities.from_dict({
+        "platform": "windows",
+        "shells": ["powershell"],
+        "features": ["services"],
+        "structured_actions": ["service.status"],
+        "notes": ["stub"],
+    })
+
+    assert capabilities.platform == "windows"
+    assert capabilities.shells == ("powershell",)
+    assert capabilities.features == ("services",)
+    assert capabilities.structured_actions == ("service.status",)
+    assert capabilities.raw_shell is False
+    assert capabilities.notes == ("stub",)
+
+
+def test_gateway_action_response_accepts_legacy_stdout_shape():
+    response = GatewayActionResponse.from_dict({
+        "success": True,
+        "stdout": "hello",
+        "exit_code": "0",
+    })
+
+    assert response.ok is True
+    assert response.output == "hello"
+    assert response.exit_code == 0
+
+
+def test_loads_json_rejects_non_object_payload():
+    with pytest.raises(HostGatewayError, match="invalid JSON payload"):
+        _loads_json(b"[]", 200)
+
+
+def test_client_response_size_limit_constant_is_bounded():
+    assert MAX_RESPONSE_BYTES <= 1_000_000
+
+
+class _FakeContent:
+    async def read(self, n):
+        return b"x" * n
+
+
+class _FakeResponse:
+    status = 200
+
+    def __init__(self):
+        self.content = _FakeContent()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FakeSession:
+    closed = False
+
+    def request(self, method, url, json=None):
+        return _FakeResponse()
+
+
+@pytest.mark.asyncio
+async def test_request_json_rejects_oversized_response():
+    client = HostGatewayClient("http://gateway.local")
+    client._session = _FakeSession()
+
+    with pytest.raises(HostGatewayError, match="exceeded size limit"):
+        await client._request_json("GET", "/capabilities")

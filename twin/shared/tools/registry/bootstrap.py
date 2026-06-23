@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 from twin.shared.config.settings import Config
 from twin.shared.external.codebox_client import CodeBoxClient
+from twin.shared.system_gateway import HostGatewayClient
 from twin.shared.tools.approval_gate import ApprovalGate
 from twin.shared.tools.registry.base import BaseTool
 from twin.shared.tools.declarations.system_tools import SYSTEM_TOOL_SPECS, ToolSpec
@@ -29,6 +30,7 @@ class ToolBootstrapResult:
     approval_gate: ApprovalGate
     tavily_mcp_client: Optional[MCPClient]
     codebox_client: Optional[CodeBoxClient]
+    host_gateway_client: Optional[HostGatewayClient]
 
 
 class DeclaredToolProxy(BaseTool):
@@ -90,6 +92,7 @@ def build_tool_registry(
     """Build one registry for an agent from the shared declared tool catalog."""
     tavily_mcp_client = _init_tavily_mcp_client()
     codebox_client = _init_codebox_client()
+    host_gateway_client = _init_host_gateway_client()
 
     if approval_gate is None:
         approval_gate = _build_approval_gate(
@@ -105,6 +108,8 @@ def build_tool_registry(
         "base_memory_path": base_memory_path,
         "tavily_mcp_client": tavily_mcp_client,
         "codebox_client": codebox_client,
+        "host_gateway_client": host_gateway_client,
+        "host_gateway_timeout": Config.SYSTEM_GATEWAY_TIMEOUT,
         "approval_gate": approval_gate,
         "executor_url": Config.BASH_EXECUTOR_URL,
         "timeout": Config.BASH_EXECUTOR_TIMEOUT,
@@ -138,6 +143,7 @@ def build_tool_registry(
         approval_gate=approval_gate,
         tavily_mcp_client=tavily_mcp_client,
         codebox_client=codebox_client,
+        host_gateway_client=host_gateway_client,
     )
 
 
@@ -205,4 +211,18 @@ def _init_codebox_client() -> Optional[CodeBoxClient]:
         return CodeBoxClient()
     except Exception as exc:
         logger.warning("CodeBox init failed: %s", exc)
+        return None
+
+
+def _init_host_gateway_client() -> Optional[HostGatewayClient]:
+    gateway_url = getattr(Config, "SYSTEM_GATEWAY_URL", "")
+    if not gateway_url:
+        return None
+    try:
+        return HostGatewayClient(
+            base_url=gateway_url,
+            timeout=Config.SYSTEM_GATEWAY_TIMEOUT,
+        )
+    except Exception as exc:
+        logger.warning("System Gateway client init failed: %s", exc)
         return None

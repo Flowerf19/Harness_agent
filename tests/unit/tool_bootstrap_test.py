@@ -1,6 +1,7 @@
 import pytest
 
 from twin.shared.llm.base_llm_service import BaseLLMService
+from twin.shared.system_gateway import HostGatewayClient
 from twin.shared.tools.mcp_client import MCPClient
 from twin.shared.tools.registry import ToolExecutionError, build_tool_registry
 from twin.shared.tools.registry import bootstrap
@@ -82,6 +83,10 @@ def test_bootstrap_filters_tool_visibility_by_agent():
     assert removed_consolidation_tool not in _schema_names(evernight)
     assert "get_profile" in _schema_names(march7)
     assert "get_profile" in _schema_names(evernight)
+    assert "host_system" in _schema_names(march7)
+    assert "host_system" in _schema_names(evernight)
+    assert "execute_host_bash" not in _schema_names(march7)
+    assert "execute_host_bash" not in _schema_names(evernight)
     assert "manage_user_profile" not in _schema_names(march7)
     assert "manage_user_profile" in _schema_names(evernight)
 
@@ -99,6 +104,17 @@ def test_bootstrap_uses_tavily_remote_mcp_backend_by_default(monkeypatch):
     }
 
 
+def test_bootstrap_initializes_system_gateway_client(monkeypatch):
+    monkeypatch.setattr(bootstrap.Config, "SYSTEM_GATEWAY_URL", "http://system-gateway.local")
+    monkeypatch.setattr(bootstrap.Config, "SYSTEM_GATEWAY_TIMEOUT", 12)
+
+    result = _bootstrap_for("march7")
+
+    assert isinstance(result.host_gateway_client, HostGatewayClient)
+    assert result.host_gateway_client.base_url == "http://system-gateway.local"
+    assert result.host_gateway_client.timeout == 12
+
+
 @pytest.mark.asyncio
 async def test_bootstrap_removes_consolidation_tool_execution():
     march7 = _registry_for("march7")
@@ -107,6 +123,16 @@ async def test_bootstrap_removes_consolidation_tool_execution():
         await march7.execute_tool("consolidate_" + "t2_memory", {})
 
     assert "not found" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_execute_host_bash_is_legacy_denied_for_agents():
+    march7 = _registry_for("march7")
+
+    with pytest.raises(ToolExecutionError) as exc:
+        await march7.execute_tool("execute_host_bash", {"command": "pwd"})
+
+    assert "không có quyền" in str(exc.value)
 
 
 @pytest.mark.asyncio

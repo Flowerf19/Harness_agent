@@ -119,7 +119,7 @@ def test_native_schema_description_comes_from_tool_description_tag():
         "update_personality": "guides/update_personality.md",
         "web_search": "guides/web_search.md",
         "run_python_code": "guides/run_python_code.md",
-        "execute_host_bash": "guides/execute_host_bash.md",
+        "host_system": "guides/host_system.md",
     }
     descriptions = {
         schema["function"]["name"]: schema["function"]["description"]
@@ -200,8 +200,8 @@ def test_catalog_output_is_unchanged_by_backend_metadata():
 
     assert catalog == "\n".join(
         [
-            f"- execute_host_bash: {read_tool_description('execute_host_bash', 'guides/execute_host_bash.md')}",
             f"- get_profile: {read_tool_description('get_profile', 'guides/get_profile.md')}",
+            f"- host_system: {read_tool_description('host_system', 'guides/host_system.md')}",
             f"- run_python_code: {read_tool_description('run_python_code', 'guides/run_python_code.md')}",
             f"- search_memory: {read_tool_description('search_memory', 'guides/search_memory.md')}",
             f"- update_personality: {read_tool_description('update_personality', 'guides/update_personality.md')}",
