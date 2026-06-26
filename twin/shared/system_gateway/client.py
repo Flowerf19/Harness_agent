@@ -7,6 +7,7 @@ from typing import Any
 
 import aiohttp
 
+from twin.shared.system_gateway.auth import headers_from_signed, sign_request
 from twin.shared.system_gateway.errors import (
     HostGatewayError,
     HostGatewayUnavailableError,
@@ -26,9 +27,18 @@ MAX_RESPONSE_BYTES = 1_000_000
 class HostGatewayClient:
     """Small HTTP client for System Gateway health, capabilities, and actions."""
 
-    def __init__(self, base_url: str, timeout: int = 30):
+    def __init__(
+        self,
+        base_url: str,
+        timeout: int = 30,
+        *,
+        shared_secret: str | None = None,
+        actor: str = "march7",
+    ):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.shared_secret = shared_secret
+        self.actor = actor
         self._session: aiohttp.ClientSession | None = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -67,8 +77,32 @@ class HostGatewayClient:
     ) -> dict[str, Any]:
         session = await self._get_session()
         url = f"{self.base_url}{path}"
+
+        # Serialize the body ourselves so the HMAC signs the EXACT bytes the
+        # server reads via request.read(). Sending json=... would let aiohttp
+        # re-serialize with different separators and break the signature.
+        if json is None:
+            body_bytes = b""
+        else:
+            body_bytes = jsonlib.dumps(json, separators=(",", ":")).encode("utf-8")
+
+        headers: dict[str, str] = {}
+        if body_bytes:
+            headers["Content-Type"] = "application/json"
+        if self.shared_secret:
+            signed = sign_request(
+                secret=self.shared_secret,
+                method=method,
+                path=path,
+                actor=self.actor,
+                body=body_bytes,
+            )
+            headers.update(headers_from_signed(signed))
+
         try:
-            async with session.request(method, url, json=json) as response:
+            async with session.request(
+                method, url, data=body_bytes, headers=headers
+            ) as response:
                 raw = await response.content.read(MAX_RESPONSE_BYTES + 1)
                 if len(raw) > MAX_RESPONSE_BYTES:
                     raise HostGatewayError("System Gateway response exceeded size limit")

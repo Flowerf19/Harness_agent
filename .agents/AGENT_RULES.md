@@ -9,6 +9,20 @@ Rules for coding agents working in this repository.
 - Bash Executor is privileged. Preserve user approval, auditability, timeouts,
   and security checks. Avoid destructive host commands unless explicitly
   requested.
+- **System Gateway is the host boundary.** Use `host_system` for new host
+  interactions; `execute_host_bash` is legacy and hidden. Do not add direct
+  host shell calls from containers.
+- **System Gateway invariants:**
+  - Mutating requests must carry a valid HMAC-SHA256 signature from
+    `SYSTEM_GATEWAY_SHARED_SECRET`.
+  - Mutating actions and raw shell require an action-bound, actor-bound,
+    single-use approval token. Bare approval IDs or unconsumed tokens are not
+    enough.
+  - Never bypass the gateway by having Evernight or March7 execute host
+    commands through Redis, Docker socket, or any other side channel.
+  - Raw shell is denied by default; enabling it requires explicit config and
+    still requires owner approval.
+  - Do not log the shared secret or approval tokens.
 - Keep the March7/Evernight A2A boundary intact. Evernight must not read or
   clear March7 T1 state by direct Redis key access.
 - Keep the gateway/platform boundary intact. Discord, Zalo, and future chat
@@ -96,6 +110,12 @@ Update upstream: `cd ~/.claude/skills && git pull`.
   entry — keep it in sync but treat the gateway entry as authoritative.
 - Local Redis/T2 data may be disposable during development because T3 Markdown
   is the durable profile/core memory. Confirm before deleting production data.
+- **`execute_host_bash` is legacy and hidden.** New host interactions must use
+  the `host_system` tool through the native `system-gateway` service. Do not
+  recreate bash-executor-style host bridges.
+- **System Gateway runs on the host, not in a container.** Containers reach it
+  via `SYSTEM_GATEWAY_URL` (e.g. `http://host.docker.internal:8380`). The
+  secret is shared through `SYSTEM_GATEWAY_SHARED_SECRET`.
 - After modifying the T2 FT schema, the existing index must be dropped and
   recreated (`FT.DROPINDEX timeline_summaries`, then restart). `_create_index`
   skips creation if the index already exists.

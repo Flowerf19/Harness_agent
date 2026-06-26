@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from abc import ABC, abstractmethod
 
 import aiohttp
@@ -17,6 +18,38 @@ class RecoveryExecutor(ABC):
     @abstractmethod
     async def restart_container(self, container_name: str) -> tuple[bool, str]:
         """Restart a container and return (success, detail)."""
+
+
+class GatewayRecoveryExecutor(RecoveryExecutor):
+    """Restart containers via the System Gateway policy-gated action endpoint.
+
+    Preferred over BashExecutorRecoveryExecutor / DockerCommandRecoveryExecutor
+    when SYSTEM_GATEWAY_URL is configured.
+    """
+
+    def __init__(self, gateway_monitor):
+        self.gateway_monitor = gateway_monitor
+
+    async def restart_container(self, container_name: str) -> tuple[bool, str]:
+        if self.gateway_monitor is None:
+            return False, "GatewayMonitor not available"
+
+        # Mint an approval token for container.restart
+        approval_id = None
+        client = getattr(self.gateway_monitor, "_client", None)
+        if client is not None:
+            secret = getattr(client, "shared_secret", None)
+            if secret:
+                from twin.shared.system_gateway import mint_approval_token
+
+                actor = getattr(client, "actor", "evernight")
+                approval_id = mint_approval_token(
+                    secret=secret, action="container.restart", actor=actor
+                )
+
+        return await self.gateway_monitor.request_container_restart(
+            container_name, approval_id=approval_id
+        )
 
 
 class DockerCommandRecoveryExecutor(RecoveryExecutor):
@@ -84,6 +117,7 @@ class SelfHealMonitor:
         notify_user_id: int = DEFAULT_NOTIFY_USER_ID,
         recovery_executor: RecoveryExecutor | None = None,
         bash_executor_url: str | None = None,
+        gateway_monitor=None,
     ):
         self.march7_url = march7_url.rstrip("/")
         self.interval = interval
@@ -92,11 +126,19 @@ class SelfHealMonitor:
         self.container_name = container_name
         self._discord_adapter = discord_adapter
         self._notify_user_id = notify_user_id
-        self._recovery_executor = recovery_executor or (
-            BashExecutorRecoveryExecutor(bash_executor_url)
-            if bash_executor_url
-            else DockerCommandRecoveryExecutor()
-        )
+        self._gateway_monitor = gateway_monitor
+
+        # Prefer GatewayRecoveryExecutor when SYSTEM_GATEWAY_URL is set
+        if recovery_executor is not None:
+            self._recovery_executor = recovery_executor
+        elif gateway_monitor is not None or os.getenv("SYSTEM_GATEWAY_URL"):
+            self._recovery_executor = GatewayRecoveryExecutor(
+                gateway_monitor=gateway_monitor
+            )
+        elif bash_executor_url:
+            self._recovery_executor = BashExecutorRecoveryExecutor(bash_executor_url)
+        else:
+            self._recovery_executor = DockerCommandRecoveryExecutor()
 
         self._failure_count = 0
         self._running = False

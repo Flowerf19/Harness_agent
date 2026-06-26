@@ -88,6 +88,8 @@ def build_tool_registry(
     use_evernight_dm_approval: bool = False,
     embedding_service: Any = None,
     timeline_summary_store: Any = None,
+    owner_user_id: str | None = None,
+    gateway_monitor: Any = None,
 ) -> ToolBootstrapResult:
     """Build one registry for an agent from the shared declared tool catalog."""
     tavily_mcp_client = _init_tavily_mcp_client()
@@ -115,6 +117,8 @@ def build_tool_registry(
         "timeout": Config.BASH_EXECUTOR_TIMEOUT,
         "embedding_service": embedding_service,
         "timeline_summary_store": timeline_summary_store,
+        "owner_user_id": owner_user_id,
+        "gateway_monitor": gateway_monitor,
     }
 
     registry = ToolRegistry(agent_name=agent_name)
@@ -222,6 +226,8 @@ def _init_host_gateway_client() -> Optional[HostGatewayClient]:
         return HostGatewayClient(
             base_url=gateway_url,
             timeout=Config.SYSTEM_GATEWAY_TIMEOUT,
+            shared_secret=Config.SYSTEM_GATEWAY_SHARED_SECRET,
+            actor="march7",
         )
     except Exception as exc:
         logger.warning("System Gateway client init failed: %s", exc)

@@ -1,3 +1,7 @@
+# LEGACY / DEPRECATED — Linux-only bash executor image.
+# Long-term: replace with the native system-gateway service managed by
+# systemd/launchd. See scripts/README.md.
+
 FROM python:3.11-slim AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/

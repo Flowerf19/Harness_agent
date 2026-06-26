@@ -11,6 +11,7 @@ from twin.shared.system_gateway import (
     HostGatewayClient,
     HostGatewayError,
     HostGatewayUnavailableError,
+    mint_approval_token,
 )
 from twin.shared.tools.approval_gate import ApprovalGate
 from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
@@ -84,10 +85,7 @@ class HostSystemTool(BaseTool):
         timeout: int | None = None,
     ) -> str:
         if not self.host_gateway_client:
-            return (
-                "❌ System Gateway chưa được cấu hình. "
-                "Cần cài native `system-gateway` trên host và cấu hình URL trước."
-            )
+            return self._render_needs_install()
 
         timeout = max(5, min(120, timeout or self.timeout))
         mode = (mode or "").strip().lower()
@@ -100,8 +98,8 @@ class HostSystemTool(BaseTool):
             if mode == "shell":
                 return await self._run_shell(command, shell, cwd, timeout)
             return "Lỗi: mode phải là capabilities, action, hoặc shell."
-        except HostGatewayUnavailableError as exc:
-            return f"❌ System Gateway chưa sẵn sàng: {exc}"
+        except HostGatewayUnavailableError:
+            return self._render_needs_install()
         except HostGatewayError as exc:
             return f"❌ System Gateway lỗi: {exc}"
         except Exception as exc:
@@ -152,11 +150,19 @@ class HostSystemTool(BaseTool):
         if not approved:
             return "❌ Yêu cầu host_system bị từ chối bởi Trạm Gác."
 
+        approval_id = self._mint_token(action_name)
+        if approval_id is None:
+            return (
+                "❌ System Gateway thiếu shared secret nên không thể cấp phép action. "
+                "Cấu hình SYSTEM_GATEWAY_SHARED_SECRET trước."
+            )
+
         response = await self.host_gateway_client.run_action(
             GatewayActionRequest(
                 action=action_name,
                 arguments=arguments,
                 timeout=timeout,
+                approval_id=approval_id,
             )
         )
         return self._format_response(action_name, response.ok, response.output, response.error)
@@ -181,15 +187,51 @@ class HostSystemTool(BaseTool):
         if not approved:
             return "❌ Lệnh host_system bị từ chối bởi Trạm Gác."
 
+        approval_id = self._mint_token("shell")
+        if approval_id is None:
+            return (
+                "❌ System Gateway thiếu shared secret nên không thể cấp phép lệnh. "
+                "Cấu hình SYSTEM_GATEWAY_SHARED_SECRET trước."
+            )
+
         response = await self.host_gateway_client.run_shell(
             GatewayShellRequest(
                 command=clean_command,
                 shell=shell,
                 cwd=cwd,
                 timeout=timeout,
+                approval_id=approval_id,
             )
         )
         return self._format_response(clean_command, response.ok, response.output, response.error)
+
+    def _mint_token(self, action: str) -> str | None:
+        """Mint an action-bound, single-use approval token after approval.
+
+        The token binds to the same canonical action string the server checks
+        and to the client's actor. Returns None if no shared secret is set.
+        """
+
+        secret = getattr(self.host_gateway_client, "shared_secret", None)
+        if not secret:
+            return None
+        actor = getattr(self.host_gateway_client, "actor", "march7")
+        return mint_approval_token(secret=secret, action=action, actor=actor)
+
+    def _render_needs_install(self) -> str:
+        from twin.evernight.system_gateway.installer import build_bootstrap_hint
+
+        hint = build_bootstrap_hint()
+        return json.dumps(
+            {
+                "needs_install": True,
+                "platform": hint.platform,
+                "bootstrap_command": hint.command,
+                "notes": list(hint.notes),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
 
     def _format_response(
         self,

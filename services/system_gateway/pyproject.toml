@@ -16,8 +16,13 @@ dependencies = [
 system-gateway = "system_gateway.__main__:main"
 
 [tool.setuptools]
-packages = ["system_gateway", "system_gateway.adapters"]
+packages = ["system_gateway", "system_gateway.adapters", "system_gateway.cli"]
+include-package-data = true
 
 [tool.setuptools.package-dir]
 system_gateway = "."
 "system_gateway.adapters" = "adapters"
+"system_gateway.cli" = "cli"
+
+[tool.setuptools.package-data]
+system_gateway = ["packaging/**/*"]

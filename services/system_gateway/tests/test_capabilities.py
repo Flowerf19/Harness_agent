@@ -30,7 +30,6 @@ def test_linux_capabilities_are_read_only_metadata() -> None:
     assert payload["service"] == "system_gateway"
     assert payload["platform"] == "linux"
     assert payload["raw_shell"] is False
-    assert payload["structured_actions"] == []
     assert all(action["read_only"] is True for action in payload["action_details"])
 
 
@@ -44,3 +43,17 @@ def test_stub_adapters_do_not_report_available_execution() -> None:
             "stub_adapter",
         ]
         assert all(action["available"] is False for action in capabilities["action_details"])
+
+
+def test_linux_adapter_marks_phase_b_status_action_as_available() -> None:
+    """Phase B exposes system.status as the one available action."""
+
+    payload = capabilities_payload(LinuxCapabilityAdapter())
+
+    names = [action["name"] for action in payload["action_details"]]
+    assert "system.status" in names
+    status = next(
+        action for action in payload["action_details"] if action["name"] == "system.status"
+    )
+    assert status["available"] is True
+    assert "system.status" in payload["structured_actions"]

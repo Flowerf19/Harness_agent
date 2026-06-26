@@ -77,34 +77,42 @@ Hệ thống sử dụng cơ chế A2A trực tiếp thay vì các pipeline tu�
 - Redis Stack RediSearch index phải ở DB 0; dùng `TIMELINE_REDIS_DB=0` cho T2, còn T1 có thể dùng DB riêng theo agent.
 - T3 profile inject vào system prompt mỗi turn qua `MarkdownProfileStore.get_system_prompt_context()`.
 
-### Host bash tool — 2 lớp chặn
+### Host boundary — System Gateway (current) vs Bash Executor (legacy)
 
-`execute_host_bash` là proxy tool: chạy trong container nhưng thực thi trên host qua HTTP. Vì là tool đặc quyền, mỗi lần gọi đi qua **2 lớp chặn độc lập** — duyệt người (gateway cấp context + nút approve) *trước*, rồi xác thực caller (`Origin` allowlist) ở host. Thiếu bất kỳ lớp nào → lệnh dừng, không bao giờ chạm `bash`.
+Host interaction giờ đi qua **System Gateway** — native service chạy trực tiếp trên host OS (Linux/macOS/Windows), thay vì qua Docker `nsenter`. Model-facing tool là `host_system` (xem `twin/shared/tools/modules/system/host_system_tool.py`).
 
 ```mermaid
 flowchart LR
     subgraph C["Container (march7-bot)"]
-        LLM[March7 LLM] --> T[execute_host_bash]
-        T --> G{"Trạm Gác<br/>ApprovalGate<br/>— LỚP A"}
-        G -->|reject / timeout / no context| RA["❌ từ chối bởi Trạm Gác"]
+        LLM[March7 LLM] --> H["host_system"]:::cur
+        H --> G{"Trạm Gác<br/>ApprovalGate"}
+        G -->|reject| RA["❌ từ chối bởi Trạm Gác"]
     end
-    G -->|approved<br/>Origin: march7-bot| O{"Origin allowlist<br/>— LỚP B"}
-    subgraph H["Host (Bash Executor :8374)"]
-        O -->|Origin lạ / thiếu| RB["❌ 403 Forbidden"]
-        O -->|hợp lệ| X["nsenter → bash -c"]
-        X --> R["stdout / stderr / exit_code"]
+    G -->|approved<br/>HMAC-signed| N["System Gateway :8765"]:::cur
+    subgraph H["Host"]
+        N -->|policy + audit| X["OS adapter<br/>(Linux/macOS/Windows)"]
+        X --> R["structured action / shell"]:::cur
     end
+    classDef cur fill:#e6ffe6,stroke:#1f9d55;
 ```
 
-| | Lớp A — Trạm Gác | Lớp B — Origin |
-|---|---|---|
-| **Vị trí** | Trong container, *trước* HTTP | Trên host, *đầu* `/execute` |
-| **Chặn ai** | Lệnh chưa được người duyệt | Caller không phải bot container |
-| **Cơ chế** | `ApprovalGate` + `ApprovalBackend` (nút Discord) do **gateway** cấp qua context | So `Origin` header với `BASH_EXECUTOR_ALLOWED_ORIGINS` |
-| **Bỏ qua** | env `APPROVAL_AUTO_APPROVE_WITHOUT_CONTEXT=true` | thêm origin vào allowlist |
+So với legacy bash-executor (chỉ chạy được trên Linux, trust qua `Origin` header), System Gateway thêm:
 
-> [!NOTE]
-> "Gateway chặn" = dừng ở Lớp A: gateway là nơi set approval context/backend. Message **không** đi qua gateway adapter → không có bề mặt xin phép → mặc định `reject`.
+- **HMAC request signing** giữa container ↔ gateway (không còn tin `Origin`).
+- **Nonce + timestamp** chống replay.
+- **Approval id binding** trên mỗi mutating request (server lưu consumed approvals).
+- **Local policy + audit log** ở gateway; structured actions được ưu tiên hơn raw shell.
+- **OS adapters** (Linux/macOS/Windows) chạy native trên host, không qua Docker `nsenter`.
+
+#### Legacy bash-executor — vẫn chạy được nhưng đang deprecated
+
+`docker/shared/docker-compose.bash-executor.yml` + `scripts/bash_executor_standalone.py` vẫn được include để demo cũ không gãy. Tool `execute_host_bash` đã bị ẩn khỏi model (`visible_to=frozenset()`) và chỉ gọi được qua `LegacyBashExecutorBridge` với một tập read-only actions rất nhỏ. Khi System Gateway đạt feature parity trên host, xóa:
+- `scripts/bash_executor_standalone.py`, `scripts/bash_executor_starter.py`
+- `docker/shared/Dockerfile.bash-executor`, `docker/shared/docker-compose.bash-executor.yml`
+- include `shared/docker-compose.bash-executor.yml` trong `docker/docker-compose.yml`
+- spec `ExecuteHostBashTool` trong `SYSTEM_TOOL_SPECS`
+
+Trước khi xóa, đảm bảo: (a) `host_system` đã cover mọi command mà bash-executor đang chạy, (b) owner đã migrate self-heal restart sang gateway route, (c) Docker `pid: host` không còn cần cho runtime.
 
 ## Prerequisites
 

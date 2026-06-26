@@ -1,7 +1,14 @@
 import pytest
 
-from twin.shared.system_gateway import GatewayActionResponse, GatewayCapabilities
+from twin.shared.system_gateway import (
+    GatewayActionResponse,
+    GatewayCapabilities,
+    verify_approval_token,
+)
 from twin.shared.tools.modules.system.host_system_tool import HostSystemTool
+
+
+TEST_SECRET = "tool-shared-secret"
 
 
 class FakeApprovalGate:
@@ -15,7 +22,17 @@ class FakeApprovalGate:
 
 
 class FakeHostGatewayClient:
-    def __init__(self, *, capabilities=None, action_response=None, shell_response=None):
+    def __init__(
+        self,
+        *,
+        capabilities=None,
+        action_response=None,
+        shell_response=None,
+        shared_secret=TEST_SECRET,
+        actor="march7",
+    ):
+        self.shared_secret = shared_secret
+        self.actor = actor
         self._capabilities = capabilities or GatewayCapabilities(
             platform="linux",
             shells=("bash",),
@@ -47,13 +64,14 @@ class FakeHostGatewayClient:
 
 
 @pytest.mark.asyncio
-async def test_host_system_no_gateway_returns_configuration_error():
+async def test_host_system_no_gateway_returns_needs_install():
     tool = HostSystemTool(approval_gate=FakeApprovalGate(), host_gateway_client=None)
 
     result = await tool.execute(mode="capabilities")
 
-    assert "System Gateway" in result
-    assert "chưa được cấu hình" in result
+    assert '"needs_install": true' in result
+    assert "bootstrap_command" in result
+    assert "platform" in result
 
 
 @pytest.mark.asyncio
@@ -86,6 +104,25 @@ async def test_action_requires_approval_before_gateway_call():
     assert "system.status" in approval.calls[0][1]
     assert client.action_calls[0].action == "system.status"
     assert client.action_calls[0].arguments == {"verbose": True}
+    # A valid action-bound token is minted and attached after approval.
+    token = client.action_calls[0].approval_id
+    assert token
+    result_token = verify_approval_token(
+        secret=TEST_SECRET, token=token, action="system.status", actor="march7"
+    )
+    assert result_token.valid is True
+
+
+@pytest.mark.asyncio
+async def test_action_without_shared_secret_is_blocked():
+    approval = FakeApprovalGate(result=True)
+    client = FakeHostGatewayClient(shared_secret=None)
+    tool = HostSystemTool(approval_gate=approval, host_gateway_client=client)
+
+    result = await tool.execute(mode="action", action="system.status")
+
+    assert "shared secret" in result
+    assert client.action_calls == []
 
 
 @pytest.mark.asyncio

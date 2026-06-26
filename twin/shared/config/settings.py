@@ -103,6 +103,7 @@ class Config:
     SYSTEM_GATEWAY_TIMEOUT = int(
         os.getenv("SYSTEM_GATEWAY_TIMEOUT", str(SYSTEM_GATEWAY_TIMEOUT_DEFAULT))
     )
+    SYSTEM_GATEWAY_SHARED_SECRET = os.getenv("SYSTEM_GATEWAY_SHARED_SECRET") or None
 
     # === Evernight A2A endpoint (March7 calls Evernight) ===
     EVERNIGHT_A2A_URL = os.getenv("EVERNIGHT_A2A_URL", "http://evernight:8001")
