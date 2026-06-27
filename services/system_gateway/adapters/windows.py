@@ -2,31 +2,23 @@
 
 from __future__ import annotations
 
-from .base import CapabilityAction, CapabilityAdapter, PlatformCapabilities
+from .base import CapabilityAdapter, PlatformCapabilities
 
 
 class WindowsCapabilityAdapter(CapabilityAdapter):
-    """Report Windows scaffold capabilities without executing commands."""
+    """Report Windows capabilities.
+
+    Generic shell execution via ``powershell.exe``; inherits :meth:`run_shell`
+    from the base. Untested on this Linux host but functional by construction.
+    """
 
     def capabilities(self) -> PlatformCapabilities:
         return PlatformCapabilities(
             platform="windows",
             shells=["powershell.exe"],
-            raw_shell=False,
-            features=[
-                "read_only_capability_report",
-                "stub_adapter",
-            ],
-            actions=[
-                CapabilityAction(
-                    name="system.status",
-                    description="Read host platform metadata.",
-                    available=False,
-                ),
-            ],
-            unsupported=["raw_shell", "structured_actions"],
+            raw_shell=True,
+            features=["generic_shell_exec"],
             notes=[
-                "Stub adapter only; no host operations are implemented.",
-                "No subprocess execution is implemented.",
+                "Generic shell execution via powershell.exe. Owner approval gates every command.",
             ],
         )

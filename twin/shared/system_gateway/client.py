@@ -13,7 +13,6 @@ from twin.shared.system_gateway.errors import (
     HostGatewayUnavailableError,
 )
 from twin.shared.system_gateway.types import (
-    GatewayActionRequest,
     GatewayActionResponse,
     GatewayCapabilities,
     GatewayHealth,
@@ -25,7 +24,7 @@ MAX_RESPONSE_BYTES = 1_000_000
 
 
 class HostGatewayClient:
-    """Small HTTP client for System Gateway health, capabilities, and actions."""
+    """Small HTTP client for System Gateway health, capabilities, and shell exec."""
 
     def __init__(
         self,
@@ -59,10 +58,6 @@ class HostGatewayClient:
     async def capabilities(self) -> GatewayCapabilities:
         data = await self._request_json("GET", "/capabilities")
         return GatewayCapabilities.from_dict(data)
-
-    async def run_action(self, request: GatewayActionRequest) -> GatewayActionResponse:
-        data = await self._request_json("POST", "/actions/run", json=request.to_dict())
-        return GatewayActionResponse.from_dict(data)
 
     async def run_shell(self, request: GatewayShellRequest) -> GatewayActionResponse:
         data = await self._request_json("POST", "/shell/run", json=request.to_dict())

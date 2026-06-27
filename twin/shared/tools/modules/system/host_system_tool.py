@@ -6,7 +6,6 @@ import logging
 from typing import Any
 
 from twin.shared.system_gateway import (
-    GatewayActionRequest,
     GatewayShellRequest,
     HostGatewayClient,
     HostGatewayError,
@@ -43,20 +42,12 @@ class HostSystemTool(BaseTool):
             "properties": {
                 "mode": {
                     "type": "string",
-                    "enum": ["capabilities", "action", "shell"],
-                    "description": "Kiểu yêu cầu: capabilities, action, hoặc shell.",
-                },
-                "action": {
-                    "type": "string",
-                    "description": "Tên structured action, ví dụ system.status hoặc docker.list_containers.",
-                },
-                "arguments": {
-                    "type": "object",
-                    "description": "Tham số cho structured action.",
+                    "enum": ["capabilities", "shell"],
+                    "description": "Kiểu yêu cầu: capabilities (xem OS/shell) hoặc shell (chạy lệnh).",
                 },
                 "command": {
                     "type": "string",
-                    "description": "Lệnh raw shell khi mode=shell.",
+                    "description": "Lệnh raw shell khi mode=shell. Viết lệnh phù hợp OS từ /capabilities.",
                 },
                 "shell": {
                     "type": "string",
@@ -64,7 +55,7 @@ class HostSystemTool(BaseTool):
                 },
                 "cwd": {
                     "type": "string",
-                    "description": "Thư mục làm việc cho raw shell.",
+                    "description": "Thư mục làm việc cho shell.",
                 },
                 "timeout": {
                     "type": "integer",
@@ -77,8 +68,6 @@ class HostSystemTool(BaseTool):
     async def execute(
         self,
         mode: str,
-        action: str | None = None,
-        arguments: dict[str, Any] | None = None,
         command: str | None = None,
         shell: str | None = None,
         cwd: str | None = None,
@@ -93,11 +82,9 @@ class HostSystemTool(BaseTool):
         try:
             if mode == "capabilities":
                 return await self._render_capabilities()
-            if mode == "action":
-                return await self._run_action(action, arguments or {}, timeout)
             if mode == "shell":
                 return await self._run_shell(command, shell, cwd, timeout)
-            return "Lỗi: mode phải là capabilities, action, hoặc shell."
+            return "Lỗi: mode phải là capabilities hoặc shell."
         except HostGatewayUnavailableError:
             return self._render_needs_install()
         except HostGatewayError as exc:
@@ -125,48 +112,6 @@ class HostSystemTool(BaseTool):
             lines.append(f"- Notes: {'; '.join(capabilities.notes)}")
         return "\n".join(lines)
 
-    async def _run_action(
-        self,
-        action: str | None,
-        arguments: dict[str, Any],
-        timeout: int,
-    ) -> str:
-        if not action or not action.strip():
-            return "Lỗi: mode=action cần tham số action."
-
-        action_name = action.strip()
-        capabilities = await self.host_gateway_client.capabilities()
-        if action_name not in capabilities.structured_actions:
-            return (
-                f"❌ System Gateway không hỗ trợ action `{action_name}` "
-                f"trên platform {capabilities.platform}."
-            )
-
-        approval_text = (
-            f"host action: {action_name} "
-            f"{json.dumps(arguments, ensure_ascii=False)}"
-        )
-        approved = await self.approval_gate.check_approval(self.name, approval_text)
-        if not approved:
-            return "❌ Yêu cầu host_system bị từ chối bởi Trạm Gác."
-
-        approval_id = self._mint_token(action_name)
-        if approval_id is None:
-            return (
-                "❌ System Gateway thiếu shared secret nên không thể cấp phép action. "
-                "Cấu hình SYSTEM_GATEWAY_SHARED_SECRET trước."
-            )
-
-        response = await self.host_gateway_client.run_action(
-            GatewayActionRequest(
-                action=action_name,
-                arguments=arguments,
-                timeout=timeout,
-                approval_id=approval_id,
-            )
-        )
-        return self._format_response(action_name, response.ok, response.output, response.error)
-
     async def _run_shell(
         self,
         command: str | None,
@@ -179,7 +124,7 @@ class HostSystemTool(BaseTool):
 
         capabilities = await self.host_gateway_client.capabilities()
         if not capabilities.raw_shell:
-            return "❌ Raw shell đang bị tắt trên System Gateway. Hãy dùng structured action nếu có."
+            return "❌ Shell execution đang bị tắt trên System Gateway (raw_shell=false)."
 
         clean_command = command.strip()
         approval_text = f"host shell: {clean_command}"

@@ -57,7 +57,6 @@ def test_create_app_registers_routes() -> None:
     assert route_paths == {
         "/health",
         "/capabilities",
-        "/actions/run",
         "/shell/run",
         "/self/update",
     }

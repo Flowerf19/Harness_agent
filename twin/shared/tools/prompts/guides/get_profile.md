@@ -1,6 +1,6 @@
 <tool_description>
 Khi cần đọc hồ sơ T3 ổn định của user. Gọi tool này TRƯỚC khi curate/`manage_user_profile` để lấy `expected_profile_hash` hiện tại.
-
+</tool_description>
 
 ## get_profile
 
@@ -16,7 +16,7 @@ Khi cần đọc hồ sơ T3 ổn định của user. Gọi tool này TRƯỚC k
 - Cần tìm hội thoại quá khứ: dùng `search_memory`.
 - User vừa cung cấp thông tin ngay trong context: có thể trả lời trực tiếp.
 
-</tool_description>
+
 
 ### Input
 

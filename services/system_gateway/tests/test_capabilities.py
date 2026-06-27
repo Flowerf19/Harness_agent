@@ -24,36 +24,44 @@ def test_unknown_platform_reports_unsupported() -> None:
     ]
 
 
-def test_linux_capabilities_are_read_only_metadata() -> None:
+def test_linux_capabilities_report_generic_shell() -> None:
     payload = capabilities_payload(LinuxCapabilityAdapter())
 
     assert payload["service"] == "system_gateway"
     assert payload["platform"] == "linux"
-    assert payload["raw_shell"] is False
-    assert all(action["read_only"] is True for action in payload["action_details"])
+    assert payload["shells"] == ["/bin/sh"]
+    assert payload["raw_shell"] is True
+    assert payload["features"] == ["generic_shell_exec"]
+    # No structured actions in the generic-shell model.
+    assert payload["structured_actions"] == []
+    assert payload["action_details"] == []
 
 
-def test_stub_adapters_do_not_report_available_execution() -> None:
-    for adapter in (MacOSCapabilityAdapter(), WindowsCapabilityAdapter()):
-        capabilities = adapter.capabilities().to_dict()
+def test_posix_adapters_report_their_shell() -> None:
+    for adapter, expected_shell, expected_platform in (
+        (MacOSCapabilityAdapter(), "/bin/zsh", "macos"),
+        (WindowsCapabilityAdapter(), "powershell.exe", "windows"),
+    ):
+        caps = adapter.capabilities().to_dict()
+        assert caps["platform"] == expected_platform
+        assert caps["shells"] == [expected_shell]
+        assert caps["raw_shell"] is True
+        assert caps["features"] == ["generic_shell_exec"]
 
-        assert capabilities["raw_shell"] is False
-        assert capabilities["features"] == [
-            "read_only_capability_report",
-            "stub_adapter",
-        ]
-        assert all(action["available"] is False for action in capabilities["action_details"])
+
+def test_shell_argv_posix_vs_powershell() -> None:
+    from system_gateway.adapters.base import CapabilityAdapter
+
+    assert CapabilityAdapter._shell_argv("/bin/sh", "echo hi") == ["/bin/sh", "-c", "echo hi"]
+    assert CapabilityAdapter._shell_argv(
+        "powershell.exe", "Write-Output hi"
+    ) == ["powershell.exe", "-NoProfile", "-Command", "Write-Output hi"]
 
 
-def test_linux_adapter_marks_phase_b_status_action_as_available() -> None:
-    """Phase B exposes system.status as the one available action."""
-
-    payload = capabilities_payload(LinuxCapabilityAdapter())
-
-    names = [action["name"] for action in payload["action_details"]]
-    assert "system.status" in names
-    status = next(
-        action for action in payload["action_details"] if action["name"] == "system.status"
-    )
-    assert status["available"] is True
-    assert "system.status" in payload["structured_actions"]
+async def test_linux_run_shell_executes_echo() -> None:
+    adapter = LinuxCapabilityAdapter()
+    result = await adapter.run_shell("echo hello", timeout=5)
+    assert result["ok"] is True
+    assert result["output"].strip() == "hello"
+    assert result["exit_code"] == 0
+    assert result["data"]["shell"] == "/bin/sh"

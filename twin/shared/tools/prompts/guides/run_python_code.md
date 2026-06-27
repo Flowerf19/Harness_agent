@@ -1,6 +1,6 @@
 <tool_description>
 Chạy Python hoặc bash trong sandbox CodeBox/Jupyter. Trạng thái được giữ riêng theo từng user.
-
+</tool_description>
 
 ## run_python_code
 
@@ -16,7 +16,7 @@ Chạy Python hoặc bash trong sandbox CodeBox/Jupyter. Trạng thái được 
 - Thông tin web/current: dùng `web_search`.
 - Trạng thái máy host, docker, log: dùng `host_system`.
 - Câu hỏi đơn giản có thể trả lờitrực trực tiếp.
-</tool_description>
+
 
 ### Input
 

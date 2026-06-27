@@ -113,7 +113,7 @@ def test_capabilities_reports_json(monkeypatch, capsys):
 
 def test_doctor_warns_without_secret(monkeypatch, capsys):
     health = {"status": "ok", "version": SERVICE_VERSION, "platform": "linux", "uptime": 1}
-    caps = {"platform": "linux", "raw_shell": False, "structured_actions": ["system.status"]}
+    caps = {"platform": "linux", "raw_shell": True, "shells": ["/bin/sh"], "structured_actions": []}
     call_count = {"count": 0}
 
     def fake_get(url):

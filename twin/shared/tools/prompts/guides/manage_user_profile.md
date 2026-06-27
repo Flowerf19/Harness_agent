@@ -1,5 +1,7 @@
 <tool_description>
 Evernight-only: curate T3 profile với hash conflict protection. Hai chế độ: một-section (truyền 'section'+'bullets') hoặc toàn-file (bỏ 'section', truyền 'sections' map). Cần `expected_profile_hash` từ `get_profile` — LUÔN gọi `get_profile` trước để đọc hồ sơ + hash, rồi mới curate.
+</tool_description>
+
 ## manage_user_profile
 
 Curate hồ sơ T3. Tool này là destructive/curation, chỉ dùng cho Evernight.
@@ -20,7 +22,7 @@ Curate hồ sơ T3. Tool này là destructive/curation, chỉ dùng cho Evernigh
 - Append realtime T2->T3: dùng `update_user_profile`.
 
 Trước khi gọi tool này, TỰ gọi `get_profile(user_id)` để đọc nội dung hiện tại và lấy `expected_profile_hash`. KHÔNG hỏi user hash, KHÔNG bắt user chọn section — tự đọc, tự quyết, tự curate.
-</tool_description>
+
 
 ### Input
 

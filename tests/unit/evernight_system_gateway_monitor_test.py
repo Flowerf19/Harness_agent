@@ -13,8 +13,10 @@ from twin.evernight.system_gateway.monitor import (
 from twin.shared.system_gateway import (
     GatewayCapabilities,
     GatewayHealth,
+    GatewayShellRequest,
     HostGatewayUnavailableError,
 )
+from twin.shared.system_gateway.types import GatewayActionResponse
 
 
 class _FakeClient:
@@ -27,6 +29,8 @@ class _FakeClient:
         capabilities: GatewayCapabilities | None = None,
         health_exc: Exception | None = None,
         capabilities_exc: Exception | None = None,
+        shell_response: GatewayActionResponse | None = None,
+        shell_exc: Exception | None = None,
     ):
         self._health = health or GatewayHealth(
             status="ok", version="0.1.0", platform="linux", uptime=10
@@ -34,13 +38,15 @@ class _FakeClient:
         self._capabilities = capabilities or GatewayCapabilities(
             platform="linux",
             shells=("/bin/sh",),
-            features=("read_only_capability_report",),
-            structured_actions=("system.status",),
-            raw_shell=False,
+            features=("generic_shell_exec",),
+            raw_shell=True,
         )
         self._health_exc = health_exc
         self._capabilities_exc = capabilities_exc
+        self._shell_response = shell_response or GatewayActionResponse(ok=True, output="ok")
+        self._shell_exc = shell_exc
         self.closed = False
+        self.shell_calls: list[GatewayShellRequest] = []
 
     async def health(self) -> GatewayHealth:
         if self._health_exc:
@@ -51,6 +57,12 @@ class _FakeClient:
         if self._capabilities_exc:
             raise self._capabilities_exc
         return self._capabilities
+
+    async def run_shell(self, request: GatewayShellRequest) -> GatewayActionResponse:
+        self.shell_calls.append(request)
+        if self._shell_exc:
+            raise self._shell_exc
+        return self._shell_response
 
     async def close(self) -> None:
         self.closed = True
@@ -306,3 +318,41 @@ async def test_notify_not_sent_when_recovering():
     assert snapshot.status is GatewayMonitorStatus.HEALTHY
     # No recovery notification (only degraded notification exists)
     assert len(adapter.dms) == 1
+
+
+# ---------------------------------------------------------------------------
+# GatewayMonitor.request_container_restart
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_restart_routes_docker_restart_via_run_shell():
+    client = _FakeClient(shell_response=GatewayActionResponse(ok=True, output="march7"))
+    monitor = GatewayMonitor(base_url="http://gw", client=client, interval=999)
+
+    ok, message = await monitor.request_container_restart("march7", approval_id="tok")
+
+    assert ok is True
+    assert message == "march7"
+    assert len(client.shell_calls) == 1
+    assert client.shell_calls[0].command == "docker restart march7"
+    assert client.shell_calls[0].approval_id == "tok"
+
+
+@pytest.mark.asyncio
+async def test_restart_rejects_container_not_in_allowlist():
+    monitor = GatewayMonitor(base_url="http://gw", client=_FakeClient(), interval=999)
+    ok, message = await monitor.request_container_restart("rogue")
+    assert ok is False
+    assert "not in allowed list" in message
+
+
+@pytest.mark.asyncio
+async def test_restart_surfaces_gateway_error():
+    from twin.shared.system_gateway import HostGatewayError
+
+    client = _FakeClient(shell_exc=HostGatewayError("denied"))
+    monitor = GatewayMonitor(base_url="http://gw", client=client, interval=999)
+    ok, message = await monitor.request_container_restart("evernight")
+    assert ok is False
+    assert "denied" in message

@@ -46,24 +46,6 @@ class GatewayCapabilities:
 
 
 @dataclass(frozen=True)
-class GatewayActionRequest:
-    action: str
-    arguments: dict[str, Any] = field(default_factory=dict)
-    timeout: int = 30
-    approval_id: str | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "action": self.action,
-            "arguments": self.arguments,
-            "timeout": self.timeout,
-        }
-        if self.approval_id:
-            payload["approval_id"] = self.approval_id
-        return payload
-
-
-@dataclass(frozen=True)
 class GatewayShellRequest:
     command: str
     shell: str | None = None

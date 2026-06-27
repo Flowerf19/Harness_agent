@@ -1,6 +1,6 @@
 <tool_description>
 Tìm lịch sử user trong bộ nhớ timeline T2 trên Redis.
-
+</tool_description>
 
 ## search_memory
 
@@ -17,7 +17,7 @@ Tìm lịch sử user trong bộ nhớ timeline T2 trên Redis.
 - Thông tin hiện tại trên web: dùng `web_search`.
 - Nội dung nằm ngay trong context hiện tại: trả lờitrực trực tiếp.
 - Hồ sơ T3 ổn định: dùng `get_profile`.
-</tool_description>
+
 
 ### Input
 

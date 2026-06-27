@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from twin.shared.config.settings import Config
 from twin.shared.llm.base_llm_service import LLM_ERROR_RESPONSES
 from twin.shared.llm.llm_response import LLMResponse
 
@@ -89,6 +90,7 @@ class AgentLoop:
                 use_native_tools=self.use_native_tools,
                 max_tokens=TOOL_SELECTION_MAX_TOKENS,
                 trace_metadata=trace_metadata,
+                tool_choice=Config.LLM_TOOL_CHOICE,
             )
 
             # Keep LLM hard-failure sentinels as failures; let ChatTurnRunner

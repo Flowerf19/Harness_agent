@@ -22,7 +22,7 @@ class GatewayState:
     """Mutable runtime state owned by the gateway service."""
 
     started_at: float = field(default_factory=time.time)
-    raw_shell_enabled: bool = False
+    raw_shell_enabled: bool = True
     shared_secret: Optional[str] = None
     consumed_approvals: set[str] = field(default_factory=set)
     nonce_store: NonceStore = field(default_factory=NonceStore)

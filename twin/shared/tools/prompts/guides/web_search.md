@@ -1,6 +1,6 @@
 <tool_description>
 Tìm kiếm web hiện tại qua Tavily.
-
+</tool_description>
 
 ## web_search
 
@@ -16,8 +16,6 @@ Tìm kiếm web hiện tại qua Tavily.
 - Ký ức/user history: dùng `search_memory`.
 - Tính toán/dữ liệu local: dùng `run_python_code`.
 - Lệnh host/log/docker: dùng `host_system`.
-
-</tool_description>
 
 ### Input
 

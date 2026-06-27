@@ -8,7 +8,7 @@ existing LLM service prompt builder so the bot keeps its persona.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from twin.shared.llm.llm_response import LLMResponse
 from twin.shared.observability.langsmith import call_with_langsmith_extra, langsmith_extra
@@ -35,6 +35,7 @@ class Think:
         use_native_tools: bool,
         max_tokens: int,
         trace_metadata: dict[str, Any] | None = None,
+        tool_choice: Optional[str] = None,
     ) -> str | LLMResponse:
         """Call the LLM for a single Think stage.
 
@@ -67,6 +68,7 @@ class Think:
             use_native_tools=use_native_tools,
             include_tool_catalog=include_tool_catalog,
             max_tokens=max_tokens,
+            tool_choice=tool_choice,
             langsmith_extra=langsmith_extra(
                 name=f"think.{stage}",
                 tags=["llm", stage],

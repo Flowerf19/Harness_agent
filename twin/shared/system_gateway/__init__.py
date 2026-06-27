@@ -26,13 +26,6 @@ from twin.shared.system_gateway.errors import (
     HostGatewayError,
     HostGatewayUnavailableError,
 )
-from twin.shared.system_gateway.legacy import (
-    LEGACY_ALLOWED_ACTIONS,
-    LEGACY_DEFAULT_PORT,
-    LEGACY_ORIGIN,
-    LegacyBashExecutorBridge,
-    LegacyBridge,
-)
 from twin.shared.system_gateway.policy import (
     PolicyContext,
     PolicyDecision,
@@ -42,7 +35,6 @@ from twin.shared.system_gateway.policy import (
     evaluate_shell_policy,
 )
 from twin.shared.system_gateway.types import (
-    GatewayActionRequest,
     GatewayActionResponse,
     GatewayCapabilities,
     GatewayHealth,
@@ -54,7 +46,6 @@ __all__ = [
     "ApprovalTokenResult",
     "AuditEvent",
     "AuditOutcome",
-    "GatewayActionRequest",
     "GatewayActionResponse",
     "GatewayCapabilities",
     "GatewayHealth",
@@ -62,11 +53,6 @@ __all__ = [
     "HostGatewayClient",
     "HostGatewayError",
     "HostGatewayUnavailableError",
-    "LEGACY_ALLOWED_ACTIONS",
-    "LEGACY_DEFAULT_PORT",
-    "LEGACY_ORIGIN",
-    "LegacyBashExecutorBridge",
-    "LegacyBridge",
     "NONCE_HEADER",
     "NonceStore",
     "PolicyContext",

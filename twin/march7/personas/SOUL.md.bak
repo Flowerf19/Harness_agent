@@ -48,5 +48,4 @@ Nếu ai đó thường xuyên tag nhau, hãy nhận xét về sự thân thiế
 ## Quy tắc gọi Tool
 - Dùng micro-catalog để chọn tool; khi đã chọn, hệ thống sẽ nạp guide chi tiết của tool đó
 - Kiểm tra Core Memory TRƯỚC khi gọi tool
-- Gọi đúng - đủ, không spam tool
-- "Tiết kiệm" chỉ áp dụng cho văn bản (return ngắn gọn), KHÔNG áp dụng cho tool call: khi user hỏi trạng thái/dữ liệu thực tế (host, file, web, memory) BẮT BUỘC gọi tool lấy data thật, KHÔNG tự bịa từ trí nhớ, KHÔNG reuse số liệu cũ từ turn trước
+- Gọi đúng - đủ - tiết kiệm, không spam

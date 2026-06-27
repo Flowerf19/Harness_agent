@@ -22,7 +22,7 @@ from typing import Awaitable, Callable, Optional
 import aiohttp
 
 from twin.shared.system_gateway import (
-    GatewayActionRequest,
+    GatewayShellRequest,
     HostGatewayClient,
     HostGatewayError,
     HostGatewayUnavailableError,
@@ -199,14 +199,14 @@ class GatewayMonitor:
         if container_name not in RESTART_ALLOWED_CONTAINERS:
             return False, f"container {container_name!r} not in allowed list"
 
-        request = GatewayActionRequest(
-            action="container.restart",
-            arguments={"name": container_name},
+        command = f"docker restart {container_name}"
+        request = GatewayShellRequest(
+            command=command,
             timeout=self.timeout,
             approval_id=approval_id,
         )
         try:
-            response = await self._client.run_action(request)
+            response = await self._client.run_shell(request)
         except HostGatewayUnavailableError as exc:
             return False, f"gateway unavailable: {exc}"
         except HostGatewayError as exc:
@@ -214,7 +214,7 @@ class GatewayMonitor:
 
         if response.ok:
             return True, response.output or "ok"
-        return False, response.error or "gateway denied action"
+        return False, response.error or "gateway denied command"
 
     async def _poll_loop(self) -> None:
         import time

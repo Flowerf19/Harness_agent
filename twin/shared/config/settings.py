@@ -48,6 +48,30 @@ class Config:
     LLM_TOP_K = int(os.getenv("LLM_TOP_K", "40"))
     LLM_FREQUENCY_PENALTY = float(os.getenv("LLM_FREQUENCY_PENALTY", "0.4"))
     LLM_PRESENCE_PENALTY = float(os.getenv("LLM_PRESENCE_PENALTY", "0.1"))
+
+    # Reasoning effort for OpenAI-compat endpoint.
+    # Ollama openai.go maps this to native `think` param:
+    #   "none"      -> think=false
+    #   "low"|"medium"|"high"|"max" -> think="<level>"
+    # Empty / unset = don't send the field, let provider/model decide.
+    _LLM_REASONING_EFFORT_RAW = os.getenv("LLM_REASONING_EFFORT", "").strip().lower()
+    _LLM_REASONING_EFFORT_VALID = {"", "none", "low", "medium", "high", "max"}
+    if _LLM_REASONING_EFFORT_RAW not in _LLM_REASONING_EFFORT_VALID:
+        raise ValueError(
+            f"LLM_REASONING_EFFORT must be one of "
+            f"{{'', 'none', 'low', 'medium', 'high', 'max'}}, "
+            f"got: {_LLM_REASONING_EFFORT_RAW!r}"
+        )
+    LLM_REASONING_EFFORT = _LLM_REASONING_EFFORT_RAW or None
+
+    # OpenAI tool_choice enforcement for Decide stage. Allowed: "" (off, don't send) /
+    # "auto" / "required" / "none". Empty = current behavior (let LLM decide). Set
+    # "required" to force a tool call when user intent clearly needs a tool — but note
+    # Ollama OpenAI-compat proxy may silently ignore this field; test runtime before
+    # relying on it.
+    _LLM_TOOL_CHOICE_RAW = os.getenv("LLM_TOOL_CHOICE", "").strip().lower()
+    LLM_TOOL_CHOICE = _LLM_TOOL_CHOICE_RAW or None
+
     LLM_REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", "120"))
     LLM_CONNECT_TIMEOUT = int(os.getenv("LLM_CONNECT_TIMEOUT", "10"))
 

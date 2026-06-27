@@ -1,6 +1,6 @@
 <tool_description>
 LEGACY Linux-only Bash Executor; dùng `host_system` cho host interaction bình thường.
-
+</tool_description>
 
 ## execute_host_bash
 
@@ -19,7 +19,7 @@ host interaction bình thường phải đi qua `host_system` và System Gateway
 - Lệnh trong sandbox hoặc phân tích dữ liệu dự án: dùng `run_python_code` với kernel bash.
 - Lệnh nguy hiểm hoặc thay đổi cấu hình khi user không yêu cầu rõ.
 
-</tool_description>
+
 
 ### Input
 

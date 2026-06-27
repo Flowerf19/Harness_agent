@@ -3,6 +3,11 @@
 These tests exercise the middleware chain directly without binding a real
 socket so they run inside restrictive sandboxes. We call handlers via the
 auth_middleware using aiohttp's make_mocked_request.
+
+The gateway exposes one generic shell-exec path: ``POST /shell/run``. There is
+no ``/actions/run`` anymore. Owner approval (single-use, action-bound to
+``"shell"``, actor-bound) is the security boundary; the approved command runs
+verbatim on the platform shell.
 """
 from __future__ import annotations
 
@@ -26,13 +31,13 @@ from twin.shared.system_gateway.auth import (
     sign_request,
 )
 
+from system_gateway import server as server_module
 from system_gateway.config import GatewayConfig
 from system_gateway.server import (
     STATE_KEY,
     capabilities,
     create_app,
     health,
-    run_action,
     run_shell,
     self_update,
     auth_middleware,
@@ -44,7 +49,7 @@ SECRET = "phase-b-shared-secret"
 
 
 def _config(**overrides):
-    kwargs = dict(raw_shell_enabled=False, shared_secret=SECRET)
+    kwargs = dict(raw_shell_enabled=True, shared_secret=SECRET)
     kwargs.update(overrides)
     return GatewayConfig(**kwargs)
 
@@ -60,7 +65,7 @@ def _signed_headers(method: str, path: str, body: bytes, *, secret: str = SECRET
     return headers_from_signed(signed)
 
 
-def _token(action: str = "system.status", *, actor: str = "march7", secret: str = SECRET, **kwargs):
+def _token(action: str = "shell", *, actor: str = "march7", secret: str = SECRET, **kwargs):
     return mint_approval_token(secret=secret, action=action, actor=actor, **kwargs)
 
 
@@ -93,6 +98,9 @@ def _build_request(app, method: str, path: str, body: bytes = b"", extra_headers
     return request
 
 
+# --- Public endpoints --------------------------------------------------------
+
+
 async def test_health_endpoint_is_public():
     app = create_app(_config())
     request = _build_request(app, "GET", "/health")
@@ -113,306 +121,85 @@ async def test_capabilities_endpoint_is_public():
     assert response.status == 200
     payload = json.loads(response.text)
     assert payload["platform"]
-    assert "raw_shell" in payload
+    assert payload["raw_shell"] is True
+    assert payload["shells"]
+    assert payload["structured_actions"] == []
+    assert payload["action_details"] == []
 
 
-async def test_action_endpoint_rejects_unsigned_request():
+async def test_routes_have_no_actions_run():
     app = create_app(_config())
-    request = _build_request(app, "POST", "/actions/run", body=b"{}")
-    response = await auth_middleware(request, run_action)
+    canonicals = [route.resource.canonical for route in app.router.routes()]
+    assert "/actions/run" not in canonicals
+    assert "/shell/run" in canonicals
+    assert "/self/update" in canonicals
+    assert not hasattr(server_module, "run_action")
+
+
+# --- Auth layer --------------------------------------------------------------
+
+
+async def test_shell_endpoint_rejects_unsigned_request():
+    app = create_app(_config())
+    request = _build_request(app, "POST", "/shell/run", body=b"{}")
+    response = await auth_middleware(request, run_shell)
     assert response.status == 401
 
 
-async def test_action_endpoint_rejects_invalid_signature():
+async def test_shell_endpoint_rejects_invalid_signature():
     app = create_app(_config())
-    body = json.dumps({"action": "system.status", "approval_id": "fresh"}).encode()
-    bad_headers = _signed_headers(
-        "POST", "/actions/run", body, secret="wrong-secret"
-    )
+    body = json.dumps({"command": "uptime", "approval_id": "fresh"}).encode()
+    bad_headers = _signed_headers("POST", "/shell/run", body, secret="wrong-secret")
     request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=bad_headers
+        app, "POST", "/shell/run", body=body, extra_headers=bad_headers
     )
-    response = await auth_middleware(request, run_action)
+    response = await auth_middleware(request, run_shell)
     assert response.status == 401
 
 
-async def test_action_endpoint_rejects_stale_timestamp():
+async def test_shell_endpoint_rejects_stale_timestamp():
     app = create_app(_config())
     body = b"{}"
     signed = sign_request(
         secret=SECRET,
         method="POST",
-        path="/actions/run",
+        path="/shell/run",
         actor="march7",
         body=body,
         timestamp=str(int(time.time()) - 10_000),
         nonce="stale-nonce",
     )
     request = _build_request(
-        app,
-        "POST",
-        "/actions/run",
-        body=body,
-        extra_headers=headers_from_signed(signed),
+        app, "POST", "/shell/run", body=body, extra_headers=headers_from_signed(signed)
     )
-    response = await auth_middleware(request, run_action)
+    response = await auth_middleware(request, run_shell)
     assert response.status == 401
     payload = json.loads(response.text)
     assert "timestamp" in payload["error"]
 
 
-async def test_action_endpoint_rejects_replayed_nonce():
+async def test_shell_endpoint_rejects_replayed_nonce():
     app = create_app(_config())
-    body = json.dumps({"action": "system.status", "approval_id": _token()}).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
+    body = json.dumps({"command": "uptime", "approval_id": _token()}).encode()
+    headers = _signed_headers("POST", "/shell/run", body)
 
-    req1 = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    resp1 = await auth_middleware(req1, run_action)
+    req1 = _build_request(app, "POST", "/shell/run", body=body, extra_headers=headers)
+    resp1 = await auth_middleware(req1, run_shell)
     assert resp1.status == 200
 
     # Same signed headers => same transport nonce => replayed at the auth layer.
-    req2 = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    resp2 = await auth_middleware(req2, run_action)
+    req2 = _build_request(app, "POST", "/shell/run", body=body, extra_headers=headers)
+    resp2 = await auth_middleware(req2, run_shell)
     assert resp2.status == 401
     payload = json.loads(resp2.text)
     assert "nonce" in payload["error"]
 
 
-async def test_action_endpoint_denies_missing_approval_id():
-    app = create_app(_config())
-    body = json.dumps({"action": "system.status"}).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
-    request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_action)
-    assert response.status == 403
-    payload = json.loads(response.text)
-    assert payload["error"] == "approval_required"
-
-
-async def test_action_endpoint_denies_replayed_approval_id():
-    app = create_app(_config())
-    token = _token()
-    body = json.dumps({"action": "system.status", "approval_id": token}).encode()
-    headers1 = _signed_headers("POST", "/actions/run", body)
-    req1 = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers1
-    )
-    resp1 = await auth_middleware(req1, run_action)
-    assert resp1.status == 200
-
-    # Fresh transport signature but the SAME approval token => replayed token.
-    headers2 = _signed_headers("POST", "/actions/run", body)
-    req2 = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers2
-    )
-    resp2 = await auth_middleware(req2, run_action)
-    assert resp2.status == 403
-    payload = json.loads(resp2.text)
-    assert payload["error"] == "approval_replayed"
-
-
-async def test_action_endpoint_rejects_unknown_action():
-    app = create_app(_config())
-    body = json.dumps({
-        "action": "system.unknown_action",
-        "approval_id": "fresh",
-    }).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
-    request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_action)
-    assert response.status == 403
-    payload = json.loads(response.text)
-    assert payload["error"] == "action_not_available"
-
-
-async def test_shell_endpoint_denied_by_default():
-    app = create_app(_config())
-    body = json.dumps({"command": "uptime", "approval_id": "fresh"}).encode()
-    headers = _signed_headers("POST", "/shell/run", body)
-    request = _build_request(
-        app, "POST", "/shell/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_shell)
-    assert response.status == 403
-    payload = json.loads(response.text)
-    assert payload["error"] == "raw_shell_disabled"
-
-
-async def test_shell_endpoint_requires_approval_when_enabled():
-    app = create_app(_config(raw_shell_enabled=True))
-    body = json.dumps({"command": "uptime"}).encode()
-    headers = _signed_headers("POST", "/shell/run", body)
-    request = _build_request(
-        app, "POST", "/shell/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_shell)
-    assert response.status == 403
-    payload = json.loads(response.text)
-    assert payload["error"] == "approval_required"
-
-
-async def test_shell_endpoint_acknowledges_when_enabled_and_approved():
-    app = create_app(_config(raw_shell_enabled=True))
-    token = _token(action="shell")
-    body = json.dumps({"command": "uptime", "approval_id": token}).encode()
-    headers = _signed_headers("POST", "/shell/run", body)
-    request = _build_request(
-        app, "POST", "/shell/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_shell)
-    assert response.status == 501
-    payload = json.loads(response.text)
-    assert payload["error"] == "shell_execution_not_implemented"
-
-
 async def test_mutating_path_refuses_when_secret_unset():
     app = create_app(GatewayConfig(shared_secret=None))
-    request = _build_request(app, "POST", "/actions/run", body=b"{}")
-    response = await auth_middleware(request, run_action)
+    request = _build_request(app, "POST", "/shell/run", body=b"{}")
+    response = await auth_middleware(request, run_shell)
     assert response.status == 503
-
-
-async def test_action_endpoint_executes_system_status():
-    app = create_app(_config())
-    token = _token()
-    body = json.dumps({"action": "system.status", "approval_id": token}).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
-    request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_action)
-    assert response.status == 200
-    payload = json.loads(response.text)
-    assert payload["ok"] is True
-    assert payload["output"]
-    assert payload["data"]["system"]
-
-
-async def test_action_endpoint_caps_timeout_to_maximum():
-    app = create_app(_config())
-    token = _token()
-    body = json.dumps({
-        "action": "system.status",
-        "approval_id": token,
-        "timeout": 99_999,
-    }).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
-    request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_action)
-    # Oversized timeout is clamped, the action still executes successfully.
-    assert response.status == 200
-    started = [
-        event for event in app[STATE_KEY].audit_log
-        if event.get("event") == "action.started"
-    ]
-    assert started[-1]["details"]["timeout"] == 300
-
-
-async def test_action_endpoint_rejects_missing_token():
-    app = create_app(_config())
-    body = json.dumps({"action": "system.status"}).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
-    request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_action)
-    assert response.status == 403
-    assert json.loads(response.text)["error"] == "approval_required"
-
-
-async def test_action_endpoint_rejects_forged_token():
-    app = create_app(_config())
-    forged = _token(secret="wrong-secret")
-    body = json.dumps({"action": "system.status", "approval_id": forged}).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
-    request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_action)
-    assert response.status == 403
-    assert json.loads(response.text)["error"] == "approval_invalid"
-
-
-async def test_action_endpoint_rejects_expired_token():
-    app = create_app(_config())
-    expired = _token(ttl_seconds=120, now=time.time() - 10_000)
-    body = json.dumps({"action": "system.status", "approval_id": expired}).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
-    request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_action)
-    assert response.status == 403
-    assert json.loads(response.text)["error"] == "approval_invalid"
-
-
-async def test_action_endpoint_rejects_action_mismatched_token():
-    app = create_app(_config())
-    # Token minted for a different action than the one requested.
-    mismatched = _token(action="docker.list_containers")
-    body = json.dumps({"action": "system.status", "approval_id": mismatched}).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
-    request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_action)
-    assert response.status == 403
-    assert json.loads(response.text)["error"] == "approval_invalid"
-
-
-async def test_action_endpoint_truncates_output():
-    app = create_app(_config())
-    token = _token()
-    body = json.dumps({
-        "action": "system.status",
-        "approval_id": token,
-        "max_output_chars": 256,
-    }).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
-    request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_action)
-    assert response.status == 200
-    output = json.loads(response.text)["output"]
-    # 256 chars of content plus the truncation marker line.
-    assert len(output) <= 256 + 64
-
-
-async def test_action_endpoint_records_audit_event():
-    app = create_app(_config())
-    token = _token()
-    body = json.dumps({"action": "system.status", "approval_id": token}).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
-    request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_action)
-    assert response.status == 200
-    state = app[STATE_KEY]
-    events = {event.get("event") for event in state.audit_log}
-    assert "approval.resolved" in events
-    assert "action.started" in events
-    assert "action.completed" in events
-    started = [
-        event for event in state.audit_log
-        if event.get("event") == "action.started"
-        and event.get("subject") == "system.status"
-    ]
-    assert started, state.audit_log
-    event = started[-1]
-    assert event["actor"] == "march7"
-    assert event["approval_id"] == token
 
 
 async def test_health_and_capabilities_bypass_auth_middleware():
@@ -424,126 +211,183 @@ async def test_health_and_capabilities_bypass_auth_middleware():
     assert response.status == 200
 
 
-async def test_action_disk_usage_returns_ok_with_data():
-    """system.disk_usage returns ok=True with data containing filesystems."""
+# --- Policy + approval token -------------------------------------------------
+
+
+async def test_shell_endpoint_denies_missing_approval_id():
     app = create_app(_config())
-    token = _token(action="system.disk_usage")
-    body = json.dumps({
-        "action": "system.disk_usage",
-        "approval_id": token,
-        "arguments": {"path": "/"},
-    }).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
-    request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_action)
+    body = json.dumps({"command": "uptime"}).encode()
+    headers = _signed_headers("POST", "/shell/run", body)
+    request = _build_request(app, "POST", "/shell/run", body=body, extra_headers=headers)
+    response = await auth_middleware(request, run_shell)
+    assert response.status == 403
+    assert json.loads(response.text)["error"] == "approval_required"
+
+
+async def test_shell_endpoint_denies_replayed_approval_id():
+    app = create_app(_config())
+    token = _token()
+    body = json.dumps({"command": "uptime", "approval_id": token}).encode()
+    headers1 = _signed_headers("POST", "/shell/run", body)
+    req1 = _build_request(app, "POST", "/shell/run", body=body, extra_headers=headers1)
+    resp1 = await auth_middleware(req1, run_shell)
+    assert resp1.status == 200
+
+    # Fresh transport signature but the SAME approval token => replayed token.
+    headers2 = _signed_headers("POST", "/shell/run", body)
+    req2 = _build_request(app, "POST", "/shell/run", body=body, extra_headers=headers2)
+    resp2 = await auth_middleware(req2, run_shell)
+    assert resp2.status == 403
+    assert json.loads(resp2.text)["error"] == "approval_replayed"
+
+
+async def test_shell_endpoint_rejects_forged_token():
+    app = create_app(_config())
+    forged = _token(secret="wrong-secret")
+    body = json.dumps({"command": "uptime", "approval_id": forged}).encode()
+    headers = _signed_headers("POST", "/shell/run", body)
+    request = _build_request(app, "POST", "/shell/run", body=body, extra_headers=headers)
+    response = await auth_middleware(request, run_shell)
+    assert response.status == 403
+    assert json.loads(response.text)["error"] == "approval_invalid"
+
+
+async def test_shell_endpoint_rejects_expired_token():
+    app = create_app(_config())
+    expired = _token(ttl_seconds=120, now=time.time() - 10_000)
+    body = json.dumps({"command": "uptime", "approval_id": expired}).encode()
+    headers = _signed_headers("POST", "/shell/run", body)
+    request = _build_request(app, "POST", "/shell/run", body=body, extra_headers=headers)
+    response = await auth_middleware(request, run_shell)
+    assert response.status == 403
+    assert json.loads(response.text)["error"] == "approval_invalid"
+
+
+async def test_shell_endpoint_rejects_action_mismatched_token():
+    app = create_app(_config())
+    # Token minted for a different action than the canonical "shell".
+    mismatched = _token(action="system.status")
+    body = json.dumps({"command": "uptime", "approval_id": mismatched}).encode()
+    headers = _signed_headers("POST", "/shell/run", body)
+    request = _build_request(app, "POST", "/shell/run", body=body, extra_headers=headers)
+    response = await auth_middleware(request, run_shell)
+    assert response.status == 403
+    assert json.loads(response.text)["error"] == "approval_invalid"
+
+
+async def test_shell_endpoint_denied_when_raw_shell_disabled():
+    app = create_app(_config(raw_shell_enabled=False))
+    body = json.dumps({"command": "uptime", "approval_id": _token()}).encode()
+    headers = _signed_headers("POST", "/shell/run", body)
+    request = _build_request(app, "POST", "/shell/run", body=body, extra_headers=headers)
+    response = await auth_middleware(request, run_shell)
+    assert response.status == 403
+    assert json.loads(response.text)["error"] == "raw_shell_disabled"
+
+
+# --- Execution ---------------------------------------------------------------
+
+
+async def test_shell_endpoint_executes_echo():
+    app = create_app(_config())
+    token = _token()
+    body = json.dumps({"command": "echo hello", "approval_id": token}).encode()
+    headers = _signed_headers("POST", "/shell/run", body)
+    request = _build_request(app, "POST", "/shell/run", body=body, extra_headers=headers)
+    response = await auth_middleware(request, run_shell)
     assert response.status == 200
     payload = json.loads(response.text)
     assert payload["ok"] is True
-    assert "data" in payload
-    assert "command" in payload["data"]
+    assert payload["output"].strip() == "hello"
+    assert payload["exit_code"] == 0
+    assert payload["data"]["shell"]
 
 
-async def test_action_disk_usage_rejects_invalid_path():
-    """system.disk_usage with invalid path returns ok=False error=invalid_path."""
+async def test_shell_endpoint_reports_command_failed_on_nonzero_exit():
     app = create_app(_config())
-    token = _token(action="system.disk_usage")
-    body = json.dumps({
-        "action": "system.disk_usage",
-        "approval_id": token,
-        "arguments": {"path": ";rm -rf /"},
-    }).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
-    request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_action)
-    # Validation failure in adapter returns ok=False, which the server maps to 500.
+    token = _token()
+    body = json.dumps({"command": "false", "approval_id": token}).encode()
+    headers = _signed_headers("POST", "/shell/run", body)
+    request = _build_request(app, "POST", "/shell/run", body=body, extra_headers=headers)
+    response = await auth_middleware(request, run_shell)
     assert response.status == 500
     payload = json.loads(response.text)
     assert payload["ok"] is False
-    assert payload["error"] == "invalid_path"
+    assert payload["error"] == "command_failed"
+    assert payload["exit_code"] == 1
 
 
-async def test_action_docker_list_containers():
-    """docker.list_containers returns ok; if docker unavailable, expect docker_not_available."""
+async def test_shell_endpoint_caps_timeout_to_maximum():
     app = create_app(_config())
-    token = _token(action="docker.list_containers")
-    body = json.dumps({
-        "action": "docker.list_containers",
-        "approval_id": token,
-        "arguments": {"all": False},
-    }).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
-    request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_action)
+    token = _token()
+    body = json.dumps(
+        {"command": "echo hello", "approval_id": token, "timeout": 99_999}
+    ).encode()
+    headers = _signed_headers("POST", "/shell/run", body)
+    request = _build_request(app, "POST", "/shell/run", body=body, extra_headers=headers)
+    response = await auth_middleware(request, run_shell)
     assert response.status == 200
-    payload = json.loads(response.text)
-    # Docker may or may not be available in the test environment.
-    if payload["ok"] is True:
-        assert "data" in payload
-        assert "containers" in payload["data"]
-    else:
-        assert payload["error"] == "docker_not_available"
+    started = [
+        event for event in app[STATE_KEY].audit_log
+        if event.get("event") == "action.started"
+    ]
+    assert started[-1]["details"]["timeout"] == 300
 
 
-async def test_action_docker_container_logs_rejects_invalid_name():
-    """docker.container_logs validates name (reject ';rm -rf /' with invalid_container_name)."""
+async def test_shell_endpoint_truncates_output():
     app = create_app(_config())
-    token = _token(action="docker.container_logs")
-    body = json.dumps({
-        "action": "docker.container_logs",
-        "approval_id": token,
-        "arguments": {"name_or_id": ";rm -rf /"},
-    }).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
-    request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_action)
-    # Validation failure in adapter returns ok=False, which the server maps to 500.
-    assert response.status == 500
-    payload = json.loads(response.text)
-    assert payload["ok"] is False
-    assert payload["error"] == "invalid_container_name"
+    token = _token()
+    body = json.dumps(
+        {"command": "seq 1 1000", "approval_id": token, "max_output_chars": 256}
+    ).encode()
+    headers = _signed_headers("POST", "/shell/run", body)
+    request = _build_request(app, "POST", "/shell/run", body=body, extra_headers=headers)
+    response = await auth_middleware(request, run_shell)
+    assert response.status == 200
+    output = json.loads(response.text)["output"]
+    # 256 chars of content plus the truncation marker line.
+    assert len(output) <= 256 + 64
+    assert "truncated" in output
 
 
-async def test_action_service_status_rejects_invalid_name():
-    """service.status validates service_name (reject 'bad name' with invalid_service_name)."""
+async def test_shell_endpoint_records_audit_event():
     app = create_app(_config())
-    token = _token(action="service.status")
-    body = json.dumps({
-        "action": "service.status",
-        "approval_id": token,
-        "arguments": {"service_name": "bad name"},
-    }).encode()
-    headers = _signed_headers("POST", "/actions/run", body)
-    request = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers
-    )
-    response = await auth_middleware(request, run_action)
-    # Validation failure in adapter returns ok=False, which the server maps to 500.
-    assert response.status == 500
-    payload = json.loads(response.text)
-    assert payload["ok"] is False
-    assert payload["error"] == "invalid_service_name"
+    token = _token()
+    body = json.dumps({"command": "echo hello", "approval_id": token}).encode()
+    headers = _signed_headers("POST", "/shell/run", body)
+    request = _build_request(app, "POST", "/shell/run", body=body, extra_headers=headers)
+    response = await auth_middleware(request, run_shell)
+    assert response.status == 200
+    state = app[STATE_KEY]
+    events = {event.get("event") for event in state.audit_log}
+    assert "approval.resolved" in events
+    assert "action.started" in events
+    assert "action.completed" in events
+    started = [
+        event for event in state.audit_log
+        if event.get("event") == "action.started" and event.get("subject") == "shell"
+    ]
+    assert started, state.audit_log
+    event = started[-1]
+    assert event["actor"] == "march7"
+    assert event["approval_id"] == token
+
+
+# --- /self/update ------------------------------------------------------------
 
 
 async def test_self_update_accepts_valid_owner_request():
     app = create_app(_config())
     token = _token(action="self.update", actor="owner-cli")
-    body = json.dumps({
-        "from_version": SERVICE_VERSION,
-        "to_version": "0.2.0",
-        "approval_id": token,
-    }).encode()
+    body = json.dumps(
+        {
+            "from_version": SERVICE_VERSION,
+            "to_version": "0.2.0",
+            "approval_id": token,
+        }
+    ).encode()
     headers = _signed_headers("POST", "/self/update", body, secret=SECRET, actor="owner-cli")
-    request = _build_request(
-        app, "POST", "/self/update", body=body, extra_headers=headers
-    )
+    request = _build_request(app, "POST", "/self/update", body=body, extra_headers=headers)
     response = await auth_middleware(request, self_update)
     assert response.status == 200
     payload = json.loads(response.text)
@@ -562,14 +406,11 @@ async def test_self_update_rejects_unsigned_request():
 async def test_self_update_rejects_version_mismatch():
     app = create_app(_config())
     token = _token(action="self.update", actor="owner-cli")
-    body = json.dumps({
-        "from_version": "not-the-real-version",
-        "approval_id": token,
-    }).encode()
+    body = json.dumps(
+        {"from_version": "not-the-real-version", "approval_id": token}
+    ).encode()
     headers = _signed_headers("POST", "/self/update", body, secret=SECRET, actor="owner-cli")
-    request = _build_request(
-        app, "POST", "/self/update", body=body, extra_headers=headers
-    )
+    request = _build_request(app, "POST", "/self/update", body=body, extra_headers=headers)
     response = await auth_middleware(request, self_update)
     assert response.status == 409
     payload = json.loads(response.text)
@@ -579,50 +420,16 @@ async def test_self_update_rejects_version_mismatch():
 async def test_self_update_rejects_replayed_token():
     app = create_app(_config())
     token = _token(action="self.update", actor="owner-cli")
-    body = json.dumps({
-        "from_version": SERVICE_VERSION,
-        "approval_id": token,
-    }).encode()
+    body = json.dumps(
+        {"from_version": SERVICE_VERSION, "approval_id": token}
+    ).encode()
     headers1 = _signed_headers("POST", "/self/update", body, secret=SECRET, actor="owner-cli")
-    req1 = _build_request(
-        app, "POST", "/self/update", body=body, extra_headers=headers1
-    )
+    req1 = _build_request(app, "POST", "/self/update", body=body, extra_headers=headers1)
     resp1 = await auth_middleware(req1, self_update)
     assert resp1.status == 200
 
     headers2 = _signed_headers("POST", "/self/update", body, secret=SECRET, actor="owner-cli")
-    req2 = _build_request(
-        app, "POST", "/self/update", body=body, extra_headers=headers2
-    )
+    req2 = _build_request(app, "POST", "/self/update", body=body, extra_headers=headers2)
     resp2 = await auth_middleware(req2, self_update)
     assert resp2.status == 403
     assert json.loads(resp2.text)["error"] == "approval_replayed"
-
-
-async def test_action_replay_approval_token_for_new_actions():
-    """Replay/approval token flow still works for new structured actions."""
-    app = create_app(_config())
-    token = _token(action="system.disk_usage")
-    body = json.dumps({
-        "action": "system.disk_usage",
-        "approval_id": token,
-        "arguments": {"path": "/"},
-    }).encode()
-    headers1 = _signed_headers("POST", "/actions/run", body)
-    req1 = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers1
-    )
-    resp1 = await auth_middleware(req1, run_action)
-    assert resp1.status == 200
-    payload1 = json.loads(resp1.text)
-    assert payload1["ok"] is True
-
-    # Fresh transport signature but SAME approval token => replayed token.
-    headers2 = _signed_headers("POST", "/actions/run", body)
-    req2 = _build_request(
-        app, "POST", "/actions/run", body=body, extra_headers=headers2
-    )
-    resp2 = await auth_middleware(req2, run_action)
-    assert resp2.status == 403
-    payload2 = json.loads(resp2.text)
-    assert payload2["error"] == "approval_replayed"

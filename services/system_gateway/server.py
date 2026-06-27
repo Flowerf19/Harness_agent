@@ -1,6 +1,7 @@
 """aiohttp application for the System Gateway scaffold."""
 from __future__ import annotations
 
+import asyncio
 import json as jsonlib
 import logging
 import time
@@ -86,7 +87,6 @@ async def auth_middleware(
         )
 
     body = await request.read()
-    auth = _extract_headers(request)
     from twin.shared.system_gateway.auth import (
         extract_auth_headers,
         is_timestamp_within_skew,
@@ -127,217 +127,14 @@ async def auth_middleware(
     return await handler(request)
 
 
-async def run_action(request: web.Request) -> web.Response:
-    """Structured action endpoint.
-
-    Enforces auth, an action-bound single-use approval token, and local policy,
-    records the audit lifecycle, then executes the action via the platform
-    adapter and returns its real output.
-    """
-
-    import asyncio
-
-    from twin.shared.system_gateway.policy import (
-        PolicyContext,
-        PolicyReason,
-        evaluate_action_policy,
-    )
-    from twin.shared.system_gateway.audit import (
-        AuditOutcome,
-        EVENT_ACTION_COMPLETED,
-        EVENT_ACTION_DENIED,
-        EVENT_ACTION_FAILED,
-        EVENT_ACTION_STARTED,
-        EVENT_ACTION_TIMED_OUT,
-        EVENT_APPROVAL_RESOLVED,
-        audit_event,
-    )
-    from twin.shared.system_gateway.auth import verify_approval_token
-
-    state = _state(request)
-    actor = request.get("auth_actor", "unknown")
-    try:
-        payload = await _read_json(request)
-    except ValueError as exc:
-        return web.json_response({"ok": False, "error": str(exc)}, status=400)
-
-    action = str(payload.get("action") or "").strip()
-    arguments = payload.get("arguments") or {}
-    approval_id = payload.get("approval_id")
-    timeout = _coerce_timeout(payload.get("timeout"))
-    max_output_chars = _coerce_max_output(payload.get("max_output_chars"))
-
-    adapter = select_adapter()
-    caps = adapter.capabilities().to_dict()
-    caps["service"] = "system_gateway"
-    structured_actions = set(caps.get("structured_actions") or [])
-    action_available = action in structured_actions
-
-    decision = evaluate_action_policy(
-        action=action,
-        action_available=action_available,
-        context=PolicyContext(
-            actor=actor,
-            action=action,
-            is_raw_shell=False,
-            approval_id=approval_id,
-            capabilities=caps,
-        ),
-        consumed_approvals=state.consumed_approvals,
-    )
-
-    if decision.verdict.value == "deny":
-        return _deny_action(
-            state, actor, action, approval_id, decision.reason.value, timeout
-        )
-
-    # Approval authenticity: the token must be a valid, action-bound,
-    # actor-bound, unexpired signature — bare presence is not enough.
-    token_result = verify_approval_token(
-        secret=state.shared_secret,
-        token=approval_id,
-        action=action,
-        actor=actor,
-    )
-    if not token_result.valid:
-        return _deny_action(
-            state,
-            actor,
-            action,
-            approval_id,
-            PolicyReason.APPROVAL_INVALID.value,
-            timeout,
-        )
-
-    # Single-use: the token's nonce is the replay key. consume IS the check.
-    if not state.consume_approval(token_result.nonce):
-        return _deny_action(
-            state,
-            actor,
-            action,
-            approval_id,
-            PolicyReason.APPROVAL_REPLAYED.value,
-            timeout,
-        )
-
-    state.record_audit(
-        audit_event(
-            EVENT_APPROVAL_RESOLVED,
-            AuditOutcome.RESOLVED,
-            actor=actor,
-            subject=action,
-            approval_id=approval_id,
-            details={"nonce": token_result.nonce},
-        ).to_dict()
-    )
-    state.record_audit(
-        audit_event(
-            EVENT_ACTION_STARTED,
-            AuditOutcome.STARTED,
-            actor=actor,
-            subject=action,
-            approval_id=approval_id,
-            details={"timeout": timeout, "arguments": arguments},
-        ).to_dict()
-    )
-
-    try:
-        result = await asyncio.wait_for(
-            adapter.run_action(
-                action,
-                dict(arguments),
-                timeout=timeout,
-                max_output_chars=max_output_chars,
-            ),
-            timeout=timeout,
-        )
-    except asyncio.TimeoutError:
-        state.record_audit(
-            audit_event(
-                EVENT_ACTION_TIMED_OUT,
-                AuditOutcome.TIMED_OUT,
-                actor=actor,
-                subject=action,
-                approval_id=approval_id,
-                details={"timeout": timeout},
-            ).to_dict()
-        )
-        return web.json_response(
-            {"ok": False, "error": "action_timed_out", "action": action},
-            status=504,
-        )
-
-    ok = bool(result.get("ok"))
-    if not ok:
-        error = result.get("error") or "action_failed"
-        state.record_audit(
-            audit_event(
-                EVENT_ACTION_FAILED,
-                AuditOutcome.FAILED,
-                actor=actor,
-                subject=action,
-                approval_id=approval_id,
-                details={"error": error},
-            ).to_dict()
-        )
-        status = 400 if error == "action_not_supported" else 500
-        return web.json_response(
-            {"ok": False, "error": error, "action": action}, status=status
-        )
-
-    state.record_audit(
-        audit_event(
-            EVENT_ACTION_COMPLETED,
-            AuditOutcome.COMPLETED,
-            actor=actor,
-            subject=action,
-            approval_id=approval_id,
-            details={"exit_code": result.get("exit_code")},
-        ).to_dict()
-    )
-    return web.json_response(
-        {
-            "ok": True,
-            "output": result.get("output", ""),
-            "error": result.get("error"),
-            "exit_code": result.get("exit_code"),
-            "data": result.get("data") or {},
-        }
-    )
-
-
-def _deny_action(
-    state: GatewayState,
-    actor: str,
-    action: str,
-    approval_id: Any,
-    reason: str,
-    timeout: int,
-) -> web.Response:
-    from twin.shared.system_gateway.audit import (
-        AuditOutcome,
-        EVENT_ACTION_DENIED,
-        audit_event,
-    )
-
-    state.record_audit(
-        audit_event(
-            EVENT_ACTION_DENIED,
-            AuditOutcome.DENIED,
-            actor=actor,
-            subject=action,
-            approval_id=approval_id,
-            details={"reason": reason, "timeout": timeout},
-        ).to_dict()
-    )
-    return web.json_response({"ok": False, "error": reason}, status=403)
-
-
 async def run_shell(request: web.Request) -> web.Response:
-    """Raw shell endpoint.
+    """Generic shell-exec endpoint.
 
-    Denied by default. When enabled by configuration it still requires a
-    fresh, non-replayed approval id. Phase B does not execute the command.
+    Runs the owner-approved *command* on the platform shell. Security layers, in
+    order: HMAC auth (middleware) -> raw_shell kill-switch -> action-bound
+    single-use approval token ("shell", actor-bound) -> the adapter spawns the
+    command verbatim. The owner sees the exact command in the approval prompt, so
+    there is no divergence between what is shown and what runs.
     """
 
     from twin.shared.system_gateway.policy import (
@@ -347,8 +144,11 @@ async def run_shell(request: web.Request) -> web.Response:
     )
     from twin.shared.system_gateway.audit import (
         AuditOutcome,
+        EVENT_ACTION_COMPLETED,
         EVENT_ACTION_DENIED,
+        EVENT_ACTION_FAILED,
         EVENT_ACTION_STARTED,
+        EVENT_ACTION_TIMED_OUT,
         EVENT_APPROVAL_RESOLVED,
         audit_event,
     )
@@ -405,7 +205,11 @@ async def run_shell(request: web.Request) -> web.Response:
     if decision.verdict.value == "deny":
         return _deny_shell(decision.reason.value)
 
-    # Raw shell binds its approval token to the canonical action "shell".
+    if not command:
+        return _deny_shell(PolicyReason.APPROVAL_INVALID.value)
+
+    # The approval token binds to the canonical action "shell" + the actor and
+    # is single-use. verify checks authenticity; consume is the replay guard.
     token_result = verify_approval_token(
         secret=state.shared_secret,
         token=approval_id,
@@ -445,16 +249,112 @@ async def run_shell(request: web.Request) -> web.Response:
         ).to_dict()
     )
 
-    # Phase 1 does not execute raw shell; raw_shell is disabled by default and
-    # the gate above only passes when explicitly enabled in config.
+    adapter = select_adapter()
+    try:
+        result = await asyncio.wait_for(
+            adapter.run_shell(
+                command,
+                shell=shell,
+                cwd=cwd,
+                timeout=timeout,
+                max_output_chars=max_output_chars,
+            ),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        state.record_audit(
+            audit_event(
+                EVENT_ACTION_TIMED_OUT,
+                AuditOutcome.TIMED_OUT,
+                actor=actor,
+                subject="shell",
+                approval_id=approval_id,
+                details={"timeout": timeout, "command": _truncate(command, 200)},
+            ).to_dict()
+        )
+        return web.json_response(
+            {"ok": False, "error": "action_timed_out", "action": "shell"},
+            status=504,
+        )
+
+    ok = bool(result.get("ok"))
+    if not ok:
+        error = result.get("error") or "action_failed"
+        state.record_audit(
+            audit_event(
+                EVENT_ACTION_FAILED,
+                AuditOutcome.FAILED,
+                actor=actor,
+                subject="shell",
+                approval_id=approval_id,
+                details={
+                    "error": error,
+                    "exit_code": result.get("exit_code"),
+                    "command": _truncate(command, 200),
+                },
+            ).to_dict()
+        )
+        status = 400 if error in {"no_shell_available", "shell_not_found", "invalid_cwd"} else 500
+        return web.json_response(
+            {
+                "ok": False,
+                "error": error,
+                "action": "shell",
+                "output": result.get("output", ""),
+                "exit_code": result.get("exit_code"),
+            },
+            status=status,
+        )
+
+    state.record_audit(
+        audit_event(
+            EVENT_ACTION_COMPLETED,
+            AuditOutcome.COMPLETED,
+            actor=actor,
+            subject="shell",
+            approval_id=approval_id,
+            details={
+                "exit_code": result.get("exit_code"),
+                "command": _truncate(command, 200),
+            },
+        ).to_dict()
+    )
     return web.json_response(
         {
-            "ok": False,
-            "error": "shell_execution_not_implemented",
-            "timeout": timeout,
-        },
-        status=501,
+            "ok": True,
+            "output": result.get("output", ""),
+            "error": result.get("error"),
+            "exit_code": result.get("exit_code"),
+            "data": result.get("data") or {},
+        }
     )
+
+
+def _deny_action(
+    state: GatewayState,
+    actor: str,
+    action: str,
+    approval_id: Any,
+    reason: str,
+    timeout: int,
+) -> web.Response:
+    from twin.shared.system_gateway.audit import (
+        AuditOutcome,
+        EVENT_ACTION_DENIED,
+        audit_event,
+    )
+
+    state.record_audit(
+        audit_event(
+            EVENT_ACTION_DENIED,
+            AuditOutcome.DENIED,
+            actor=actor,
+            subject=action,
+            approval_id=approval_id,
+            details={"reason": reason, "timeout": timeout},
+        ).to_dict()
+    )
+    return web.json_response({"ok": False, "error": reason}, status=403)
 
 
 async def self_update(request: web.Request) -> web.Response:
@@ -469,7 +369,6 @@ async def self_update(request: web.Request) -> web.Response:
     from twin.shared.system_gateway.auth import verify_approval_token
     from twin.shared.system_gateway.audit import (
         AuditOutcome,
-        EVENT_ACTION_DENIED,
         EVENT_APPROVAL_RESOLVED,
         EVENT_ACTION_STARTED,
         audit_event,
@@ -506,12 +405,7 @@ async def self_update(request: web.Request) -> web.Response:
     )
     if decision.verdict.value == "deny":
         return _deny_action(
-            state,
-            actor,
-            "self.update",
-            approval_id,
-            decision.reason.value,
-            30,
+            state, actor, "self.update", approval_id, decision.reason.value, 30
         )
 
     token_result = verify_approval_token(
@@ -596,7 +490,6 @@ def create_app(config: GatewayConfig | None = None) -> web.Application:
     )
     app.router.add_get("/health", health)
     app.router.add_get("/capabilities", capabilities)
-    app.router.add_post("/actions/run", run_action)
     app.router.add_post("/shell/run", run_shell)
     app.router.add_post("/self/update", self_update)
     return app
@@ -645,8 +538,6 @@ def _truncate(text: str, max_chars: int) -> str:
     return f"{text[:max_chars]}... [+{len(text) - max_chars} chars]"
 
 
-# Module-level aliases so middleware tests can call the handler bodies without
-# registering routes.
-actions_route = run_action
+# Module-level alias so middleware tests can call the handler body without
+# registering a route.
 shell_route = run_shell
-

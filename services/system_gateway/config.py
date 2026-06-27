@@ -13,7 +13,10 @@ class GatewayConfig:
     # Port 8380 matches SYSTEM_GATEWAY_URL in twin/shared/config/settings.py and
     # the SYSTEM_GATEWAY_URL wired into the march7/evernight containers.
     port: int = 8380
-    raw_shell_enabled: bool = False
+    # Generic shell execution is the gateway's one path; owner approval is the
+    # control. The flag stays as an emergency kill-switch (set
+    # SYSTEM_GATEWAY_RAW_SHELL=false to disable).
+    raw_shell_enabled: bool = True
     shared_secret: str | None = None
 
     @classmethod

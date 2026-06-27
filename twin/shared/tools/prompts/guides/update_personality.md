@@ -1,6 +1,6 @@
 <tool_description>
 Viết lại file persona của bot. Tool tự route sang IDENTITY.md hoặc SOUL.md và sẽ overwrite file mục tiêu.
-
+</tool_description>
 
 ## update_personality
 
@@ -16,7 +16,7 @@ Viết lại file persona của bot. Tool tự route sang IDENTITY.md hoặc SOU
 - User nói về sở thích/thông tin của chính họ: dùng `update_user_profile`.
 - Chỉ cần trả lờitrực trực tiếp câu hỏi thông thường.
 
-</tool_description>
+
 
 ### Input
 

@@ -363,6 +363,28 @@ class SharedMemoryManager:
         for entry in entries:
             role = "assistant" if entry.role == "assistant" else "user"
             content = entry.content
+            if entry.role == "assistant":
+                lowered = content.lower()
+                # Only mark prior assistant turns that look like host-state
+                # output — narrow tokens avoid over-marking casual chat. The
+                # marker nudges the LLM to re-call host_system instead of reusing
+                # stale numbers when the user asks again about realtime host.
+                if any(
+                    token in lowered
+                    for token in (
+                        "uptime",
+                        "load average",
+                        "df -h",
+                        "docker ps",
+                        "docker logs",
+                        "container",
+                        "systemctl",
+                    )
+                ):
+                    content = (
+                        "[context cũ — số liệu host có thể stale; nếu user hỏi lại trạng thái host BẮT BUỘC gọi host_system lại] "
+                        + content
+                    )
             if entry.scope == "channel" and entry.role == "user" and entry.author_name:
                 label = entry.author_name
                 if entry.author_id:

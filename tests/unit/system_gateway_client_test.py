@@ -14,10 +14,10 @@ from twin.shared.system_gateway.client import (
 )
 from twin.shared.system_gateway.errors import HostGatewayError
 from twin.shared.system_gateway.types import (
-    GatewayActionRequest,
     GatewayActionResponse,
     GatewayCapabilities,
     GatewayHealth,
+    GatewayShellRequest,
 )
 
 
@@ -144,8 +144,8 @@ async def test_client_signs_request_with_exact_body_bytes():
     session = _CapturingSession()
     client._session = session
 
-    await client.run_action(
-        GatewayActionRequest(action="system.status", approval_id="tok", timeout=30)
+    await client.run_shell(
+        GatewayShellRequest(command="uptime", approval_id="tok", timeout=30)
     )
 
     call = session.calls[-1]
@@ -160,7 +160,7 @@ async def test_client_signs_request_with_exact_body_bytes():
     assert verify_signature(
         secret,
         method="POST",
-        path="/actions/run",
+        path="/shell/run",
         timestamp=headers["timestamp"],
         nonce=headers["nonce"],
         actor=headers["actor"],
@@ -169,7 +169,7 @@ async def test_client_signs_request_with_exact_body_bytes():
     )
     # Body is compact JSON encoded as bytes, not handed to aiohttp as json=.
     assert call["data"] == jsonlib.dumps(
-        {"action": "system.status", "arguments": {}, "timeout": 30, "approval_id": "tok"},
+        {"command": "uptime", "timeout": 30, "max_output_chars": 8000, "approval_id": "tok"},
         separators=(",", ":"),
     ).encode("utf-8")
 

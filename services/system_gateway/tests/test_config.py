@@ -13,8 +13,15 @@ def test_from_env_defaults():
     config = GatewayConfig.from_env()
     assert config.host == "127.0.0.1"
     assert config.port == 8380
-    assert config.raw_shell_enabled is False
+    # Generic shell execution is the default path; approval is the control.
+    assert config.raw_shell_enabled is True
     assert config.shared_secret is None
+
+
+def test_from_env_can_disable_raw_shell(monkeypatch):
+    monkeypatch.setenv("SYSTEM_GATEWAY_RAW_SHELL", "false")
+    config = GatewayConfig.from_env()
+    assert config.raw_shell_enabled is False
 
 
 def test_from_env_reads_secret_file(monkeypatch, tmp_path: Path):
