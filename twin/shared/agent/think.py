@@ -46,6 +46,9 @@ class Think:
             use_native_tools: Whether native tool schemas are enabled.
             max_tokens: Per-call output token budget.
             trace_metadata: Extra metadata to attach to the LangSmith span.
+            tool_choice: Optional OpenAI-style ``tool_choice`` override forwarded
+                to the LLM service. Providers that don't understand the field
+                accept and ignore it.
 
         Returns:
             Raw LLM response string or ``LLMResponse``.

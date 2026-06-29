@@ -111,6 +111,7 @@ class BaseLLMService(abc.ABC):
         use_native_tools: bool = False,
         include_tool_catalog: bool = True,
         max_tokens: Optional[int] = None,
+        tool_choice: Optional[str] = None,
     ) -> Union[str, LLMResponse]:
         """
         Generate a response from the LLM based on structured messages.
@@ -122,6 +123,9 @@ class BaseLLMService(abc.ABC):
             include_tool_catalog: If True, include the short tool catalog in the system prompt
             max_tokens: Per-call output token cap; falls back to Config.LLM_MAX_TOKENS
                 when None. Reasoning models need a larger budget for structured calls.
+            tool_choice: Optional OpenAI-style ``tool_choice`` override ("auto" /
+                "required" / "none"). Providers that don't natively understand the
+                field must accept and ignore it so callers can pass it unconditionally.
 
         Returns:
             LLMResponse with content, token metadata, and tool_calls if present

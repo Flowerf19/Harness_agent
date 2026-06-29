@@ -65,6 +65,7 @@ class GeminiService(BaseLLMService):
         use_native_tools: bool = False,
         include_tool_catalog: bool = True,
         max_tokens: Optional[int] = None,
+        tool_choice: Optional[str] = None,
     ) -> Union[str, LLMResponse]:
         """
         Generate response from Gemini API.
@@ -75,6 +76,9 @@ class GeminiService(BaseLLMService):
             use_native_tools: Nếu True, sử dụng Native Function Calling (API Tool Calling).
             include_tool_catalog: Nếu True, bao gồm tool catalog trong system prompt.
             max_tokens: Per-call output token cap.
+            tool_choice: Accepted for cross-provider signature parity with the
+                OpenAI service. Gemini uses ``toolConfig.functionCallingConfig``
+                instead, so this field is intentionally ignored here.
 
         Returns:
             LLMResponse object with content, token metadata, and tool_calls if present.

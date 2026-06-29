@@ -50,6 +50,7 @@ class DummyLLMService(BaseLLMService):
         use_native_tools=False,
         include_tool_catalog=True,
         max_tokens=None,
+        tool_choice=None,
     ):
         return "ok"
 
