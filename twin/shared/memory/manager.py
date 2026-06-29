@@ -38,6 +38,7 @@ class SharedMemoryManager:
         timeline_summary_store: Any = None,
         embedding_service: Any = None,
         consolidation_client: Any = None,
+        local_consolidator: Any = None,
     ) -> None:
         self.t1 = active
         self.profile = profile_store
@@ -45,6 +46,7 @@ class SharedMemoryManager:
         self.timeline_summary_store = timeline_summary_store
         self.embedding_service = embedding_service
         self.consolidation_client = consolidation_client
+        self.local_consolidator = local_consolidator
 
     # ------------------------------------------------------------------ writes
 
@@ -170,20 +172,33 @@ class SharedMemoryManager:
         tags=["memory", "consolidation", "request"],
     )
     async def consolidate_scope(self, scope: str, scope_id: str) -> dict:
-        """Consolidate T1 messages via A2A call to Evernight."""
-        if self.consolidation_client is None:
-            logger.error("ConsolidationClient not configured")
-            return {"status": "failed", "scope": scope, "scope_id": scope_id, "error": "consolidation_client not configured"}
-        
-        logger.info(
-            "Consolidating via A2A client scope=%s/%s", scope, scope_id,
-        )
-        result_dict = await self.consolidation_client.consolidate_scope(
-            scope=scope,
-            scope_id=scope_id,
-            reason="auto",
-        )
-        
+        """Consolidate T1 messages, then trim on success.
+
+        Uses the remote A2A client if configured (March7 → Evernight), else a
+        local consolidator if set (Evernight worker), else fails.
+        """
+        if self.consolidation_client is not None:
+            logger.info(
+                "Consolidating via A2A client scope=%s/%s", scope, scope_id,
+            )
+            result_dict = await self.consolidation_client.consolidate_scope(
+                scope=scope,
+                scope_id=scope_id,
+                reason="auto",
+            )
+        elif self.local_consolidator is not None:
+            logger.info(
+                "Consolidating locally scope=%s/%s", scope, scope_id,
+            )
+            result_dict = await self.local_consolidator(
+                scope=scope,
+                scope_id=scope_id,
+                reason="auto",
+            )
+        else:
+            logger.error("No consolidator configured (neither client nor local)")
+            return {"status": "failed", "scope": scope, "scope_id": scope_id, "error": "consolidator not configured"}
+
         # Trim T1 if consolidation succeeded
         if result_dict.get("status") == "ok":
             messages_summarized = result_dict.get("messages_summarized", 0)
@@ -193,9 +208,9 @@ class SharedMemoryManager:
                 entry_ids = [e.entry_id for e in entries]
                 await self.t1.trim(scope, scope_id, entry_ids)
                 logger.info(
-                    "Trimmed T1 after A2A consolidation: %d entries", len(entry_ids),
+                    "Trimmed T1 after consolidation: %d entries", len(entry_ids),
                 )
-        
+
         return result_dict
 
     async def consolidate_snapshot(

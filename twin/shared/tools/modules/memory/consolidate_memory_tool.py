@@ -5,6 +5,7 @@ import json
 import logging
 from typing import Any, Optional
 
+from twin.shared.agent.contract import extract_json
 from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
 from twin.shared.observability.langsmith import traceable
 from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
@@ -192,15 +193,34 @@ class ConsolidateMemoryTool(BaseTool):
             )
             content = getattr(response, "content", None) or str(response)
 
-            # 4. Parse JSON
+            # 4. Parse JSON (LLM may wrap output in ```json markdown fences)
             try:
-                data = json.loads(content)
+                data = json.loads(extract_json(content))
             except json.JSONDecodeError as exc:
                 logger.error("ConsolidateMemoryTool: JSON parse failed: %s\nRaw: %s", exc, content[:500])
                 return json.dumps({
                     "status": "failed",
                     "reason": "parse_failed",
                     "error": str(exc),
+                })
+
+            # extract_json returns "{}" when content holds no JSON object at all.
+            # An empty/non-dict/garbage parse must NOT be treated as success:
+            # returning status="ok" here would make the caller trim T1, deleting
+            # messages that were never summarized (data loss). Require at least one
+            # recognized key (new format or legacy timeline_summary) before trusting
+            # it; otherwise fail → retry next poll.
+            recognized = isinstance(data, dict) and any(
+                k in data for k in ("has_meaningful_content", "topics", "timeline_summary")
+            )
+            if not recognized:
+                logger.error(
+                    "ConsolidateMemoryTool: empty/invalid parse, refusing to trim. Raw: %s",
+                    content[:500],
+                )
+                return json.dumps({
+                    "status": "failed",
+                    "reason": "empty_parse",
                 })
 
             # 5. Store N topic summaries in T2

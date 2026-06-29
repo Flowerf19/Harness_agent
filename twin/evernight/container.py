@@ -95,6 +95,11 @@ class EvernightContainer:
             consolidator=self.memory_manager,
         )
 
+        # Evernight is the consolidation worker — its auto-trigger must consolidate
+        # LOCALLY (it has no remote ConsolidationClient to call). Wire the manager's
+        # consolidate_scope to fall back to the local consolidate_memory tool.
+        self.memory_manager.local_consolidator = self.agent.consolidate_via_tool
+
         logger.info("EvernightContainer initialized")
 
     async def shutdown(self):
