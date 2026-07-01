@@ -13,7 +13,7 @@ from typing import Any
 from twin.shared.llm.base_llm_service import LLM_ERROR_RESPONSES
 from twin.shared.llm.llm_response import LLMResponse
 
-from .agent_loop import AgentLoop, TOOL_SELECTION_MAX_TOKENS
+from .agent_loop import AgentLoop
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,8 +94,8 @@ class ChatTurnRunner:
         )
 
         raw_response = loop_result.raw_response
+        content = loop_result.response
         if isinstance(raw_response, LLMResponse):
-            content = raw_response.content
             result = ChatTurnResult(
                 content=content,
                 raw_response=raw_response,
@@ -107,7 +107,6 @@ class ChatTurnRunner:
                 total_tokens=raw_response.total_tokens,
             )
         else:
-            content = raw_response
             result = ChatTurnResult(
                 content=content,
                 raw_response=raw_response,

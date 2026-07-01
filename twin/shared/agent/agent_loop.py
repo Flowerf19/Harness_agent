@@ -1,8 +1,7 @@
-"""Agent loop orchestration: Think(Decide) -> Think(Refine) -> Act -> ... -> Think(Resolve).
+"""Agent loop orchestration: Think(Decide) -> Think(Refine) -> Act -> ...
 
-Invariant: every user-visible answer goes through Think(resolve).
-Decide and Refine may produce candidates or cancellation reasons, but they
-must never become chat output directly.
+Think(decide) either answers the user or selects the next tool. Think(refine)
+validates one selected tool before Act executes it.
 """
 from __future__ import annotations
 
@@ -16,11 +15,9 @@ from twin.shared.llm.llm_response import LLMResponse
 from .act import Act
 from .contract import (
     AgentLoopResult,
-    RefineDecision,
     build_refine_messages,
     build_refine_system_prompt,
     format_tool_call_message,
-    format_tool_result_message,
     missing_required_args,
     parse_refine_decision,
     SAFE_REFINE_FAILURE_REPLY,
@@ -33,6 +30,9 @@ from .think import Think
 # output. Give the tool-loop path a larger explicit budget so structured output
 # survives. Scale matches EXTRACT_MAX_TOKENS / PROFILE_CURATION_MAX_TOKENS (4000).
 TOOL_SELECTION_MAX_TOKENS = 8000
+MAX_ITERATIONS_REPLY = (
+    "Xin lỗi, tôi đã đạt giới hạn vòng lặp công cụ nên chưa thể hoàn tất yêu cầu này."
+)
 
 
 class AgentLoop:
@@ -68,15 +68,11 @@ class AgentLoop:
     ) -> AgentLoopResult:
         """Run the agent loop and return a normalized result.
 
-        The loop calls Think(Decide) repeatedly. If no tool is selected, it
-        breaks to Think(Resolve). If a tool is selected, it calls Think(Refine),
-        then Act, appends the observation, and continues.
-
-        On max_iterations, the loop stops and calls Think(Resolve) with an
-        internal note that the limit was reached.
+        The loop calls Think(Decide) repeatedly. If no tool is selected,
+        Decide's content is the final answer. If a tool is selected, the loop
+        calls Think(Refine), then Act, appends the observation, and continues.
         """
         tools_executed = 0
-        stopped_by = "no_tool"
         iterations = 0
 
         for iteration in range(self.max_iterations):
@@ -118,10 +114,25 @@ class AgentLoop:
                     stopped_by="failure",
                 )
 
-            if not isinstance(decide_response, LLMResponse) or not decide_response.has_tool_calls():
-                # No tool selected -> break to Think(Resolve)
-                stopped_by = "no_tool"
-                break
+            if not isinstance(decide_response, LLMResponse):
+                return AgentLoopResult(
+                    response=decide_response,
+                    raw_response=decide_response,
+                    messages=messages,
+                    tools_executed=tools_executed,
+                    iterations=iterations,
+                    stopped_by="answer",
+                )
+
+            if not decide_response.has_tool_calls():
+                return AgentLoopResult(
+                    response=decide_response.content,
+                    raw_response=decide_response,
+                    messages=messages,
+                    tools_executed=tools_executed,
+                    iterations=iterations,
+                    stopped_by="answer",
+                )
 
             tool_calls = decide_response.tool_calls or []
             selected = dict(tool_calls[0])
@@ -136,16 +147,40 @@ class AgentLoop:
 
             if not self.tool_prompt_catalog:
                 self.logger.warning("Tool call selected but prompt catalog is missing")
-                stopped_by = "error"
-                break
+                return await self._answer_with_decide(
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    trace_metadata=trace_metadata,
+                    tools_executed=tools_executed,
+                    iterations=iterations,
+                    stopped_by="error",
+                    fallback=SAFE_REFINE_FAILURE_REPLY,
+                    context_note=(
+                        "[Hệ thống] Không thể nạp hướng dẫn tool đã chọn. "
+                        "Hãy trả lời người dùng tự nhiên, hỏi rõ thêm nếu cần, "
+                        "không đề cập chi tiết kỹ thuật."
+                    ),
+                )
 
             tool_name = str(selected.get("name") or "")
             try:
                 tool_guide = self.tool_prompt_catalog.render_tool_guide(tool_name)
             except Exception as exc:
                 self.logger.warning("Failed to load tool guide for %s: %s", tool_name, exc)
-                stopped_by = "error"
-                break
+                return await self._answer_with_decide(
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    trace_metadata=trace_metadata,
+                    tools_executed=tools_executed,
+                    iterations=iterations,
+                    stopped_by="error",
+                    fallback=SAFE_REFINE_FAILURE_REPLY,
+                    context_note=(
+                        f"[Hệ thống] Không thể nạp hướng dẫn cho tool '{tool_name}'. "
+                        "Hãy trả lời người dùng tự nhiên, hỏi rõ thêm nếu cần, "
+                        "không đề cập chi tiết kỹ thuật."
+                    ),
+                )
 
             # ---- Think(Refine) ------------------------------------------------
             missing = missing_required_args(
@@ -192,8 +227,20 @@ class AgentLoop:
 
             if isinstance(refine_response, str):
                 self.logger.warning("Refine response is not structured: %r", refine_response[:200])
-                stopped_by = "error"
-                break
+                return await self._answer_with_decide(
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    trace_metadata=trace_metadata,
+                    tools_executed=tools_executed,
+                    iterations=iterations,
+                    stopped_by="error",
+                    fallback=SAFE_REFINE_FAILURE_REPLY,
+                    context_note=(
+                        "[Hệ thống] Có lỗi khi tinh chỉnh tool. "
+                        "Hãy trả lời người dùng tự nhiên, hỏi rõ thêm nếu cần, "
+                        "không đề cập chi tiết kỹ thuật."
+                    ),
+                )
 
             refine = parse_refine_decision(
                 refine_response.content,
@@ -203,24 +250,38 @@ class AgentLoop:
                 logger=self.logger,
             )
             if refine is None:
-                stopped_by = "error"
-                break
+                return await self._answer_with_decide(
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    trace_metadata=trace_metadata,
+                    tools_executed=tools_executed,
+                    iterations=iterations,
+                    stopped_by="error",
+                    fallback=SAFE_REFINE_FAILURE_REPLY,
+                    context_note=(
+                        f"[Hệ thống] Tool '{tool_name}' không vượt qua bước tinh chỉnh. "
+                        "Hãy trả lời người dùng tự nhiên, hỏi rõ thêm nếu cần, "
+                        "không đề cập chi tiết kỹ thuật."
+                    ),
+                )
 
             if refine.action == "respond":
-                # Do NOT return the respond text directly; pass it into Resolve
-                stopped_by = "respond"
-                # Append a lightweight context note so Resolve knows why we stopped,
-                # but instruct it to answer naturally without parroting tool internals.
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        f"[Hệ thống] Yêu cầu không thể thực hiện bằng tool '{tool_name}'. "
-                        f"Gợi ý nội bộ: {refine.response or SAFE_REFINE_FAILURE_REPLY} "
-                        "Hãy trả lời người dùng một cách tự nhiên theo phong cách của bạn; "
-                        "không đề cập đến tool, không nói 'tool bị hủy', và không lặp lại gợi ý nội bộ."
+                reason = refine.response or SAFE_REFINE_FAILURE_REPLY
+                return await self._answer_with_decide(
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    trace_metadata=trace_metadata,
+                    tools_executed=tools_executed,
+                    iterations=iterations,
+                    stopped_by="respond",
+                    fallback=reason,
+                    context_note=(
+                        f"[Hệ thống] Không thực thi tool '{tool_name}'. "
+                        f"Gợi ý nội bộ: {reason} "
+                        "Hãy trả lời người dùng tự nhiên theo ngữ cảnh; "
+                        "không nói rằng tool bị hủy."
                     ),
-                })
-                break
+                )
 
             # ---- Act ----------------------------------------------------------
             refined_call = {
@@ -243,51 +304,80 @@ class AgentLoop:
 
         else:
             # max_iterations reached without break
-            stopped_by = "max_iterations"
             self.logger.warning("AgentLoop hit max_iterations=%s", self.max_iterations)
+            return await self._answer_with_decide(
+                messages=messages,
+                system_prompt=system_prompt,
+                trace_metadata=trace_metadata,
+                tools_executed=tools_executed,
+                iterations=iterations,
+                stopped_by="max_iterations",
+                fallback=MAX_ITERATIONS_REPLY,
+                context_note=(
+                    "[Hệ thống] Đã đạt giới hạn vòng lặp công cụ. "
+                    "Hãy tổng hợp những gì đã có và trả lời người dùng."
+                ),
+            )
 
-        # ---- Think(Resolve) -------------------------------------------------
-        resolve_context = _build_resolve_context(stopped_by, self.max_iterations)
-        resolve_messages = list(messages)
-        if resolve_context:
-            resolve_messages.append({"role": "user", "content": resolve_context})
+    async def _answer_with_decide(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        system_prompt: str,
+        trace_metadata: dict[str, Any] | None,
+        tools_executed: int,
+        iterations: int,
+        stopped_by: str,
+        fallback: str,
+        context_note: str,
+    ) -> AgentLoopResult:
+        """Ask Think(decide) for the final answer without allowing more tools."""
+        decide_messages = list(messages)
+        if context_note:
+            decide_messages.append({"role": "user", "content": context_note})
 
-        resolve_response = await self.think.run(
-            stage="resolve",
-            messages=resolve_messages,
+        decide_response = await self.think.run(
+            stage="decide",
+            messages=decide_messages,
             system_prompt=system_prompt,
             use_native_tools=False,
             max_tokens=TOOL_SELECTION_MAX_TOKENS,
             trace_metadata=trace_metadata,
         )
 
-        if isinstance(resolve_response, str):
-            response_text = resolve_response
+        if isinstance(decide_response, str) and decide_response in LLM_ERROR_RESPONSES:
+            return AgentLoopResult(
+                response=decide_response,
+                raw_response=decide_response,
+                messages=messages,
+                tools_executed=tools_executed,
+                iterations=iterations,
+                stopped_by="failure",
+            )
+
+        if (
+            isinstance(decide_response, LLMResponse)
+            and decide_response.content in LLM_ERROR_RESPONSES
+        ):
+            return AgentLoopResult(
+                response=decide_response.content,
+                raw_response=decide_response,
+                messages=messages,
+                tools_executed=tools_executed,
+                iterations=iterations,
+                stopped_by="failure",
+            )
+
+        if isinstance(decide_response, LLMResponse):
+            response_text = (decide_response.content or "").strip() or fallback
         else:
-            response_text = resolve_response.content
+            response_text = (decide_response or "").strip() or fallback
 
         return AgentLoopResult(
             response=response_text,
-            raw_response=resolve_response,
+            raw_response=decide_response,
             messages=messages,
             tools_executed=tools_executed,
             iterations=iterations,
             stopped_by=stopped_by,
         )
-
-
-def _build_resolve_context(stopped_by: str, max_iterations: int) -> str:
-    if stopped_by == "max_iterations":
-        return (
-            "[Hệ thống] Đã đạt giới hạn vòng lặp tool. "
-            "Hãy tổng hợp những gì đã có và trả lời người dùng."
-        )
-    if stopped_by == "error":
-        return (
-            "[Hệ thống] Có lỗi xảy ra trong quá trình chọn/tinh chỉnh tool. "
-            "Hãy trả lời người dùng một cách tự nhiên, không đề cập chi tiết kỹ thuật."
-        )
-    if stopped_by == "respond":
-        # A context note was already appended before breaking; no extra context needed.
-        return ""
-    return ""

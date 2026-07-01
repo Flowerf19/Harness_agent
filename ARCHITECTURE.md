@@ -55,10 +55,14 @@ Primary public chat agent. Production entry is `python -m gateway`
 (`gateway/__main__.py`), which owns container init, the A2A server on port
 8000, and the Discord adapter via `ChatGateway`. `twin/march7/__main__.py` is
 a thinner local-dev entry (no Discord). The agent loop is
-`Think(Decide) → Think(Refine) → Act → … → Think(Resolve)` in
+`Think(Decide) → Think(Refine) → Act → … → Think(Decide)` in
 `twin/shared/agent/agent_loop.py`: only `Think` stages touch the LLM; `Act`
-is pure tool execution with no persona and no LLM access. All user-visible
-answers come from `Think(Resolve)`.
+is pure tool execution with no persona and no LLM access. `Think(Decide)`
+either answers the user directly or selects the next tool, while
+`Think(Refine)` remains the mandatory selected-tool validation pass before
+execution. Refine cancellation/error and loop-limit exits ask a final
+`Think(Decide)` pass with native tools disabled; there is no separate Resolve
+stage.
 
 ### Evernight (`twin/evernight/`, entry `twin/evernight/__main__.py`)
 

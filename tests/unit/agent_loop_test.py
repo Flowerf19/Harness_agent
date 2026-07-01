@@ -1,4 +1,4 @@
-"""Tests for the AgentLoop orchestration: Think(Decide) -> Think(Refine) -> Act -> ... -> Think(Resolve).
+"""Tests for the AgentLoop orchestration: Think(Decide) -> Think(Refine) -> Act -> ...
 
 Covers no-tool path, one-tool path order, first-tool-only behavior, refine JSON
 validation, prerequisite routing, rejected tool switching, timeout/error behavior,
@@ -13,8 +13,10 @@ from typing import Any
 import pytest
 
 from twin.shared.llm.llm_response import LLMResponse
-from twin.shared.agent.contract import SAFE_REFINE_FAILURE_REPLY
-from twin.shared.agent.agent_loop import AgentLoop, TOOL_SELECTION_MAX_TOKENS
+from twin.shared.agent.agent_loop import (
+    AgentLoop,
+    TOOL_SELECTION_MAX_TOKENS,
+)
 from twin.shared.agent.act import Act
 
 
@@ -59,6 +61,11 @@ class FakeCatalog:
 
     def allowed_tool_names(self) -> set[str]:
         return {"get_profile", "manage_user_profile", "search_memory", "web_search"}
+
+
+class BrokenCatalog(FakeCatalog):
+    def render_tool_guide(self, tool_name: str) -> str:
+        raise RuntimeError("guide unavailable")
 
 
 class FakeRegistry:
@@ -121,26 +128,25 @@ def _make_loop(
 # No-tool path
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_no_tool_path_calls_decide_then_resolve():
-    """Decide(native on) -> Resolve(native off); returned content is Resolve response."""
-    llm = FakeLLM([_text_response("decide draft"), _text_response("resolved answer")])
+async def test_no_tool_path_returns_decide_text_directly():
+    """Decide text is returned directly with no Resolve call."""
+    llm = FakeLLM([_text_response("resolved answer")])
     loop = _make_loop(llm)
     messages = [{"role": "user", "content": "hello"}]
 
     result = await loop.run(messages=messages, system_prompt="sys")
 
     assert result.response == "resolved answer"
-    assert result.stopped_by == "no_tool"
+    assert isinstance(result.raw_response, LLMResponse)
+    assert result.raw_response.content == "resolved answer"
+    assert result.stopped_by == "answer"
     assert result.tools_executed == 0
     assert result.iterations == 1
-    assert len(llm.calls) == 2
+    assert len(llm.calls) == 1
 
     # Decide
     assert llm.calls[0]["use_native_tools"] is True
     assert llm.calls[0]["include_tool_catalog"] is True
-    # Resolve
-    assert llm.calls[1]["use_native_tools"] is False
-    assert llm.calls[1]["include_tool_catalog"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +154,7 @@ async def test_no_tool_path_calls_decide_then_resolve():
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_one_tool_path_order():
-    """Decide(native on) -> Refine(native off) -> Act -> Decide(native on) -> Resolve(native off)."""
+    """Decide -> Refine -> Act -> Decide returns the final answer directly."""
     llm = FakeLLM(
         [
             _tool_response(
@@ -165,7 +171,6 @@ async def test_one_tool_path_order():
                 )
             ),
             _text_response("no more tools"),
-            _text_response("final answer"),
         ]
     )
     registry = FakeRegistry()
@@ -175,17 +180,19 @@ async def test_one_tool_path_order():
 
     result = await loop.run(messages=messages, system_prompt="sys")
 
-    assert result.response == "final answer"
-    assert result.stopped_by == "no_tool"
+    assert result.response == "no more tools"
+    assert result.stopped_by == "answer"
     assert result.tools_executed == 1
     assert result.iterations == 2
-    assert len(llm.calls) == 4
+    assert len(llm.calls) == 3
 
     # Stage sequence
     assert llm.calls[0]["use_native_tools"] is True   # Decide 1
     assert llm.calls[1]["use_native_tools"] is False  # Refine
     assert llm.calls[2]["use_native_tools"] is True   # Decide 2
-    assert llm.calls[3]["use_native_tools"] is False  # Resolve
+    assert llm.calls[0]["include_tool_catalog"] is True
+    assert llm.calls[1]["include_tool_catalog"] is False
+    assert llm.calls[2]["include_tool_catalog"] is True
 
     # First-tool-only: only search_memory executed, web_search deferred
     assert registry.calls == [
@@ -217,7 +224,6 @@ async def test_first_tool_only_defer_extra():
             ),
             _text_response(json.dumps({"action": "call_tool", "tool_name": "t1", "arguments": {}})),
             _text_response("done"),
-            _text_response("final answer"),
         ]
     )
     registry = FakeRegistry()
@@ -237,7 +243,7 @@ async def test_first_tool_only_defer_extra():
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_invalid_refine_json_returns_safe_failure_reply():
-    """Bad refine JSON stops the loop and Resolve returns the safe failure text."""
+    """Bad refine JSON asks Decide for the final answer without running another tool."""
     llm = FakeLLM(
         [
             _tool_response({"id": "call_1", "name": "web_search", "arguments": {"query": "x"}}),
@@ -254,16 +260,18 @@ async def test_invalid_refine_json_returns_safe_failure_reply():
     assert result.stopped_by == "error"
     assert result.response == "safe answer"
     assert registry.calls == []
+    assert len(llm.calls) == 3
+    assert llm.calls[2]["use_native_tools"] is False
 
 
 @pytest.mark.asyncio
-async def test_refine_respond_routes_through_resolve():
-    """Refine respond does not become output directly; Resolve synthesizes it."""
+async def test_refine_respond_returns_through_decide():
+    """Refine respond is a cancellation signal; Decide still owns the final answer."""
     llm = FakeLLM(
         [
             _tool_response({"id": "call_1", "name": "web_search", "arguments": {"query": "x"}}),
             _text_response(json.dumps({"action": "respond", "response": "Khong can search."})),
-            _text_response("resolved: Khong can search."),
+            _text_response("final: Khong can search."),
         ]
     )
     registry = FakeRegistry()
@@ -273,10 +281,32 @@ async def test_refine_respond_routes_through_resolve():
     result = await loop.run(messages=messages, system_prompt="sys")
 
     assert result.stopped_by == "respond"
-    assert result.response == "resolved: Khong can search."
+    assert result.response == "final: Khong can search."
     assert registry.calls == []
-    # A context note was appended so Resolve knows why
-    assert any("Khong can search" in str(m.get("content", "")) for m in messages)
+    assert len(llm.calls) == 3
+    assert llm.calls[2]["use_native_tools"] is False
+    assert "Khong can search" in llm.calls[2]["messages"][-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_tool_guide_load_error_returns_through_decide():
+    llm = FakeLLM(
+        [
+            _tool_response({"id": "call_1", "name": "web_search", "arguments": {"query": "x"}}),
+            _text_response("safe answer"),
+        ]
+    )
+    registry = FakeRegistry()
+    messages = [{"role": "user", "content": "hello"}]
+    loop = _make_loop(llm, registry=registry, catalog=BrokenCatalog())
+
+    result = await loop.run(messages=messages, system_prompt="sys")
+
+    assert result.stopped_by == "error"
+    assert result.response == "safe answer"
+    assert registry.calls == []
+    assert len(llm.calls) == 2
+    assert llm.calls[1]["use_native_tools"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +332,6 @@ async def test_refine_routes_to_prerequisite_when_required_arg_missing():
                     }
                 )
             ),
-            _text_response("done"),
             _text_response("final answer"),
         ]
     )
@@ -405,7 +434,7 @@ async def test_refine_cannot_switch_to_unknown_tool_even_with_missing_args():
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_tool_timeout_is_handled():
-    """Act converts timeout into a string error result; loop continues to Resolve."""
+    """Act converts timeout into a string error result; the loop still returns a final answer."""
     import asyncio
 
     class SlowRegistry(FakeRegistry):
@@ -417,7 +446,6 @@ async def test_tool_timeout_is_handled():
         [
             _tool_response({"id": "c1", "name": "search_memory", "arguments": {"query": "x"}}),
             _text_response(json.dumps({"action": "call_tool", "tool_name": "search_memory", "arguments": {"query": "x"}})),
-            _text_response("done"),
             _text_response("final answer"),
         ]
     )
@@ -434,13 +462,13 @@ async def test_tool_timeout_is_handled():
 
 
 @pytest.mark.asyncio
-async def test_max_iterations_stops_and_resolves():
-    """On max_iterations, loop stops and Resolve returns a note about the limit."""
+async def test_max_iterations_stops_and_returns_bounded_fallback():
+    """On max_iterations, loop asks Decide to summarize without more tools."""
     llm = FakeLLM(
         [
             _tool_response({"id": "c1", "name": "search_memory", "arguments": {"query": "x"}}),
             _text_response(json.dumps({"action": "call_tool", "tool_name": "search_memory", "arguments": {"query": "x"}})),
-            _text_response("final answer"),
+            _text_response("bounded final answer"),
         ]
     )
     registry = FakeRegistry()
@@ -452,8 +480,10 @@ async def test_max_iterations_stops_and_resolves():
     assert result.stopped_by == "max_iterations"
     assert result.iterations == 1
     assert result.tools_executed == 1
-    # Resolve context should mention the limit
-    assert "giới hạn" in llm.calls[-1]["messages"][-1]["content"]
+    assert result.response == "bounded final answer"
+    assert len(llm.calls) == 3
+    assert llm.calls[2]["use_native_tools"] is False
+    assert "giới hạn" in llm.calls[2]["messages"][-1]["content"]
 
 
 # ---------------------------------------------------------------------------
@@ -467,7 +497,6 @@ async def test_act_does_not_call_llm():
             _tool_response({"id": "c1", "name": "search_memory", "arguments": {"query": "x"}}),
             _text_response(json.dumps({"action": "call_tool", "tool_name": "search_memory", "arguments": {"query": "x"}})),
             _text_response("done"),
-            _text_response("final answer"),
         ]
     )
     registry = FakeRegistry()
@@ -478,24 +507,23 @@ async def test_act_does_not_call_llm():
     result = await loop.run(messages=messages, system_prompt="sys")
     call_count_after = len(llm.calls)
 
-    # Act should add 0 LLM calls; total should be 4 (Decide, Refine, Decide, Resolve)
-    assert call_count_after == 4
+    # Act should add 0 LLM calls; total should be 3 (Decide, Refine, Decide)
+    assert call_count_after == 3
     assert call_count_before == 0
     assert registry.calls == [{"tool_name": "search_memory", "arguments": {"query": "x"}}]
-    assert result.response == "final answer"
+    assert result.response == "done"
 
 
 # ---------------------------------------------------------------------------
 # Prompt-scope tests
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_prompt_scope_tool_catalog_included_for_decide_and_resolve():
-    """Tool catalog is included for Decide and Resolve, excluded for Refine."""
+async def test_prompt_scope_tool_catalog_included_for_decide_only():
+    """Tool catalog is included for Decide, excluded for Refine."""
     llm = FakeLLM(
         [
             _tool_response({"id": "c1", "name": "search_memory", "arguments": {"query": "x"}}),
             _text_response(json.dumps({"action": "call_tool", "tool_name": "search_memory", "arguments": {"query": "x"}})),
-            _text_response("done"),
             _text_response("final answer"),
         ]
     )
@@ -506,8 +534,8 @@ async def test_prompt_scope_tool_catalog_included_for_decide_and_resolve():
 
     assert llm.calls[0]["include_tool_catalog"] is True   # Decide
     assert llm.calls[1]["include_tool_catalog"] is False  # Refine
-    assert llm.calls[2]["include_tool_catalog"] is True    # Decide (post-act)
-    assert llm.calls[3]["include_tool_catalog"] is True    # Resolve
+    assert llm.calls[2]["include_tool_catalog"] is True   # Decide (post-act)
+    assert len(llm.calls) == 3
 
 
 @pytest.mark.asyncio
@@ -518,7 +546,6 @@ async def test_prompt_scope_selected_tool_guide_only_for_refine():
             _tool_response({"id": "c1", "name": "search_memory", "arguments": {"query": "x"}}),
             _text_response(json.dumps({"action": "call_tool", "tool_name": "search_memory", "arguments": {"query": "x"}})),
             _text_response("done"),
-            _text_response("final answer"),
         ]
     )
     catalog = FakeCatalog()
@@ -530,6 +557,6 @@ async def test_prompt_scope_selected_tool_guide_only_for_refine():
     # Refine system prompt contains the selected tool guide
     assert "=== HƯỚNG DẪN TOOL ĐÃ CHỌN ===" in llm.calls[1]["system_prompt"]
     assert "<tool_guide" in llm.calls[1]["system_prompt"]
-    # Decide and Resolve do not contain the guide
+    # Decide calls do not contain the guide
     assert "=== HƯỚNG DẪN TOOL ĐÃ CHỌN ===" not in llm.calls[0]["system_prompt"]
-    assert "=== HƯỚNG DẪN TOOL ĐÃ CHỌN ===" not in llm.calls[3]["system_prompt"]
+    assert "=== HƯỚNG DẪN TOOL ĐÃ CHỌN ===" not in llm.calls[2]["system_prompt"]

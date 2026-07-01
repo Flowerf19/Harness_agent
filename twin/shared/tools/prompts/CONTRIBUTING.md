@@ -52,11 +52,11 @@ chỉ rely vào `MCPClient.list_tools()`.
 
 ## 2. Luồng load: file guide.md đi đâu trong request
 
-Một request user đi qua 3 Think stage
-(`twin/shared/agent/agent_loop.py:61-274`):
+Một request user đi qua vòng Think/Act
+(`twin/shared/agent/agent_loop.py`):
 
 ```
-Think(Decide)  → LLM chọn tool (hoặc skip)
+Think(Decide)  → LLM trả lời trực tiếp hoặc chọn tool
   ↓ catalog line (system prompt)         ← render_catalog()
   ↓ tool schemas (OpenAI function calling) ← DeclaredToolProxy.description
 
@@ -64,6 +64,8 @@ Think(Refine)  → LLM emit JSON {action, tool_name, args}
   ↓ full tool guide (re-prompt)         ← render_tool_guide()
 
 Act            → registry.execute_tool → tool output
+
+Think(Decide)  → trả lời từ observation hoặc chọn tool tiếp theo
 ```
 
 | Giai đoạn | Load gì từ guide.md | Code reference |

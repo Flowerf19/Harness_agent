@@ -56,7 +56,13 @@ class OpenAIService(BaseLLMService):
         tool_choice: Optional[str] = None,
     ) -> Union[str, LLMResponse]:
         session = await self._get_session()
-        final_system_prompt = self._build_final_system_prompt(system_prompt, include_tool_catalog=include_tool_catalog)
+        # Native Function Calling carries tool descriptions in the `tools` payload,
+        # so the system-prompt catalog would only duplicate them. Inject the catalog
+        # only when native tools are OFF (fallback / non-native providers) so the
+        # model still knows the tool surface. Hot path (native on) stays deduped.
+        final_system_prompt = self._build_final_system_prompt(
+            system_prompt, include_tool_catalog=(include_tool_catalog and not use_native_tools)
+        )
 
         # Strict chat templates (Qwen-derived, e.g. LM Studio) raise
         # "No user query found in messages" when the first non-system message

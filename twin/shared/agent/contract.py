@@ -1,8 +1,7 @@
 """Agent-loop contract: stages, results, and shared helpers.
 
-Invariant: every user-visible answer goes through Think(resolve).
-Decide and Refine may produce candidates or cancellation reasons, but they
-must never become chat output directly.
+Think(decide) owns the user-facing answer or the next tool selection.
+Think(refine) validates or cancels one selected tool before Act executes it.
 """
 from __future__ import annotations
 
@@ -13,7 +12,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-ThinkStage = Literal["decide", "refine", "resolve"]
+ThinkStage = Literal["decide", "refine"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,14 +20,14 @@ class AgentLoopResult:
     """Normalized output from one agent loop turn.
 
     Attributes:
-        response: The user-facing text answer (from Think(resolve)).
+        response: The user-facing text answer.
         raw_response: The raw LLM response (string or LLMResponse) from
-            Think(resolve), preserved for token accounting and downstream
-            normalization.
+            the stage that stopped the loop, preserved for token accounting
+            and downstream normalization.
         messages: The conversation message list after the loop (mutated in place).
         tools_executed: Number of tool calls that were successfully executed.
         iterations: Number of loop iterations (Decide attempts) performed.
-        stopped_by: Why the loop ended: 'no_tool', 'max_iterations', 'respond',
+        stopped_by: Why the loop ended: 'answer', 'max_iterations', 'respond',
             'failure', or 'error'.
     """
 
@@ -37,7 +36,7 @@ class AgentLoopResult:
     messages: list[dict[str, Any]] = field(default_factory=list)
     tools_executed: int = 0
     iterations: int = 0
-    stopped_by: str = "no_tool"
+    stopped_by: str = "answer"
 
 
 @dataclass(frozen=True, slots=True)

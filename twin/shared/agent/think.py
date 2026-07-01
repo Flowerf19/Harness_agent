@@ -1,6 +1,6 @@
 """Think stage wrapper: the single LLM-facing abstraction for agent phases.
 
-Think(Decide) -> Think(Refine) -> Act -> Think(Decide) -> ... -> Think(Resolve)
+Think(Decide) -> Think(Refine) -> Act -> Think(Decide) -> ...
 
 Think never loads IDENTITY.md/SOUL.md manually; all stages go through the
 existing LLM service prompt builder so the bot keeps its persona.
@@ -40,7 +40,7 @@ class Think:
         """Call the LLM for a single Think stage.
 
         Args:
-            stage: One of ``decide``, ``refine``, ``resolve``.
+            stage: One of ``decide`` or ``refine``.
             messages: Conversation messages for this stage.
             system_prompt: Dynamic core memory / context from the caller.
             use_native_tools: Whether native tool schemas are enabled.
@@ -53,7 +53,7 @@ class Think:
         Returns:
             Raw LLM response string or ``LLMResponse``.
         """
-        include_tool_catalog = stage in ("decide", "resolve")
+        include_tool_catalog = stage == "decide"
         metadata = {
             "workflow_step": f"think.{stage}",
             **(trace_metadata or {}),

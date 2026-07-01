@@ -18,8 +18,9 @@ from twin.shared.agent.chat_turn import ChatTurnRunner, ChatTurnResult
 class FakeLLM:
     """Records calls and returns a fixed response."""
 
-    def __init__(self, response: Any = "echo"):
+    def __init__(self, response: Any = "echo", responses: list[Any] | None = None):
         self.response = response
+        self.responses = list(responses or [])
         self.calls: list[dict[str, Any]] = []
 
     async def generate_response(
@@ -40,6 +41,8 @@ class FakeLLM:
                 "max_tokens": max_tokens,
             }
         )
+        if self.responses:
+            return self.responses.pop(0)
         return self.response
 
 
@@ -178,3 +181,32 @@ async def test_chat_turn_failure_with_structured_response():
     assert result.is_failure is True
     assert result.is_structured is True
     assert result.content == LLM_ERROR_RESPONSE
+
+
+@pytest.mark.asyncio
+async def test_chat_turn_uses_final_decide_response_after_refine_respond():
+    llm = FakeLLM(
+        responses=[
+            LLMResponse(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "call_1",
+                        "name": "t1",
+                        "arguments": {"query": "x"},
+                    }
+                ],
+            ),
+            LLMResponse(
+                content='{"action": "respond", "response": "No tool needed."}'
+            ),
+            LLMResponse(content="No tool needed."),
+        ]
+    )
+    runner = _make_runner(llm, registry=FakeRegistry())
+
+    result = await runner.run(messages=[{"role": "user", "content": "hi"}], system_prompt="sys")
+
+    assert result.content == "No tool needed."
+    assert result.raw_response.content == "No tool needed."
+    assert result.is_structured is True

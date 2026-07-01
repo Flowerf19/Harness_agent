@@ -90,8 +90,11 @@ class GeminiService(BaseLLMService):
 
         session = await self._get_session()
 
-        # 1. Trộn hệ tư tưởng (System Prompt)
-        final_system_prompt = self._build_final_system_prompt(system_prompt, include_tool_catalog=include_tool_catalog)
+        # 1. Trộn hệ tư tưởng (System Prompt). Native tools carry descriptions in
+        # the tool schemas, so only inject the catalog when native tools are OFF.
+        final_system_prompt = self._build_final_system_prompt(
+            system_prompt, include_tool_catalog=(include_tool_catalog and not use_native_tools)
+        )
 
         # 2. Biên dịch mảng `messages` sang chuẩn Gemini
         gemini_contents = []
