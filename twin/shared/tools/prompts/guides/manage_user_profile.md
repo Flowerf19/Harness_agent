@@ -20,6 +20,7 @@ Curate hồ sơ T3. Tool này là destructive/curation, chỉ dùng cho Evernigh
 
 - Fact mới vừa xuất hiện: dùng `update_user_profile`.
 - Append realtime T2->T3: dùng `update_user_profile`.
+- Persona, cách nói, hoặc luật chung của bot: dùng `update_personality`.
 
 Trước khi gọi tool này, TỰ gọi `get_profile(user_id)` để đọc nội dung hiện tại và lấy `expected_profile_hash`. KHÔNG hỏi user hash, KHÔNG bắt user chọn section — tự đọc, tự quyết, tự curate.
 
@@ -41,3 +42,4 @@ Trước khi gọi tool này, TỰ gọi `get_profile(user_id)` để đọc n�
 - Nếu tool báo conflict, đọc lại `get_profile`, kiểm tra thay đổi mới, rồi gọi lại với hash mới nếu vẫn cần curate.
 - Nếu tool báo mất >50% bullet, kiểm tra lại nội dung; chỉ đặt `allow_shrink=true` khi chắc chắn cố ý.
 - Không dùng để lưu fact mới; fact mới đi qua hot append `update_user_profile`.
+- Section `rules` là rule/preference riêng của user, không phải `RULES.md` chung của bot.

@@ -16,6 +16,7 @@ Append một bullet ổn định vào hồ sơ Core Memory T3 của user.
 - Tâm trạng hoặc nhu cầu một lần.
 - Guess/suy diễn chưa được xác nhận.
 - Nội dung cần ghi đè toàn bộ profile: không dùng tool này.
+- User muốn đổi persona, cách nói, hoặc luật chung của bot: dùng `update_personality`.
 
 
 
@@ -31,3 +32,4 @@ Append một bullet ổn định vào hồ sơ Core Memory T3 của user.
 - Mỗi call chỉ append một thông tin.
 - Nếu conflict với profile cũ, append thông tin mới; cleanup sẽ merge/supersede sau.
 - Nếu chưa chắc section, đọc `get_profile` hoặc hỏi lại.
+- Section `rules` là rule/preference riêng của user, không phải `RULES.md` chung của bot.

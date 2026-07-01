@@ -3,6 +3,7 @@ import pytest
 from twin.shared.llm.base_llm_service import BaseLLMService
 from twin.shared.system_gateway import HostGatewayClient
 from twin.shared.tools.mcp_client import MCPClient
+from twin.shared.tools.modules.profile.update_personality_tool import UpdatePersonalityTool
 from twin.shared.tools.registry import ToolExecutionError, build_tool_registry
 from twin.shared.tools.registry import bootstrap
 
@@ -201,6 +202,7 @@ async def test_update_personality_reloads_llm_persona_cache(tmp_path):
     persona_dir.mkdir()
     (persona_dir / "IDENTITY.md").write_text("old identity", encoding="utf-8")
     (persona_dir / "SOUL.md").write_text("old soul", encoding="utf-8")
+    (persona_dir / "VOICE.md").write_text("old voice", encoding="utf-8")
 
     llm = DummyPersonaLLM(persona_path=str(persona_dir))
     result = build_tool_registry(
@@ -213,8 +215,67 @@ async def test_update_personality_reloads_llm_persona_cache(tmp_path):
 
     await result.registry.execute_tool(
         "update_personality",
-        {"instruction": "Nói ngắn gọn hơn trong mọi câu trả lời."},
+        {
+            "target_file": "SOUL.md",
+            "instruction": "Nói ngắn gọn hơn trong mọi câu trả lời.",
+        },
     )
 
     assert llm.static_soul == "Nói ngắn gọn hơn trong mọi câu trả lời."
     assert "Nói ngắn gọn hơn" in llm._build_final_system_prompt("")
+    assert "old voice" in llm._build_final_system_prompt("")
+
+    await result.registry.execute_tool(
+        "update_personality",
+        {
+            "target_file": "VOICE.md",
+            "instruction": "# VOICE.md\n\nNét giọng riêng mới.",
+        },
+    )
+
+    assert (persona_dir / "VOICE.md").read_text(encoding="utf-8") == "# VOICE.md\n\nNét giọng riêng mới.\n"
+    assert "Nét giọng riêng mới." in llm._build_final_system_prompt("")
+
+
+@pytest.mark.asyncio
+async def test_update_personality_can_update_shared_rules(tmp_path):
+    persona_dir = tmp_path / "persona"
+    shared_dir = tmp_path / "shared_personas"
+    persona_dir.mkdir()
+    shared_dir.mkdir()
+
+    tool = UpdatePersonalityTool(
+        base_memory_path=str(persona_dir),
+        shared_persona_path=str(shared_dir),
+    )
+
+    result = await tool.execute(
+        "# RULES.md\n\n## Luật chung\n- Không dùng markdown.",
+        target_file="RULES.md",
+    )
+
+    assert "RULES.md" in result
+    assert (shared_dir / "RULES.md").read_text(encoding="utf-8") == "# RULES.md\n\n## Luật chung\n- Không dùng markdown.\n"
+
+
+@pytest.mark.asyncio
+async def test_update_personality_requires_target_file(tmp_path):
+    persona_dir = tmp_path / "persona"
+    persona_dir.mkdir()
+    tool = UpdatePersonalityTool(base_memory_path=str(persona_dir))
+
+    result = await tool.execute("Nói ngắn hơn.")
+
+    assert result == "Lỗi: Thiếu target_file."
+
+
+@pytest.mark.asyncio
+async def test_update_personality_rejects_target_paths(tmp_path):
+    persona_dir = tmp_path / "persona"
+    persona_dir.mkdir()
+    tool = UpdatePersonalityTool(base_memory_path=str(persona_dir))
+
+    result = await tool.execute("bad", target_file="../SOUL.md")
+
+    assert result.startswith("Lỗi:")
+    assert not (tmp_path / "SOUL.md").exists()

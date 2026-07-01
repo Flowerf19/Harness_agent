@@ -99,7 +99,7 @@ Primary command:
 uv run pytest tests/unit/agent_loop_test.py -q
 ```
 
-If pytest plugin autoload fails with `ModuleNotFoundError: phoenix.evals.models`, retry with plugin autoload disabled if the project supports it:
+If pytest plugin autoload fails because of an unrelated global pytest plugin, retry with plugin autoload disabled if the project supports it:
 
 ```bash
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run pytest tests/unit/agent_loop_test.py -q

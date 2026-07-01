@@ -32,14 +32,18 @@ class BaseLLMService(abc.ABC):
         self._persona_path = persona_path
 
         # Load file tính cách từ Markdown (Static Persona)
+        self.static_rules = self._load_shared_prompt("RULES.md")
         self.static_identity = self._load_prompt("IDENTITY.md")
         self.static_soul = self._load_prompt("SOUL.md")
+        self.static_persona_extras = self._load_extra_persona_prompts()
         self.tool_prompt_catalog = None
 
     def reload_persona_prompts(self) -> None:
         """Reload persona Markdown after a runtime persona update."""
+        self.static_rules = self._load_shared_prompt("RULES.md")
         self.static_identity = self._load_prompt("IDENTITY.md")
         self.static_soul = self._load_prompt("SOUL.md")
+        self.static_persona_extras = self._load_extra_persona_prompts()
         self.logger.info("Persona prompts đã được reload")
 
     def set_tool_registry(self, tool_registry) -> None:
@@ -71,6 +75,51 @@ class BaseLLMService(abc.ABC):
             self.logger.error(f"❌ Error loading prompt {filename}: {e}")
             return ""
 
+    def _load_shared_prompt(self, filename: str) -> str:
+        """Load optional shared prompt content."""
+        try:
+            base_dir = os.path.dirname(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            )
+            filepath = os.path.join(base_dir, "twin", "shared", "personas", filename)
+            if not os.path.exists(filepath):
+                return ""
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                self.logger.debug(f"✅ Loaded shared prompt: {filename}")
+                return content
+        except Exception as e:
+            self.logger.error(f"❌ Error loading shared prompt {filename}: {e}")
+            return ""
+
+    def _load_extra_persona_prompts(self) -> list[str]:
+        """Load non-empty persona Markdown files beyond IDENTITY.md and SOUL.md."""
+        try:
+            base_dir = os.path.dirname(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            )
+            persona_dir = os.path.join(base_dir, self._persona_path)
+            if not os.path.isdir(persona_dir):
+                return []
+
+            prompts: list[str] = []
+            for filename in sorted(os.listdir(persona_dir)):
+                if filename in {"IDENTITY.md", "SOUL.md"}:
+                    continue
+                if filename.startswith(".") or not filename.endswith(".md"):
+                    continue
+                filepath = os.path.join(persona_dir, filename)
+                if not os.path.isfile(filepath):
+                    continue
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                if content:
+                    prompts.append(f"## {filename}\n{content}")
+            return prompts
+        except Exception as e:
+            self.logger.error(f"❌ Error loading extra persona prompts: {e}")
+            return []
+
     def _build_final_system_prompt(self, dynamic_core_prompt: str = "", include_tool_catalog: bool = True) -> str:
         """
         Trộn lẫn Tính cách tĩnh (từ file .md) và Trí nhớ Tiềm thức (Từ Tầng 3).
@@ -83,10 +132,14 @@ class BaseLLMService(abc.ABC):
         parts = []
 
         # 1. Nhét tính cách gốc của Bot vào trước (IDENTITY.md và SOUL.md)
-        if self.static_identity:
-            parts.append(f"=== NHÂN CÁCH CỦA BẠN ===\n{self.static_identity}")
-        if self.static_soul:
-            parts.append(f"=== HƯỚNG DẪN HỘI THOẠI ===\n{self.static_soul}")
+        identity_parts = [part for part in (self.static_identity, *self.static_persona_extras) if part]
+        if identity_parts:
+            identity_prompt = "\n\n".join(identity_parts)
+            parts.append(f"=== NHÂN CÁCH CỦA BẠN ===\n{identity_prompt}")
+        soul_parts = [part for part in (self.static_rules, self.static_soul) if part]
+        if soul_parts:
+            soul_prompt = "\n\n".join(soul_parts)
+            parts.append(f"=== HƯỚNG DẪN HỘI THOẠI ===\n{soul_prompt}")
 
         # 2. Nhét micro-catalog tool. Full guide chỉ load sau khi chọn tool.
         if include_tool_catalog and self.tool_prompt_catalog:

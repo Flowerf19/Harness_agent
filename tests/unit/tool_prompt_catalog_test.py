@@ -169,6 +169,16 @@ def test_final_system_prompt_uses_micro_catalog_not_persona_tool_md():
     assert "dynamic memory" in prompt
 
 
+def test_final_system_prompt_includes_shared_persona_rules():
+    llm = DummyLLMService(persona_path="twin/march7/personas")
+
+    prompt = llm._build_final_system_prompt("")
+
+    assert "## Luật chung" in prompt
+    assert "## March 7th / Bé Bảy" in prompt
+    assert "## Cách nói" in prompt
+
+
 def test_current_tool_backend_classification():
     backends_by_class = {
         spec.class_name: spec.backend
