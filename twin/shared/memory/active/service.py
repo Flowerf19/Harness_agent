@@ -1,7 +1,9 @@
 """ActiveMemory facade — orchestrates observe/get_context/trim + thresholds."""
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
@@ -11,6 +13,7 @@ from twin.shared.memory.active.constants import (
     TOKEN_THRESHOLD,
     TOPIC_SHIFT_MIN_CONFIDENCE,
     TOPIC_SHIFT_MIN_STABLE_TURNS,
+    TRIGGER_COOLDOWN_SECONDS,
 )
 from twin.shared.memory.active.detector import FastPathDetector
 from twin.shared.memory.active.models import ActiveEntry
@@ -40,6 +43,9 @@ class ActiveMemory:
         self.detector = detector
         self.token_counter = token_counter or _default_token_counter
         self.trigger_callback = trigger_callback
+        self._in_progress: set[tuple[str, str]] = set()
+        self._pending_tasks: set[asyncio.Task] = set()
+        self._cooldown_until: dict[tuple[str, str], float] = {}
 
     async def observe(
         self,
@@ -71,13 +77,8 @@ class ActiveMemory:
         )
         await self.store.save(entry)
 
-        state = await self.store.get_state(scope, scope_id)
-        new_total = state["unsummarized_tokens"] + tokens
-        await self.store.update_state(
-            scope,
-            scope_id,
-            unsummarized_tokens=new_total,
-            last_entry_ts=entry.created_at.timestamp(),
+        new_total = await self.store.increment_tokens(
+            scope, scope_id, tokens, last_entry_ts=entry.created_at.timestamp()
         )
 
         if role == "user":
@@ -92,16 +93,55 @@ class ActiveMemory:
                 )
 
         if new_total >= TOKEN_THRESHOLD and self.trigger_callback is not None:
-            logger.info(
-                "T1: threshold reached (%d>=%d) scope=%s/%s — triggering consolidator",
-                new_total,
-                TOKEN_THRESHOLD,
-                scope,
-                scope_id,
-            )
-            await self.trigger_callback(scope, scope_id)
+            self._maybe_fire_trigger(scope, scope_id, new_total)
 
         return entry
+
+    def _maybe_fire_trigger(self, scope: str, scope_id: str, new_total: int) -> None:
+        key = (scope, scope_id)
+        if key in self._in_progress:
+            logger.info(
+                "memory.trigger_skipped scope=%s/%s reason=in_progress", scope, scope_id,
+            )
+            return
+        cooldown_until = self._cooldown_until.get(key)
+        if cooldown_until is not None and time.monotonic() < cooldown_until:
+            logger.info(
+                "memory.trigger_skipped scope=%s/%s reason=cooldown remaining_s=%.1f",
+                scope, scope_id, cooldown_until - time.monotonic(),
+            )
+            return
+
+        logger.info(
+            "T1: threshold reached (%d>=%d) scope=%s/%s — triggering consolidator",
+            new_total,
+            TOKEN_THRESHOLD,
+            scope,
+            scope_id,
+        )
+        self._in_progress.add(key)
+        # asyncio.create_task() copies the current contextvars.Context at
+        # creation time, so this detached task automatically inherits the
+        # caller's active LangSmith run (set via contextvars) and shows up as
+        # a child of the originating message-handling trace — no manual
+        # parent-header plumbing needed here (unlike the cross-process A2A
+        # path, which does need it; see observability.a2a_parent_headers()).
+        task = asyncio.create_task(self.trigger_callback(scope, scope_id))
+        self._pending_tasks.add(task)
+        task.add_done_callback(lambda t: self._on_trigger_done(key, t))
+
+    def _on_trigger_done(self, key: tuple[str, str], task: asyncio.Task) -> None:
+        self._pending_tasks.discard(task)
+        self._in_progress.discard(key)
+        self._cooldown_until[key] = time.monotonic() + TRIGGER_COOLDOWN_SECONDS
+        exc = task.exception() if not task.cancelled() else None
+        if exc is not None:
+            logger.error(
+                "T1: consolidation trigger failed scope=%s/%s: %s",
+                *key,
+                exc,
+                exc_info=exc,
+            )
 
     async def get_context(
         self, scope: str, scope_id: str, *, limit: int = 50

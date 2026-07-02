@@ -85,12 +85,15 @@ class EvernightAgent:
             logger.error(f"Evernight: Consolidation failed: {e}", exc_info=True)
             return False
 
-    async def consolidate_via_tool(self, scope: str = "user", scope_id: str = "", reason: str = "manual", max_messages: int = 200) -> dict:
+    async def consolidate_via_tool(self, scope: str = "user", scope_id: str = "", reason: str = "manual", max_messages: int = 200, entries: list[dict] | None = None) -> dict:
         """
         New consolidation flow: use consolidate_memory tool directly.
 
         This replaces the old pipeline (Extractor → PromotionGuard → Cleanup → Curator)
         with a single LLM call via the Summarizer prompt.
+
+        When ``entries`` are shipped over A2A, the tool consolidates them directly
+        instead of reading Evernight's own (empty for the requester's scopes) T1.
 
         Returns: dict with status, timeline_summary, profile_updates, etc.
         """
@@ -114,6 +117,7 @@ class EvernightAgent:
                 scope_id=scope_id,
                 reason=reason,
                 max_messages=max_messages,
+                entries=entries,
                 langsmith_extra=langsmith_extra(
                     tags=["evernight", "memory", "consolidation"],
                     metadata={

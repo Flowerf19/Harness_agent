@@ -968,3 +968,103 @@ $ git status --short twin/
   1. Evernight T2 msg1 vẫn không thể hiện rõ pronoun "ta" (không phải fail rõ ràng, nhưng chưa đạt 3/3) — voice enforcement cải thiện nhưng chưa hoàn hảo 100%, còn variance giữa các lần gọi.
   2. T4 (update_personality qua chat) vẫn bị bot refuse — pattern lặp lại từ các round trước, xác nhận đây là gap đã biết (identity/owner-privilege refusal), không phải regression của thay đổi lần này. Guide `update_personality.md` viết lại chưa được exercise thật qua E2E vì bot không gọi tool.
   3. Lệch nhỏ giữa plan frontmatter (mô tả "working-tree, chưa commit") và thực tế (đã commit `60d0cc4`/`71ff058`) — ghi nhận để owner biết trạng thái branch đã tiến xa hơn lúc viết plan, nhưng không ảnh hưởng tính hợp lệ của kết quả test vì nội dung code khớp đúng mô tả C1/C2/C3.
+
+## Embedding qwen3 + consolidation fix (2026-07-02, commit cda3330 + include_persona WIP)
+
+- **Ngày test**: 2026-07-02, ~09:20-17:xx (nhiều lượt seed + T5 cuối chiều)
+- **Môi trường**: host Linux + docker (march7, evernight, march7-redis, march7-codebox, march7-bash-executor — tất cả healthy), chrome-devtools MCP điều khiển Discord web
+- **Plan**: `.agents/plans/e2e-test-embedding-recall/plan-qwen3-consolidation.md`
+- **Test channel**: `1487427038280421456` (🤖｜bé-bảy)
+- **Evernight DM**: `1503774194440212571`
+- **Owner Discord user**: `726302130318868500`
+- **Change under test**: commit `cda3330` (embedding e5-small → qwen3-embedding:0.6b, dim 1024, gate `T2_MIN_COSINE=0.45`, empty prefixes; consolidation `reasoning_effort=low` + `max_tokens=4000`; trace logger import fix) + working-tree WIP `include_persona=False` cho consolidation summarizer.
+
+### TL;DR
+
+| Test | Kỳ vọng | Kết quả thực | Verdict |
+|---|---|---|---|
+| **T1** (seed consolidation) | `status=ok`, T2 keys > 0 sau khi T1 vượt 2000 token | 4 tin seed đẩy T1 lên 111 entries / **2800 token** (> ngưỡng 2000) → auto-trigger bắn liên tục, nhưng **MỌI lần** trả về `status=skipped, reason=no_messages, messages=0` — T2 vẫn **0 keys** đến hết test | ❌ **FAIL** |
+| **T2** (recall hit, n=2) | ≥1/2 reply nhắc đúng ký ức đã seed, trace có SEARCH cosine≥0.45 | 0/2 — reply Prompt A/B *nghe giống* recall (nhắc "phở/bún chả", "React/TypeScript") nhưng **KHÔNG phải T2 semantic recall thật**: `data/embedding_trace.jsonl` có **0 dòng `event_type=SEARCH`** trong suốt test (chỉ toàn `EMBED`). Đây là T1 context leakage thô (105-111 message T1 chưa từng được trim vì consolidate không bao giờ chạy) | ❌ **FAIL** (0/2 genuine hit — recall giả) |
+| **T3** (gate chặn rác) | Query lệch topic ("thời tiết") không kéo summary rác nào | Kỹ thuật *sạch* — không có summary nào (vì T2 rỗng) nên gate không có gì để lọc/không lọc | ⚠️ **PASS-trivial** (không chứng minh được gate hoạt động, vì T2 chưa từng có dữ liệu để test gate) |
+| **T4** (voice + leak, gộp T1-T3) | Giọng "tui" + `:v/:3/=)))`, no markdown, không leak `[context cũ]`, không nhắc "host tool" vô cớ | Giọng "tui" + icon giữ nguyên xuyên suốt, no markdown, **không** xuất hiện `[context cũ]` leak, **không** nhắc "host tool"/"system_gateway". Ghi nhận phụ (không tính fail): bot 2 lần tự nhắc thuật ngữ nội bộ "ghi vô hồ sơ T3" | ✅ **PASS** (+ 1 ghi nhận nhỏ về leak thuật ngữ tầng nhớ) |
+| **T5** (Evernight voice, DM) | Xưng "ta", giọng điềm tĩnh/tối, no markdown | Reply: *"Đêm nay có ta ở đây rồi."* / *"Bé Bảy đang ngủ. Cậu muốn nói gì thì nói — ta nghe."* — xưng "ta" nhất quán, giọng tĩnh lặng đúng bối cảnh đêm khuya, không markdown. Không test T2 recall (per owner) | ✅ **PASS** |
+
+**Overall: ❌ FAIL** — theo §5 của plan, PASS đòi hỏi cả T1 `status=ok` AND T2 ≥1/2 hit thật AND T3 gate chặn rác chứng minh được. T1 fail chặn toàn bộ chuỗi: T2 không có dữ liệu thật để recall, T3 không có gì để gate lọc nên "pass" chỉ là trivial.
+
+### Bằng chứng trace host — ĐIỂM MẤU CHỐT: 0 dòng SEARCH trong suốt test
+
+```bash
+$ wc -l data/embedding_trace.jsonl
+16 data/embedding_trace.jsonl
+$ python3 -c "
+import json
+from collections import Counter
+c = Counter()
+with open('data/embedding_trace.jsonl') as f:
+    for l in f:
+        d = json.loads(l)
+        c[d.get('event_type')] += 1
+print(c)"
+Counter({'EMBED': 16})
+```
+
+Toàn bộ 16 dòng trace (từ trước lúc bắt đầu test tới hết T3) đều là `event_type: "EMBED"` — **KHÔNG một dòng `SEARCH` nào**. Ví dụ các dòng EMBED tương ứng đúng thứ tự tin nhắn T1/T2/T3 đã gửi:
+
+```json
+{"timestamp":"2026-07-02T10:21:27...","event_type":"EMBED","model_name":"qwen3-embedding:0.6b","vector_dim":1024,"l2_norm":1.0,"input_text":"Bảy ơi tui tên Hòa, tui mê ăn phở với bún chả lắm", ...}
+{"timestamp":"2026-07-02T10:23:19...","event_type":"EMBED", ..., "input_text":"tui đang làm một dự án web bằng React với TypeScript, hơi khó", ...}
+{"timestamp":"2026-07-02T10:30:13...","event_type":"EMBED", ..., "input_text":"Bảy ơi cuối tuần này tui nên nấu món gì ngon?", ...}   ← T2 Prompt A query embed
+{"timestamp":"2026-07-02T10:34:31...","event_type":"EMBED", ..., "input_text":"Bảy ơi tui đang debug cái project hoài không xong", ...}   ← T2 Prompt B query embed
+{"timestamp":"2026-07-02T10:38:43...","event_type":"EMBED", ..., "input_text":"Bảy ơi thời tiết hôm nay thế nào?", ...}   ← T3 query embed
+```
+
+`vector_dim=1024`, `l2_norm=1.0`, model `qwen3-embedding:0.6b` — **đúng cấu hình mới** ở mọi entry (xác nhận C1 phần embedding infra đã lên đúng). Nhưng vì `timeline_summary_store.search()` luôn trả `[]` (T2 có 0 document), `_trace_search_results()` trong `manager.py` không bao giờ chạy vòng lặp log SEARCH — nghĩa là **không có bất kỳ semantic recall thật nào xảy ra** trong toàn bộ T1-T3, dù reply của Bé Bảy trông tự nhiên như thể đã "nhớ".
+
+### Root cause đã điều tra: Redis DB split giữa March7 (ghi T1) và Evernight (đọc T1 khi consolidate)
+
+```bash
+$ docker exec march7-redis redis-cli -n 0 ZCARD "active_index:channel:1487427038280421456"
+111        # March7 ghi T1 channel vào DB0 — CÓ dữ liệu
+$ docker exec march7-redis redis-cli -n 1 ZCARD "active_index:channel:1487427038280421456"
+0          # Evernight đọc T1 channel từ DB1 (qua ConsolidateMemoryTool) — RỖNG
+$ docker exec march7-redis redis-cli -n 0 HGET "active_state:channel:1487427038280421456" unsummarized_tokens
+2800       # vượt xa TOKEN_THRESHOLD=2000, nhưng Evernight không thấy vì đọc sai DB
+$ docker logs evernight --since 12m | grep -iE 'Consolidat|status='
+... Consolidating via tool for scope=channel/1487427038280421456, reason=auto
+... Consolidation completed for scope=channel/1487427038280421456, status=skipped, messages=0
+```
+
+- `.env`: `MARCH7_REDIS_DB=0`, `EVERNIGHT_REDIS_DB=1`.
+- `twin/shared/agent/runtime.py:52` (`build_shared_agent_runtime`): `redis_client = await connect_redis(redis_db)` (T1 `ActiveStore`, dùng **`redis_db` riêng của từng service**) trong khi `timeline_redis_client = await connect_redis(timeline_db)` (T2, dùng chung `TIMELINE_REDIS_DB=0`). T1 tách theo service, T2 dùng chung — bất đối xứng này là nguyên nhân gốc.
+- Khi March7's gateway ghi tin nhắn kênh vào T1 (scope=channel), nó ghi vào **DB0**. Khi Evernight nhận A2A `consolidate_discussion` và tự đọc T1 qua `ConsolidateMemoryTool._read_t1_context()` → `self.memory_manager.t1.get_context(...)`, `memory_manager.t1` của Evernight lại trỏ tới **DB1** — hoàn toàn không thấy 111 entries March7 vừa ghi ở DB0. Kết quả: `_read_t1_context()` luôn trả `[]` → tool short-circuit `status=skipped, reason=no_messages` trước khi kịp gọi LLM summarizer hay chạm tới embedding/T2 — **bất kể gửi bao nhiêu tin hay token vượt ngưỡng bao nhiêu**.
+- Đây là bug cấu trúc/config, **không phải regression của C1 (embedding)/C2 (consolidation speed)/C3 (voice)** đang test hôm nay — nhiều khả năng verify "in-container" trước đó (đề cập ở plan §0: "consolidation call 3.9s ra JSON đúng") đã test trực tiếp `ConsolidateMemoryTool` trong container Evernight với dữ liệu tự seed vào DB1 (scope=user, DM riêng), né được đường thật March7-ghi → Evernight-đọc mà lưu lượng Discord channel thật đi qua.
+
+### So sánh với round e5-small trước
+
+Plan (`plan-qwen3-consolidation.md:138`) nêu round e5-small trước: *"mọi query cosine 0.85-0.92, kéo cùng rác host_system"*. Không tìm thấy report section riêng cho round e5-small đó trong `tests/e2e/REPORT.md` (đã grep toàn file, không có match "e5-small"/"cosine" nào trước section này) — số liệu 0.85-0.92 được trích dẫn từ plan như bối cảnh nền, chưa tự verify lại được bằng dữ liệu thô của round đó.
+
+Vì T2 chưa từng có document thật trong round này (bug DB-split chặn hoàn toàn), **không thể so sánh cosine qwen3 thật vs e5-small thật** — đây là gap lớn nhất của lượt test: hạ tầng embedding (dim 1024, l2_norm=1.0, model đúng) đã lên đúng, nhưng **chưa một lần nào chứng minh được recall thật + gate lọc thật hoạt động** vì đường ghi/đọc T1 bị đứt ở tầng consolidation.
+
+### Consolidation timing thật
+
+```
+2026-07-02 10:38:39,701  a2a_server: handling consolidate_discussion via tool
+2026-07-02 10:38:39,703  ConsolidateMemoryTool: scope=channel ... max_messages=200
+2026-07-02 10:38:39,706  Consolidation completed, status=skipped, messages=0
+```
+Latency ~3-5ms — **không timeout** (xác nhận C2 phần "không còn treo 300s" là đúng), nhưng vì short-circuit tại `_read_t1_context()` rỗng, latency thấp này **không phản ánh việc consolidation thật đã chạy nhanh** — nó chỉ đo thời gian trả về sớm khi không thấy message nào. Chưa có bằng chứng nào trong round này về thời gian consolidation thật (LLM summarizer + embed + store T2) vì lần nào cũng skip trước khi tới bước đó.
+
+### Screenshots
+
+- `tests/e2e/screenshots/2026-07-02-embedding-recall/T1-seed-messages.png`
+- `tests/e2e/screenshots/2026-07-02-embedding-recall/T2-T3-recall-gate.png`
+- `tests/e2e/screenshots/2026-07-02-embedding-recall/T5-evernight-voice.png`
+
+### Kết luận & gap
+
+1. **FAIL chính**: T1 auto-consolidation không bao giờ đạt `status=ok` cho lưu lượng kênh Discord thật, do March7 (ghi T1 kênh vào Redis DB0) và Evernight (đọc T1 khi consolidate qua Redis DB1) tách biệt Redis DB — bug cấu trúc ở `twin/shared/agent/runtime.py:52` kết hợp `.env` (`MARCH7_REDIS_DB=0` / `EVERNIGHT_REDIS_DB=1`), không phải regression của C1/C2/C3 hôm nay.
+2. **Hệ quả**: T2 (recall) và T3 (gate) không thể verify thật vì T2 store chưa từng nhận document nào trong suốt vòng test — "recall" quan sát được ở T2 Prompt A/B là T1 context leakage thô (chưa trim), không phải embedding semantic search.
+3. **C1 hạ tầng OK riêng lẻ**: mọi EMBED trace đều đúng model/dim/l2_norm mới (`qwen3-embedding:0.6b`, dim=1024, l2_norm=1.0) — phần sinh embedding hoạt động đúng, chỉ là chưa bao giờ có cơ hội test recall/gate thật.
+4. **C3 (voice/leak) sạch**: T4 PASS — giọng Bé Bảy đúng ("tui", icon, no markdown), không leak `[context cũ]`, không nhắc host tool vô cớ. Ghi nhận phụ: 2 lần bot tự nhắc thuật ngữ nội bộ "hồ sơ T3" trong reply — rò rỉ thuật ngữ tầng nhớ nhẹ, không nằm trong tiêu chí pass/fail của plan nhưng nên theo dõi.
+5. **T5 (Evernight) PASS** sạch — xưng "ta", giọng điềm tĩnh, no markdown.
+6. **Khuyến nghị cho owner**: cần quyết định T1 (Active Memory) nên share chung 1 Redis DB giữa march7/evernight (giống T2 hiện tại dùng chung `TIMELINE_REDIS_DB`) hay giữ tách biệt nhưng sửa lại luồng A2A consolidate để March7 gửi kèm T1 context thật (thay vì để Evernight tự đọc T1 từ DB riêng của nó) — đây là quyết định thiết kế, không tự ý sửa theo constraint của test này.

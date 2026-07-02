@@ -77,6 +77,46 @@ async def test_call_with_langsmith_extra_skips_plain_functions_when_tracing_is_o
     assert result == "ok"
 
 
+def test_add_current_run_metadata_noop_when_tracing_is_off(monkeypatch):
+    monkeypatch.delenv("LANGSMITH_TRACING", raising=False)
+    monkeypatch.delenv("LANGSMITH_TRACING_V2", raising=False)
+    monkeypatch.delenv("LANGCHAIN_TRACING", raising=False)
+    monkeypatch.delenv("LANGCHAIN_TRACING_V2", raising=False)
+
+    def boom():
+        raise AssertionError("should not be called when tracing is disabled")
+
+    monkeypatch.setattr(observability, "get_current_run_tree", boom)
+
+    # Must not raise even though get_current_run_tree would blow up if reached.
+    observability.add_current_run_metadata({"entries_shipped": 3})
+
+
+def test_add_current_run_metadata_noop_when_no_active_run(monkeypatch):
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setattr(observability, "get_current_run_tree", lambda: None)
+
+    # No active run tree — silently does nothing, no exception.
+    observability.add_current_run_metadata({"entries_shipped": 3})
+
+
+def test_add_current_run_metadata_merges_into_active_run(monkeypatch):
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    captured = {}
+
+    class FakeRunTree:
+        def add_metadata(self, metadata):
+            captured["metadata"] = metadata
+
+    monkeypatch.setattr(observability, "get_current_run_tree", lambda: FakeRunTree())
+
+    observability.add_current_run_metadata({"entries_shipped": 2, "trimmed": 0})
+
+    assert captured["metadata"]["entries_shipped"] == 2
+    assert captured["metadata"]["trimmed"] == 0
+    assert captured["metadata"]["trace_module"] == "model_semantic_0trace"
+
+
 def test_langsmith_extra_and_trace_output_summaries_are_compact():
     extra = observability.langsmith_extra(tags=["chat", "chat", "march7"])
 

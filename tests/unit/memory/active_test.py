@@ -1,6 +1,7 @@
 """Unit tests for T1 active memory."""
 from __future__ import annotations
 
+import asyncio
 import json
 from unittest.mock import AsyncMock
 
@@ -13,7 +14,8 @@ from twin.shared.memory.active.store import ActiveStore
 class FakeRedis:
     """In-memory stand-in for redis.asyncio supporting the subset T1 needs.
 
-    Supports: JSON.SET / JSON.GET, ZADD / ZRANGE / ZREM, HSET / HGETALL, DELETE.
+    Supports: JSON.SET / JSON.GET, ZADD / ZRANGE / ZREM, HSET / HGETALL /
+    HINCRBY, DELETE.
     """
 
     def __init__(self) -> None:
@@ -58,6 +60,13 @@ class FakeRedis:
         bucket.update(mapping)
         return len(mapping)
 
+    async def hincrby(self, key: str, field: str, amount: int = 1):
+        bucket = self.hashes.setdefault(key, {})
+        current = int(bucket.get(field, 0) or 0)
+        new_value = current + amount
+        bucket[field] = str(new_value)
+        return new_value
+
     async def hgetall(self, key: str):
         return dict(self.hashes.get(key, {}))
 
@@ -97,6 +106,19 @@ async def test_observe_appends_and_bumps_tokens():
     assert state["unsummarized_tokens"] > 0
     entries = await mem.get_context("user", "u1")
     assert len(entries) == 2
+
+
+@pytest.mark.asyncio
+async def test_observe_concurrent_updates_both_counted():
+    # Regression: two concurrent observes on the same scope must not lose an
+    # update via a read-then-write race on unsummarized_tokens.
+    mem = _make_memory(token_counter=lambda _: 10)
+    await asyncio.gather(
+        mem.observe("user", "u1", "user", "first"),
+        mem.observe("user", "u1", "user", "second"),
+    )
+    state = await mem.store.get_state("user", "u1")
+    assert state["unsummarized_tokens"] == 20
 
 
 @pytest.mark.asyncio
@@ -194,6 +216,8 @@ async def test_threshold_trigger_fires():
     trigger = AsyncMock()
     mem = _make_memory(token_counter=lambda _: 2100, trigger=trigger)
     await mem.observe("user", "u1", "user", "anything")
+    # Trigger now fires as a background task, not awaited inline.
+    await asyncio.sleep(0)
     trigger.assert_awaited_once_with("user", "u1")
 
 
@@ -203,6 +227,54 @@ async def test_threshold_not_fire_below():
     mem = _make_memory(token_counter=lambda _: 1000, trigger=trigger)
     await mem.observe("user", "u1", "user", "anything")
     trigger.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_threshold_trigger_does_not_block_observe():
+    # observe() must return before the trigger callback resolves.
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_trigger(scope, scope_id):
+        started.set()
+        await release.wait()
+
+    mem = _make_memory(token_counter=lambda _: 2100, trigger=slow_trigger)
+    await mem.observe("user", "u1", "user", "anything")
+    await asyncio.wait_for(started.wait(), timeout=1)
+    assert not release.is_set()  # sanity: trigger is still in flight
+    release.set()
+    # Drain the background task so it doesn't leak into other tests.
+    await asyncio.gather(*mem._pending_tasks)
+
+
+@pytest.mark.asyncio
+async def test_threshold_trigger_skips_when_already_in_progress():
+    async def slow_side_effect(*_args):
+        await asyncio.sleep(0.05)
+
+    trigger = AsyncMock(side_effect=slow_side_effect)
+    mem = _make_memory(token_counter=lambda _: 2100, trigger=trigger)
+    await mem.observe("user", "u1", "user", "first")
+    # Second observe while the first trigger is still in flight.
+    await mem.observe("user", "u1", "user", "second")
+    await asyncio.gather(*mem._pending_tasks)
+    trigger.assert_awaited_once_with("user", "u1")
+
+
+@pytest.mark.asyncio
+async def test_threshold_trigger_respects_cooldown_after_completion():
+    trigger = AsyncMock()
+    mem = _make_memory(token_counter=lambda _: 2100, trigger=trigger)
+    await mem.observe("user", "u1", "user", "first")
+    await asyncio.gather(*mem._pending_tasks)
+    trigger.assert_awaited_once_with("user", "u1")
+
+    # Tokens are still >= threshold (e.g. consolidation returned skipped),
+    # but we're within the cooldown window, so no re-fire.
+    await mem.observe("user", "u1", "user", "second")
+    await asyncio.sleep(0)
+    trigger.assert_awaited_once_with("user", "u1")
 
 
 # ---------------- topic shift / push_catalog ----------------

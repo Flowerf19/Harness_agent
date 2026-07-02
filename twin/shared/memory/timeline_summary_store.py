@@ -81,8 +81,17 @@ class TimelineSummaryStore:
     async def initialize(self) -> None:
         """Create Redis index (schema v2) if not exists."""
         try:
-            await self.redis.execute_command("FT.INFO", self.index_name)
+            info = await self.redis.execute_command("FT.INFO", self.index_name)
             logger.info("Timeline index already exists")
+            indexed_dim = self._extract_indexed_dim(info)
+            if indexed_dim is not None and indexed_dim != self.embedding_dim:
+                logger.error(
+                    "Timeline index %r is indexed with DIM=%d but the configured "
+                    "embedding_dim=%d — writes/searches will silently fail to index "
+                    "or will target the wrong vector space. A reindex is required "
+                    "(this will NOT auto-drop the index).",
+                    self.index_name, indexed_dim, self.embedding_dim,
+                )
         except Exception:
             await self.redis.execute_command(
                 "FT.CREATE", self.index_name,
@@ -103,6 +112,43 @@ class TimelineSummaryStore:
             )
             logger.info("Created timeline index (schema v2, dim=%d)", self.embedding_dim)
 
+    @staticmethod
+    def _extract_indexed_dim(info: Any) -> int | None:
+        """Best-effort extraction of the VECTOR field's DIM from an FT.INFO reply.
+
+        Handles both the RESP2 nested-array shape and the RESP3 dict/map shape;
+        returns None (no-op) if the shape is unrecognized rather than raising —
+        this is a diagnostic, not something that should break startup.
+        """
+        try:
+            def _flatten(seq: Any) -> list[Any]:
+                if isinstance(seq, dict):
+                    flat: list[Any] = []
+                    for k, v in seq.items():
+                        flat.append(k)
+                        flat.append(v)
+                    return flat
+                return list(seq)
+
+            top = _flatten(info)
+            for i, key in enumerate(top):
+                key_str = key.decode() if isinstance(key, bytes) else key
+                if key_str == "attributes" and i + 1 < len(top):
+                    for attr in top[i + 1]:
+                        fields = _flatten(attr)
+                        field_map = {}
+                        for j in range(0, len(fields) - 1, 2):
+                            fk = fields[j]
+                            fk = fk.decode() if isinstance(fk, bytes) else fk
+                            field_map[fk] = fields[j + 1]
+                        field_type = field_map.get("type")
+                        field_type = field_type.decode() if isinstance(field_type, bytes) else field_type
+                        if field_type == "VECTOR" and "dim" in field_map:
+                            return int(field_map["dim"])
+            return None
+        except Exception:
+            return None
+
     # ---------------------------------------------------------------- write
 
     async def store_summary(
@@ -115,11 +161,20 @@ class TimelineSummaryStore:
         topic_display: str = "",
         importance: int = 3,
     ) -> str:
-        """Store a topic summary; return summary_id."""
+        """Store a topic summary; return summary_id.
+
+        Raises:
+            ValueError: if the embedding's dim doesn't match the index's DIM.
+                Storing anyway used to be a silent no-op: RediSearch can't
+                index the hash (hash_indexing_failures) and the summary
+                becomes unsearchable forever. Callers (ConsolidateMemoryTool)
+                already wrap per-topic store calls in try/except, so this
+                fails just that topic, not the whole consolidation.
+        """
         if len(embedding) != self.embedding_dim:
-            logger.warning(
-                "store_summary: embedding dim mismatch — got %d, expected %d (user=%s)",
-                len(embedding), self.embedding_dim, user_id,
+            raise ValueError(
+                f"store_summary: embedding dim mismatch — got {len(embedding)}, "
+                f"expected {self.embedding_dim} (user={user_id})"
             )
 
         entry = TimelineSummary(
@@ -178,10 +233,25 @@ class TimelineSummaryStore:
         knn_results = await self._search_knn(user_id, query_embedding, limit, topic_filter)
 
         if not query_text:
-            return knn_results
+            return self._gate_by_similarity(knn_results)
 
         bm25_results = await self._search_bm25(user_id, query_text, limit, topic_filter)
-        return _rrf_fuse(knn_results, bm25_results, limit=limit)
+
+        # Fuse WITHOUT truncation, then gate, THEN apply the final limit. If we
+        # truncated to `limit` first, a gated doc ranked inside the fused top-N
+        # would consume a slot and then get stripped, so a valid doc ranked just
+        # below it is lost — under-returning even when enough valid docs exist.
+        fused = _rrf_fuse(
+            knn_results, bm25_results, limit=len(knn_results) + len(bm25_results),
+        )
+
+        # A doc the cosine gate would drop from KNN must not re-enter through
+        # BM25's ungated results. Compute the ids the gate rejects from the raw
+        # KNN hits and strip them from the fused output; BM25-only docs (never
+        # seen by KNN, so not in gated_ids) pass through untouched.
+        kept_ids = {d.get("summary_id") for d in self._gate_by_similarity(knn_results)}
+        gated_ids = {d.get("summary_id") for d in knn_results} - kept_ids
+        return [d for d in fused if d.get("summary_id") not in gated_ids][:limit]
 
     async def _search_knn(
         self,
@@ -190,7 +260,9 @@ class TimelineSummaryStore:
         limit: int,
         topic_filter: str | None,
     ) -> list[dict[str, Any]]:
-        """KNN semantic search."""
+        """KNN semantic search. Returns raw hits ungated — callers apply the
+        cosine gate (search() gates directly for pure-KNN, or post-fusion for
+        hybrid so BM25 can't smuggle a gated-out doc back in)."""
         tag_filter = f"@user_id:{{{user_id}}}"
         if topic_filter:
             tag_filter += f" @topic:{{{topic_filter}}}"
@@ -205,7 +277,7 @@ class TimelineSummaryStore:
                 "LIMIT", "0", str(limit),
                 "DIALECT", "2",
             )
-            return self._gate_by_similarity(self._parse_results(results))
+            return self._parse_results(results)
         except Exception as exc:
             logger.error("Timeline KNN search failed: %s", exc)
             return []

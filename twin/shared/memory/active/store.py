@@ -131,6 +131,20 @@ class ActiveStore:
             "recent_catalogs": json.loads(decoded.get("recent_catalogs") or "[]"),
         }
 
+    async def increment_tokens(
+        self, scope: str, scope_id: str, tokens: int, *, last_entry_ts: float | None = None
+    ) -> int:
+        """Atomically add `tokens` to unsummarized_tokens; return the new total.
+
+        Uses HINCRBY so concurrent observes on the same scope never lose an
+        update the way a read-then-write via get_state/update_state would.
+        """
+        key = self._state_key(scope, scope_id)
+        new_total = await self.redis.hincrby(key, "unsummarized_tokens", tokens)
+        if last_entry_ts is not None:
+            await self.redis.hset(key, mapping={"last_entry_ts": str(float(last_entry_ts))})
+        return int(new_total)
+
     async def update_state(
         self,
         scope: str,

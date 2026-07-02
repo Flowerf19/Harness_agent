@@ -29,17 +29,22 @@ class ConsolidationClient:
         scope_id: str,
         reason: str = "auto",
         max_messages: int = 200,
+        entries: list[dict] | None = None,
     ) -> dict[str, Any]:
         """
         Send consolidation request to Evernight.
-        
+
+        ``entries`` carries THIS agent's own T1 snapshot so Evernight can
+        consolidate the shipped messages instead of reading its (empty for our
+        scopes) local T1.
+
         Returns dict with status, timeline_summary, profile_updates, etc.
         """
         logger.info(
-            "ConsolidationClient: requesting consolidation scope=%s scope_id=%s reason=%s",
-            scope, scope_id, reason,
+            "ConsolidationClient: requesting consolidation scope=%s scope_id=%s reason=%s entries=%d",
+            scope, scope_id, reason, len(entries or []),
         )
-        
+
         try:
             result = await self.a2a_client.send_data_task(
                 skill="consolidate_discussion",
@@ -50,6 +55,7 @@ class ConsolidationClient:
                         "scope_id": scope_id,
                         "reason": reason,
                         "max_messages": max_messages,
+                        "entries": entries or [],
                         "_langsmith_parent": a2a_parent_headers(),
                     }
                 },

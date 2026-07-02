@@ -187,6 +187,26 @@ def a2a_parent_headers() -> dict[str, str]:
     return current_run_headers()
 
 
+def add_current_run_metadata(metadata: Mapping[str, Any] | None) -> None:
+    """Merge ``metadata`` into the currently-executing traced span, if any.
+
+    For a ``@traceable`` function to annotate its OWN span with data it only
+    knows after doing work (e.g. how many entries it trimmed), as opposed to
+    a caller pre-seeding metadata via ``langsmith_extra`` before the call.
+    No-ops silently when tracing is off, there's no active run, or anything
+    goes wrong — mirrors ``current_run_headers()``.
+    """
+    if not tracing_enabled_from_env() or not metadata:
+        return
+    run_tree = get_current_run_tree()
+    if not run_tree:
+        return
+    try:
+        run_tree.add_metadata(_clean_metadata(metadata))
+    except Exception:
+        return
+
+
 @contextmanager
 def tracing_context_from_parent(parent: Mapping[str, str] | None):
     if not parent or not tracing_enabled_from_env():
