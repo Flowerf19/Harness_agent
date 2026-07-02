@@ -6,6 +6,7 @@ import logging
 from typing import Any, Optional
 
 from twin.shared.agent.contract import extract_json
+from twin.shared.config.settings import Config
 from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
 from twin.shared.observability.langsmith import traceable
 from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
@@ -186,6 +187,8 @@ class ConsolidateMemoryTool(BaseTool):
                 self.llm_service.generate_response,
                 messages=[{"role": "user", "content": prompt}],
                 include_tool_catalog=False,
+                max_tokens=Config.LLM_CONSOLIDATION_MAX_TOKENS,
+                reasoning_effort=Config.LLM_CONSOLIDATION_REASONING_EFFORT,
                 langsmith_extra=langsmith_extra(
                     tags=["memory", "consolidation", "summarizer", "llm"],
                     metadata={**trace_base, "workflow_step": "memory.summarizer"},
@@ -367,7 +370,7 @@ class ConsolidateMemoryTool(BaseTool):
         topic_item: dict[str, Any],
     ) -> list[float]:
         del trace_base, topic_item
-        return await self.embedding_service.get_embedding(f"passage: {summary}")
+        return await self.embedding_service.get_embedding(f"{Config.EMBEDDING_PASSAGE_PREFIX}{summary}")
 
     @traceable(name="memory.t2_store_summary", run_type="tool", tags=["memory", "t2"])
     async def _store_t2_summary(

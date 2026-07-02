@@ -54,6 +54,7 @@ class OpenAIService(BaseLLMService):
         include_tool_catalog: bool = True,
         max_tokens: Optional[int] = None,
         tool_choice: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> Union[str, LLMResponse]:
         session = await self._get_session()
         # Native Function Calling carries tool descriptions in the `tools` payload,
@@ -87,9 +88,11 @@ class OpenAIService(BaseLLMService):
         # Ollama OpenAI-compat bridge maps this to native `think` param.
         # See Ollama openai.go: "none" -> think=false, "low|medium|high|max"
         # -> think="<level>". Only include when explicitly set, so providers
-        # that don't understand the field keep working.
-        if Config.LLM_REASONING_EFFORT:
-            payload["reasoning_effort"] = Config.LLM_REASONING_EFFORT
+        # that don't understand the field keep working. A per-call override
+        # (e.g. consolidation) beats the global default.
+        effective_effort = reasoning_effort or Config.LLM_REASONING_EFFORT
+        if effective_effort:
+            payload["reasoning_effort"] = effective_effort
 
         if use_native_tools:
             tool_schemas = []

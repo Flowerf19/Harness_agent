@@ -16,6 +16,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from twin.shared.config.settings import Config
+
 logger = logging.getLogger(__name__)
 
 
@@ -203,10 +205,39 @@ class TimelineSummaryStore:
                 "LIMIT", "0", str(limit),
                 "DIALECT", "2",
             )
-            return self._parse_results(results)
+            return self._gate_by_similarity(self._parse_results(results))
         except Exception as exc:
             logger.error("Timeline KNN search failed: %s", exc)
             return []
+
+    def _gate_by_similarity(
+        self, results: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Drop KNN hits below the cosine-similarity floor.
+
+        The index uses COSINE distance, so `score` = 1 - cosine_similarity.
+        Without this gate a nearly-empty or off-topic T2 store still injects its
+        top-K into every prompt (garbage-in → garbage-out). No-op when the floor
+        is 0.0 (legacy) or a hit is missing its score.
+        """
+        min_cos = getattr(Config, "T2_MIN_COSINE", 0.0)
+        if min_cos <= 0.0:
+            return results
+        kept: list[dict[str, Any]] = []
+        for doc in results:
+            dist = doc.get("score")
+            if dist is None:
+                kept.append(doc)
+                continue
+            similarity = 1.0 - float(dist)
+            if similarity >= min_cos:
+                kept.append(doc)
+            else:
+                logger.debug(
+                    "T2 gate: drop summary_id=%s cosine=%.3f < %.2f",
+                    doc.get("summary_id"), similarity, min_cos,
+                )
+        return kept
 
     async def _search_bm25(
         self,

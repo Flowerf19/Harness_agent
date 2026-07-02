@@ -66,6 +66,7 @@ class GeminiService(BaseLLMService):
         include_tool_catalog: bool = True,
         max_tokens: Optional[int] = None,
         tool_choice: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,  # accepted for API parity; Gemini ignores it
     ) -> Union[str, LLMResponse]:
         """
         Generate response from Gemini API.

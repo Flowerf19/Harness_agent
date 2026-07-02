@@ -144,6 +144,7 @@ class BaseLLMService(abc.ABC):
         include_tool_catalog: bool = True,
         max_tokens: Optional[int] = None,
         tool_choice: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> Union[str, LLMResponse]:
         """
         Generate a response from the LLM based on structured messages.
@@ -158,6 +159,10 @@ class BaseLLMService(abc.ABC):
             tool_choice: Optional OpenAI-style ``tool_choice`` override ("auto" /
                 "required" / "none"). Providers that don't natively understand the
                 field must accept and ignore it so callers can pass it unconditionally.
+            reasoning_effort: Optional per-call override of the global reasoning
+                effort ("none"/"low"/"medium"/"high"/"max"). Falls back to
+                Config.LLM_REASONING_EFFORT when None. Providers that don't
+                understand it must accept and ignore it.
 
         Returns:
             LLMResponse with content, token metadata, and tool_calls if present

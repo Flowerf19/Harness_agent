@@ -64,6 +64,20 @@ class Config:
         )
     LLM_REASONING_EFFORT = _LLM_REASONING_EFFORT_RAW or None
 
+    # Consolidation is a JSON-extraction (Summarizer) task, not open reasoning.
+    # Running it at the global reasoning_effort ("high") makes minimax "think"
+    # for minutes on a large T1 prompt and blow past LLM_REQUEST_TIMEOUT, so it
+    # gets its own lower effort + tighter token cap. Empty = don't send field.
+    _LLM_CONSOLIDATION_EFFORT_RAW = os.getenv("LLM_CONSOLIDATION_REASONING_EFFORT", "low").strip().lower()
+    if _LLM_CONSOLIDATION_EFFORT_RAW not in _LLM_REASONING_EFFORT_VALID:
+        raise ValueError(
+            f"LLM_CONSOLIDATION_REASONING_EFFORT must be one of "
+            f"{{'', 'none', 'low', 'medium', 'high', 'max'}}, "
+            f"got: {_LLM_CONSOLIDATION_EFFORT_RAW!r}"
+        )
+    LLM_CONSOLIDATION_REASONING_EFFORT = _LLM_CONSOLIDATION_EFFORT_RAW or None
+    LLM_CONSOLIDATION_MAX_TOKENS = int(os.getenv("LLM_CONSOLIDATION_MAX_TOKENS", "4000"))
+
     # OpenAI tool_choice enforcement for Decide stage. Allowed: "" (off, don't send) /
     # "auto" / "required" / "none". Empty = current behavior (let LLM decide). Set
     # "required" to force a tool call when user intent clearly needs a tool — but note
@@ -152,3 +166,13 @@ class Config:
     EMBEDDING_TRACE_LOG_PATH = os.getenv(
         "EMBEDDING_TRACE_LOG_PATH", "logs/embedding_trace.jsonl"
     )
+    # Retrieval prefixes. e5 needs "query: "/"passage: "; Qwen3-Embedding and
+    # most modern retrievers want raw text (empty). Provider-agnostic so we can
+    # switch the embedding model via .env without touching call sites.
+    EMBEDDING_QUERY_PREFIX = os.getenv("EMBEDDING_QUERY_PREFIX", "query: ")
+    EMBEDDING_PASSAGE_PREFIX = os.getenv("EMBEDDING_PASSAGE_PREFIX", "passage: ")
+    # T2 semantic-recall relevance gate: drop KNN hits whose cosine similarity
+    # is below this before injecting into the prompt. 0.0 = off (legacy). A weak
+    # embedding model (e.g. e5-small on Vietnamese) collapses all cosines into a
+    # narrow high band, so this only bites once a discriminating model is used.
+    T2_MIN_COSINE = float(os.getenv("T2_MIN_COSINE", "0.0"))

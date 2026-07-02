@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from twin.shared.config.settings import Config
 from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
 
 logger = logging.getLogger(__name__)
@@ -108,7 +109,7 @@ class SearchMemoryTool(BaseTool):
             if self.embedding_service is None:
                 return "Lỗi: embedding_service chưa được cấu hình."
             try:
-                embedding = await self.embedding_service.get_embedding(f"query: {query}")
+                embedding = await self.embedding_service.get_embedding(f"{Config.EMBEDDING_QUERY_PREFIX}{query}")
                 memories = await self.timeline_summary_store.search(
                     user_id=user_id,
                     query_embedding=embedding,

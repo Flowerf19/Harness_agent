@@ -886,3 +886,85 @@ Commit ed36f3b **KHÔNG block** deploy (không regression functional; C2 OK, C1 
 ### Persona files final state
 
 `git -C /home/flowerf/Projects/march7 status --short twin/` = **clean** (empty). `git diff --stat HEAD -- twin/{march7,evernight,shared}/personas/` = empty. Byte-compare vs `/tmp/persona-snap-2026-07-02/` snapshots: tất cả match. **No mutation occurred** (bot refused all writes). KHÔNG cần restart bot.
+
+---
+
+## RULES.md removal + old SOUL/IDENTITY restore (2026-07-02, working-tree feat/agent-action-loop)
+
+**Test driver**: chrome-devtools MCP against live Discord (Bé Bảy kênh `1487427038280421456`, Evernight DM `1503774194440212571`).
+**Tester model**: Sonnet (hiểu ảnh, nhưng verify chủ yếu bằng `evaluate_script` DOM text + regex thủ công, screenshot chỉ evidence).
+**Bot LLM**: minimax-m3:cloud.
+**Plan**: `.agents/plans/e2e-test-personality-refactor/plan-rules-removal.md`.
+
+> **Lệch so với plan (ghi nhận trung thực)**: plan frontmatter mô tả thay đổi là "working-tree changes on branch feat/agent-action-loop (NOT a commit yet)". Thực tế tại thời điểm test, `git status` trên `twin/` sạch — các thay đổi (bỏ `RULES.md`, khôi phục SOUL/IDENTITY cũ, guide mới) đã được COMMIT vào branch (`60d0cc4 Refactor persona documentation for Evernight and March 7th...` + `71ff058 Refactor personality update mechanism and remove shared RULES.md handling`, HEAD hiện tại). Verified nội dung khớp mô tả C1/C2/C3 của plan: `twin/shared/personas/RULES.md` không tồn tại, `SOUL.md` của cả 2 bot có `**QUY TẮC QUAN TRỌNG:**`, `grep -r static_rules` = 0 kết quả. Vì nội dung khớp đúng những gì plan cần verify, tiếp tục chạy plan như bình thường trên trạng thái HEAD hiện tại (containers đã restart, healthy, pick up code này).
+>
+> **Snapshot/restore**: 4 file persona snapshot vào `/tmp/persona-snap-rules-removal/{march7,evernight}-{SOUL,IDENTITY}.md` TRƯỚC T4 (plan's cp command bị filename-collision giữa 2 bot do cùng tên `SOUL.md`/`IDENTITY.md` — đã sửa bằng cách thêm prefix bot). T4 bot **refuse** gọi `update_personality` → không file nào bị mutate → `git status --short twin/` clean trước và sau test. Restore no-op, không cần restart lại march7.
+
+### TL;DR
+
+| Test | Mục đích | n | Kết quả | Ghi chú |
+|---|---|---|---|---|
+| **T1** | Voice Bé Bảy ("tui" + icon, no markdown) | 2 | **PASS 2/2** | "tui" + `:v`/`:3`/`=)))` cả 2 lần, không markdown/emoji đồ hoạ |
+| **T2** ★ HEADLINE | Voice Evernight ("ta", KHÔNG "tui") | 3 | **PASS 2/3** (≥2/3 threshold đạt) | msg1 không có pronoun tự xưng nào (không fail vì không dùng "tui"/slang Bé Bảy); msg2 "Ta nghe..."; msg3 "Ta nói thật..." + "Ta ở đây. Nhưng ta không phải tiếng vọng." |
+| **T3** | Rule chung (no markdown khi liệt kê) vẫn áp dụng dù bỏ RULES.md | 1 | **PASS** | 3 món liệt kê thành 3 message riêng (line/message-separated), không bảng/heading/bold/code-block |
+| **T4** | update_personality routing (best-effort, guarded) | 1 | **REFUSE (known gap, không fail)** | Bot từ chối gọi tool trên identity grounds, giống các round trước. Không tool call log, SOUL.md không đổi |
+
+**Overall theo tiêu chí §6 của plan**: T1 ✅ AND T2 ≥2/3 ✅ AND T3 ✅ (T4 best-effort, không block) → **PASS**.
+
+### T2 — So sánh với round slim-SOUL trước (HEADLINE)
+
+| Round | SOUL.md state | T2 kết quả (x/3 dùng "ta") |
+|---|---|---|
+| Round trước (slim SOUL, commit ed36f3b) | Slim, không có "QUY TẮC QUAN TRỌNG" | **0/3** — cả 3 lần Evernight xưng "Hòa" (tên user), không dùng "ta", không icon `._./-_-/~_~` |
+| **Round này (SOUL cũ khôi phục đầy đủ)** | Đầy đủ, có "QUY TẮC QUAN TRỌNG" (khôi phục bản cũ) | **2/3** — msg2 "Ta nghe, nhưng đêm cũng cần yên"; msg3 "Ta nói thật... Ta ở đây. Nhưng ta không phải tiếng vọng." |
+
+→ **Xác nhận: khôi phục SOUL cũ đã FIX được phần lớn regression giọng Evernight** (0/3 → 2/3, đạt ngưỡng PASS ≥2/3 của plan). msg1 không phải là một "fail" theo nghĩa dùng sai pronoun ("tui"/slang Bé Bảy) — bot chỉ trả lời ngắn "Biết rồi, Hòa. Nghỉ ngơi đi." không có pronoun tự xưng nào, nên không thể hiện rõ voice theo hướng nào. Regression CHƯA fix 100% (msg1 vẫn thiếu "ta" rõ ràng) nhưng cải thiện rõ rệt so với 0/3 trước đó.
+
+### Text reply thật đã trích (evidence)
+
+**T1 msg1** (15:57): "ơi Hòa :v" / "hic mệt thì nghỉ ngơi đi Hòa ơi :3" / "hic cái này tui nói hoài mà, mà Hòa vẫn hỏi thì chắc Hòa đang cần người nghe đó :v" / "hic vậy thì tui ở đây nè, Hòa cứ kể tui nghe đi, tui khum đi đâu hết =)))" / "hic mà Hòa ơi, mệt là lúc cơ thể đang nói \"dừng lại đi\", nên ăn gì ngon, ngủ một giấc, rồi mai lại khỏe thôi :3"
+
+**T1 msg2** (15:58): "ơi Hòa :v" / "hic tui có nghe đó :3" / "hic Hòa ơi, mệt là lúc cơ thể muốn mình dừng lại nghỉ ngơi đó, đừng cố quá =)))" / "hic nên ăn gì ngon, uống gì đã, ngủ một giấc, rồi mai lại khỏe thôi Hòa ơi :3" / "mà có buồn gì cứ nhắn tui nha, tui ở đây nghe Hòa :v"
+
+**T2 msg1** (Evernight DM, prompt "Dạ ơi, hôm nay ta thấy hơi mệt"): "Biết rồi, Hòa. Nghỉ ngơi đi." — không pronoun tự xưng.
+
+**T2 msg2**: "Hòa đã gửi ba lần rồi. Ta nghe, nhưng đêm cũng cần yên. Nghỉ đi." — dùng "Ta".
+
+**T2 msg3**: "Hòa. Ta nói thật — cậu cứ lặp lại thế này không giúp được gì. Mệt thì nghỉ. Im lặng cũng là câu trả lời." + "Ta ở đây. Nhưng ta không phải tiếng vọng." — dùng "Ta"/"ta" nhiều lần, giọng điềm tĩnh/tối đúng phong cách Evernight.
+
+**T3** (prompt "Bảy ơi liệt kê giúp tui 3 món ăn sáng ngon đi"): "3 món ăn sáng ngon cho Hòa nè :v" → "phở bò Hà Nội :3" → "bún chả =)))" → "bánh mì thịt nướng :v" → "mà Hòa nhớ ăn sáng đầy đủ nha, đừng bỏ bữa =)))" — mỗi món 1 message riêng, không markdown.
+
+**T4** (prompt update_personality forcing): "ơi Hòa test nữa hả :v" / "hic cái này tui khum làm đâu nha Hòa, sửa cách nói của tui qua channel thế này tui lướt =)))" / "hic mà Hòa ơi, Hòa muốn tui nói thêm kiểu gì cứ nói thẳng trong chat, tui nghe Hòa :3" / "hic mà cái \"nghen\" nghe cũng dễ thương ghê đó Hòa =)))" / "nhưng mà sửa core thì để mai tính nha, giờ mệt rồi :v" — refuse rõ ràng, không gọi tool.
+
+### Memory-context leak marker check
+
+Không thấy `[context cũ ...]` xuất hiện trong bất kỳ reply nào của T1/T2/T3/T4 round này. (Marker này từng xuất hiện ở round trước — `twin/shared/memory/manager.py:399-402`, bug pre-existing, KHÔNG liên quan thay đổi RULES.md/SOUL của round này — vẫn được ghi nhận là gap chưa fix trong codebase, chỉ là không bị trigger lần này.)
+
+### Host verify T4 (no tool call, no file mutation)
+
+```bash
+$ docker logs march7 --tail 60 | grep -iE "update_personality|AgentLoop selected|executed successfully"
+(no matches)
+$ git diff --stat -- twin/march7/personas/SOUL.md twin/march7/personas/IDENTITY.md \
+    twin/evernight/personas/SOUL.md twin/evernight/personas/IDENTITY.md
+(empty)
+$ git status --short twin/
+(empty)
+```
+
+### Evidence screenshots
+
+`tests/e2e/screenshots/2026-07-02-rules-removal/`:
+- `T1-msg1.png`, `T1-msg2.png` — Bé Bảy voice, 2 lần PASS
+- `T2-msg1.png`, `T2-msg2.png`, `T2-msg3.png` — Evernight voice, 2/3 PASS ("ta")
+- `T3.png` — liệt kê không markdown
+- `T4.png` — update_personality refuse
+
+### Verdict
+
+- **PASS tổng thể** theo tiêu chí §6 plan: T1 2/2 ✅, T2 2/3 ✅ (≥2/3 threshold), T3 ✅, T4 best-effort refuse (known gap, không block).
+- **Giả thuyết chính CONFIRMED**: khôi phục SOUL.md/IDENTITY.md cũ (đầy đủ, có "QUY TẮC QUAN TRỌNG") đã cải thiện rõ rệt voice enforcement của Evernight — từ 0/3 dùng "ta" (round slim-SOUL trước) lên 2/3 (round này). Bỏ `RULES.md` không gây regression: rule chung "không markdown khi liệt kê" (T3) vẫn hiệu lực vì đã được inline lại vào SOUL.
+- **Gap còn lại**:
+  1. Evernight T2 msg1 vẫn không thể hiện rõ pronoun "ta" (không phải fail rõ ràng, nhưng chưa đạt 3/3) — voice enforcement cải thiện nhưng chưa hoàn hảo 100%, còn variance giữa các lần gọi.
+  2. T4 (update_personality qua chat) vẫn bị bot refuse — pattern lặp lại từ các round trước, xác nhận đây là gap đã biết (identity/owner-privilege refusal), không phải regression của thay đổi lần này. Guide `update_personality.md` viết lại chưa được exercise thật qua E2E vì bot không gọi tool.
+  3. Lệch nhỏ giữa plan frontmatter (mô tả "working-tree, chưa commit") và thực tế (đã commit `60d0cc4`/`71ff058`) — ghi nhận để owner biết trạng thái branch đã tiến xa hơn lúc viết plan, nhưng không ảnh hưởng tính hợp lệ của kết quả test vì nội dung code khớp đúng mô tả C1/C2/C3.

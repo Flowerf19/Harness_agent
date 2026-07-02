@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from twin.shared.config.settings import Config
 from twin.shared.llm.embedding.embedding_trace_logger import (
     cosine_similarity,
     token_overlap,
@@ -266,7 +267,7 @@ class SharedMemoryManager:
         if self.timeline_summary_store is None or not current_query:
             return ""
         try:
-            query_text = f"query: {current_query}"
+            query_text = f"{Config.EMBEDDING_QUERY_PREFIX}{current_query}"
             query_embedding = await self.embedding_service.get_embedding(query_text)
             summaries = await self.timeline_summary_store.search(
                 user_id, query_embedding, limit=5, query_text=current_query
