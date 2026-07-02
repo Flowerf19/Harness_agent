@@ -238,27 +238,6 @@ async def test_update_personality_reloads_llm_persona_cache(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_update_personality_can_update_shared_rules(tmp_path):
-    persona_dir = tmp_path / "persona"
-    shared_dir = tmp_path / "shared_personas"
-    persona_dir.mkdir()
-    shared_dir.mkdir()
-
-    tool = UpdatePersonalityTool(
-        base_memory_path=str(persona_dir),
-        shared_persona_path=str(shared_dir),
-    )
-
-    result = await tool.execute(
-        "# RULES.md\n\n## Luật chung\n- Không dùng markdown.",
-        target_file="RULES.md",
-    )
-
-    assert "RULES.md" in result
-    assert (shared_dir / "RULES.md").read_text(encoding="utf-8") == "# RULES.md\n\n## Luật chung\n- Không dùng markdown.\n"
-
-
-@pytest.mark.asyncio
 async def test_update_personality_requires_target_file(tmp_path):
     persona_dir = tmp_path / "persona"
     persona_dir.mkdir()

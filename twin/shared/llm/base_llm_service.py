@@ -32,7 +32,6 @@ class BaseLLMService(abc.ABC):
         self._persona_path = persona_path
 
         # Load file tính cách từ Markdown (Static Persona)
-        self.static_rules = self._load_shared_prompt("RULES.md")
         self.static_identity = self._load_prompt("IDENTITY.md")
         self.static_soul = self._load_prompt("SOUL.md")
         self.static_persona_extras = self._load_extra_persona_prompts()
@@ -40,7 +39,6 @@ class BaseLLMService(abc.ABC):
 
     def reload_persona_prompts(self) -> None:
         """Reload persona Markdown after a runtime persona update."""
-        self.static_rules = self._load_shared_prompt("RULES.md")
         self.static_identity = self._load_prompt("IDENTITY.md")
         self.static_soul = self._load_prompt("SOUL.md")
         self.static_persona_extras = self._load_extra_persona_prompts()
@@ -73,23 +71,6 @@ class BaseLLMService(abc.ABC):
                 return ""
         except Exception as e:
             self.logger.error(f"❌ Error loading prompt {filename}: {e}")
-            return ""
-
-    def _load_shared_prompt(self, filename: str) -> str:
-        """Load optional shared prompt content."""
-        try:
-            base_dir = os.path.dirname(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-            )
-            filepath = os.path.join(base_dir, "twin", "shared", "personas", filename)
-            if not os.path.exists(filepath):
-                return ""
-            with open(filepath, "r", encoding="utf-8") as f:
-                content = f.read().strip()
-                self.logger.debug(f"✅ Loaded shared prompt: {filename}")
-                return content
-        except Exception as e:
-            self.logger.error(f"❌ Error loading shared prompt {filename}: {e}")
             return ""
 
     def _load_extra_persona_prompts(self) -> list[str]:
@@ -136,10 +117,8 @@ class BaseLLMService(abc.ABC):
         if identity_parts:
             identity_prompt = "\n\n".join(identity_parts)
             parts.append(f"=== NHÂN CÁCH CỦA BẠN ===\n{identity_prompt}")
-        soul_parts = [part for part in (self.static_rules, self.static_soul) if part]
-        if soul_parts:
-            soul_prompt = "\n\n".join(soul_parts)
-            parts.append(f"=== HƯỚNG DẪN HỘI THOẠI ===\n{soul_prompt}")
+        if self.static_soul:
+            parts.append(f"=== HƯỚNG DẪN HỘI THOẠI ===\n{self.static_soul}")
 
         # 2. Nhét micro-catalog tool. Full guide chỉ load sau khi chọn tool.
         if include_tool_catalog and self.tool_prompt_catalog:

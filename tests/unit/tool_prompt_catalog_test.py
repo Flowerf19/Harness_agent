@@ -169,14 +169,17 @@ def test_final_system_prompt_uses_micro_catalog_not_persona_tool_md():
     assert "dynamic memory" in prompt
 
 
-def test_final_system_prompt_includes_shared_persona_rules():
+def test_final_system_prompt_includes_identity_and_soul():
+    # Both Think(decide) calls go through _build_final_system_prompt, so the
+    # bot's IDENTITY.md and SOUL.md must always be present in the system prompt.
     llm = DummyLLMService(persona_path="twin/march7/personas")
 
     prompt = llm._build_final_system_prompt("")
 
-    assert "## Luật chung" in prompt
-    assert "## March 7th / Bé Bảy" in prompt
-    assert "## Cách nói" in prompt
+    assert "=== NHÂN CÁCH CỦA BẠN ===" in prompt
+    assert "## Danh tính" in prompt  # from IDENTITY.md
+    assert "=== HƯỚNG DẪN HỘI THOẠI ===" in prompt
+    assert "## Phong cách giao tiếp" in prompt  # from SOUL.md
 
 
 def test_current_tool_backend_classification():

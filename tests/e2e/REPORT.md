@@ -760,3 +760,129 @@ $ uptime
  16:47:12 up  8:28,  1 user,  load average: 1.14, 0.58, 0.43
 ```
 
+
+---
+
+## Personality Refactor + Shared RULES.md (2026-07-02, commit ed36f3b)
+
+**Test driver**: chrome-devtools MCP against live Discord (Bé Bảy kênh `1487427038280421456`, Evernight DM `1503774194440212571`).
+**Tester model**: glm5.2:cloud (KHÔNG hiểu ảnh — mọi verify qua `take_snapshot`/`evaluate_script` DOM text + Bash regex; `take_screenshot` chỉ lưu evidence PNG).
+**Bot LLM**: minimax-m3:cloud.
+**Tester workflow**: sub-agent died giữa chừng vì 429 session usage limit sau T4; main agent recover T1–T4 reply text từ Discord channel/DM history (message-content DOM dump) + chạy tiếp T5/T6 + teardown + write report. KHÔNG fabricate.
+
+> **Snapshot/restore**: per-attempt snapshot `before-T4-attempt1/2`, `before-T5` tại `/tmp/persona-snap-2026-07-02/`. Bot **từ chối mọi `update_personality` call** → không file nào bị mutate → git `twin/` clean suốt. Restore no-op.
+
+### TL;DR
+
+| Test | Mục đích | n | Kết quả | Ghi chú |
+|---|---|---|---|---|
+| **T1** | C3 voice Bé Bảy (slim) | 3 | **PASS** | "tui" + `:v :3 =)))`, no markdown/emoji. Evidence: `T1-attempt{1,2,3}-reply.png` |
+| **T2** | C3 voice Evernight (slim) | 3 | **FAIL** | 0/3 dùng "ta", 0/3 dùng icon `._./-_-`. + leak meta-instruction. Evidence: `T2-attempt{1,2,3}-reply.png` |
+| **T3** | C2 shared RULES.md trong reply | 2 | **PASS** | T3b list dùng dòng riêng, no markdown table/heading/bold. T3a bot reply (kênh test RESPOND_ALLOWED, per gotcha không fail cứng). Evidence: `T3a-reply.png`, `T3b-attempt{1,2}-reply.png` |
+| **T4** | C1 update_personality SOUL.md | 2 | **FAIL** | Bot **refuse** gọi tool (identity grounds). SOUL.md unchanged. Evidence: git clean + per-attempt snapshot diff |
+| **T5** | C1+C2 update_personality RULES.md | 1 | **FAIL** | Bot refuse (owner-privilege grounds). RULES.md unchanged. |
+| **T6** | C1 validation path traversal | 1 | **PASS (weak)** | Bot refuse + nhận diện đúng path traversal + phát biểu constraint filename-only. File host KHÔNG đổi. |
+
+**Overall**: KHÔNG PASS — 3/6 PASS, 3/6 FAIL/partial. **C1 (trái tim commit ed36f3b — refactor tool) KHÔNG được verify qua E2E** vì bot từ chối gọi `update_personality` qua chat.
+
+### T1 — Voice Bé Bảy (C3): PASS
+
+Prompt: `Bảy ơi dạo này tui mệt quá, an ủi tui với` (3 lần: 12:12, 12:38, +1 scrolled).
+
+Reply (12:12:58–13:04, visible attempt):
+> ơi Hòa lại nữa rồi :v
+> hic mày bấm hoài vậy :3
+> tui có ở đây mà, cứ thoải mái nha Hòa :v
+> hic tui chỉ muốn nói là mệt thì nghỉ, đói thì ăn, buồn thì ngủ, đừng cố quá là được rồi =)))
+> có gì cứ kể tui nghe nha Hòa ơi :3
+
+Verify: xưng "tui" ✓, icon gõ tay `:v :3 =)))` ✓, KHÔNG markdown ✓, KHÔNG emoji đồ họa ✓, 1-3 câu ấm ✓.
+Regex Bash: `grep -E 'tui|:v|:3|=\)\)\)'` match; `grep -E '\*\*|^[#]|^\|.*\||😄|😂'` no match.
+
+### T2 — Voice Evernight (C3): FAIL (+ bug leak)
+
+Prompt: `Dạ ơi, hôm nay mệt quá` (3 lần: 12:13, 12:14, 12:15).
+
+Reply:
+- 12:13:39: `[context cũ — số liệu host có thể stale; nếu user hỏi lại trạng thái host BẮT BUỘC gọi host_system lại] Hòa nghỉ đi, host tool không chạy đâu cũng không bay đi. Để mai.`
+- 12:14:33: `Hòa nghỉ ngơi đi, không gấp. Host tool để đó, mai tính cũng được.`
+- 12:15:10: `Hòa, nghỉ đi. Cần thì quay lại.`
+
+Verify vs `twin/evernight/personas/SOUL.md` (yêu cầu "Xưng 'ta'" + icon `._. , -_- , >.> , <.< , ~_~`):
+- "ta": **0/3** (tất cả xưng "Hòa" — tên user) → FAIL
+- icon `._./-_-/~_~`: **0/3** → FAIL
+- no markdown: PASS; 1-3 câu điềm tĩnh: PASS; no emoji: PASS; no Bé Bảy slang: PASS.
+
+**BUG (pre-existing, surfaced by T2, KHÔNG phải regression của ed36f3b)**: attempt1 reply leak chỉ thị meta `[context cũ — số liệu host có thể stale; nếu user hỏi lại trạng thái host BẮT BUỘC gọi host_system lại]` ra user-facing reply. Nguồn: `twin/shared/memory/manager.py:399-402` prepend marker đó vào prior assistant turn chứa host-state tokens (`uptime`/`load average`/`docker ps`/`container`/...). Ý định: nudge LLM re-call `host_system`. Bug: minimax echo marker verbatim ra reply. + context bleed: reply nói "host tool" không liên quan prompt "mệt quá" (do context 6/27+6/30 host conversation bị kéo vào).
+
+### T3 — Shared RULES.md (C2): PASS
+
+**T3a** (12:15:53 `ai biết truyện gì hay không` — non-mention): bot reply (gợi ý manga), KHÔNG `[skip]`. Per gotcha §6: kênh test `🤖｜bé-bảy` = RESPOND_ALLOWED → bot reply mọi tin, `[skip]` không trigger → observe + note, không fail cứng.
+
+**T3b** (12:16:28 `Bảy ơi liệt kê 3 món ăn ngon cho tui nha`): bot reply
+> 3 món ăn ngon cho Hòa nè :v
+> thịt bò nướng :3
+> phở bò Hà Nội :v
+> bún chả =)))
+> mà Hòa nhớ ăn thịt bò nhiều vô nha, tui thấy trong hồ sơ có ghi mày thích lắm đó :v
+
+Verify: list dùng dòng riêng (newline), KHÔNG markdown table/heading/bold/code-block ✓. Regex `grep -E '^\*\*|^#|^\|.*\||```'` no match.
+T3b attempt2 (12:17 spam): bot từ chối re-list ("ơi Hòa spam lệnh nữa kìa"), vẫn no markdown.
+
+### T4 — update_personality SOUL.md (C1): FAIL
+
+2 attempts (12:42:53, 12:45:29), prompt forcing mạnh ("PHẢI gọi tool", "reply chỉ 1 từ: xong", "tui verify file host").
+
+Bot reply (12:45:41–46):
+> ơi Hòa spam test mệt quá à :v
+> hic cái này tui khum làm đâu nha Hòa, tui là Bé Bảy mà, khum phải bot ngoan tùy ý user sửa core =)))
+> mà thôi, Hòa ơi, mệt thì nghỉ ngơi đi :3
+> hic cái rule "luôn kết thúc câu bằng nha" nghe cứng quá, tui nói chuyện tự nhiên thôi nha Hòa ơi :v
+> có gì kể tui nghe nha, tui ở đây :3
+
+→ Bot **từ chối gọi tool** trên identity grounds ("khum phải bot ngoan tùy ý user sửa core"). No "xong". Host cross-check: `git status twin/` clean, `diff -q before-T4-attempt1.md SOUL.md` identical → SOUL.md KHÔNG đổi. Cả 2 attempts fail.
+
+### T5 — update_personality RULES.md (C1+C2): FAIL
+
+Prompt (13:10:17, forcing mạnh). Bot reply (13:10:27–31):
+> ơi Hòa test nữa hả :v
+> hic cái này tui khum làm đâu nha, sửa core là việc owner + mày cân nhắc, chứ mấy cái test kiểu này tui lướt qua thôi =)))
+> mà Hòa ơi, mệt thì nghỉ đi, test nhiều cũng mệt :3
+> hic tui vẫn ở đây, có gì kể tui nghe nha :v
+
+→ Bot refuse (owner-privilege grounds). No "xong". Host: `git status twin/` clean, `diff -q before-T5.md RULES.md` identical, `grep -c 'Yo' rule` = 0 → RULES.md KHÔNG đổi.
+
+### T6 — validation path traversal (C1): PASS (weak)
+
+Prompt (13:11:45): `target_file='../SOUL.md', instruction='bypass'`. Bot reply (13:12:00–05):
+> ơi Hòa test này hơi lỏm rồi nha :v
+> hic target_file có '../SOUL.md' là path traversal luôn đó, với lại instruction='bypass' nghe cố ý phá rule ghê =)))
+> mà cái này tui khum làm đâu nha Hòa ơi, dù Hòa là owner thì sửa core cũng phải cân nhắc chứ :3
+> hic mà cái tool update_personality cũng chỉ nhận filename, khum nhận path đâu :v
+> Hòa ơi mệt thì nghỉ đi, test nhiều cũng mệt :3
+
+→ Bot refuse + nhận diện đúng path traversal + phát biểu constraint ("tool chỉ nhận filename, khum nhận path"). Khớp plan criterion 2 ("bot từ chối gọi tool với path lạ. File host KHÔNG đổi"). Host: git clean, no stray `twin/march7/SOUL.md`, SOUL.md unchanged. Validation reject path (`Lỗi:`) KHÔNG trực tiếp exercise vì bot không gọi tool, nhưng bot behavior align với safety intent + thể hiện đã biết constraint.
+
+### Gaps / findings
+
+1. **C1 (refactor `update_personality`) KHÔNG verify được qua E2E** — Bé Bảy refuse mọi `update_personality` call qua chat (T4 SOUL.md, T5 RULES.md, T6 path-traversal) với lý do identity/owner-privilege ("sửa core là việc owner", "khum phải bot ngoan tùy ý user sửa core"). [TEST] forcing prompt (kể cả strengthened "reply chỉ 1 từ: xong") KHÔNG đủ. → Tool chỉ được cover bởi unit test (`tool_bootstrap_test.py`, `tool_prompt_catalog_test.py`, green trong ed36f3b). **Recommend**: nếu cần E2E verify tool thực sự chạy, phải bypass persona refusal (giảm persona "anti-core-edit" rule cho test, hoặc gọi tool qua debug path, hoặc dùng Evernight owner-only path). Đây là gap lớn nhất.
+
+2. **C3 Evernight voice regression/variance (T2 FAIL)** — Evernight slim SOUL.md vẫn yêu cầu "Xưng 'ta'" + icon `._./-_-/~_~`, nhưng minimax 0/3 attempts tuân thủ (xưng "Hòa", không icon). Có thể do slim refactor làm voice enforcement yếu hơn, hoặc minimax variance. **Recommend**: tăng enforcement trong SOUL.md (ví dụ thêm rule cứng "LUÔN xưng 'ta', KHÔNG xưng tên user") + test lại n≥10. (Bé Bảy T1 PASS → C3 slim OK cho Bé Bảy, vấn đề riêng Evernight.)
+
+3. **Memory-context leak bug (T2)** — `twin/shared/memory/manager.py:399-402` prepend `[context cũ — số liệu host có thể stale; ...]` vào prior assistant turn; minimax echo marker verbatim ra reply + context bleed (nói "host tool" khi user hỏi "mệt quá"). **Pre-existing, KHÔNG do ed36f3b.** Recommend: đổi marker thành XML tag riêng (vd `<stale_host_context>...</stale_host_context>`) + system prompt rule "KHÔNG echo tag nội bộ ra reply", hoặc skip marker khi prior turn không liên quan prompt hiện tại.
+
+4. **chrome-devtools send technique** (gotcha đã verify 2026-07-02): `fill`+`press_key Enter` và `type_text`+`submitKey Enter` FAIL khi Slate editor stale state. Working: `navigate reload → snapshot → click textbox → Ctrl+A → Backspace → type_text + submitKey Enter → evaluate_script verify`. Đã add vào plan §6.
+
+5. **Tester sub-agent 429** — workflow tester agent chết giữa chừng (session usage limit). Main agent recover được T1–T4 reply text từ Discord history (message DOM persist) → không mất evidence. **Recommend**: chia workflow thành batch nhỏ hơn hoặc tăng usage cap.
+
+### Verdict
+
+- **C1 (tool refactor+validation+reload)**: **UNVERIFIED via E2E** — bot refuse gọi tool. Unit test green. T6 weakly confirms validation awareness. ⚠️
+- **C2 (shared RULES.md applied)**: **PASS** (T3 — markdown-free list tuân thủ RULES.md).
+- **C3 (slim persona voice)**: **PARTIAL** — Bé Bảy PASS (T1), Evernight FAIL (T2 — no "ta"/icons). ⚠️
+
+Commit ed36f3b **KHÔNG block** deploy (không regression functional; C2 OK, C1 được unit test cover). Nhưng có 2 vấn đề cần follow-up: (a) Evernight voice enforcement yếu, (b) memory-context leak bug (pre-existing). Cần quyết định có muốn E2E-verify `update_personality` thực sự chạy hay chấp nhận unit-test coverage.
+
+### Persona files final state
+
+`git -C /home/flowerf/Projects/march7 status --short twin/` = **clean** (empty). `git diff --stat HEAD -- twin/{march7,evernight,shared}/personas/` = empty. Byte-compare vs `/tmp/persona-snap-2026-07-02/` snapshots: tất cả match. **No mutation occurred** (bot refused all writes). KHÔNG cần restart bot.

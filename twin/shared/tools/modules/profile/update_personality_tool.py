@@ -1,5 +1,5 @@
 """
-UpdatePersonalityTool - Rewrite persona Markdown files or shared RULES.md.
+UpdatePersonalityTool - Rewrite the current bot's persona Markdown files.
 
 Tool for updating bot's personality/behavior files.
 OVERWRITES entire file - bot must provide full merged content.
@@ -24,10 +24,9 @@ class UpdatePersonalityTool(BaseTool):
     """
     Tool for updating bot persona files.
 
-    target_file controls the target:
-    - RULES.md: Shared behavior rules for both bots
-    - IDENTITY.md: Character identity
-    - SOUL.md: Bot-specific communication style
+    target_file controls the target (always in the current bot persona dir):
+    - IDENTITY.md: Character identity (who the bot is)
+    - SOUL.md: Bot-specific communication style + conversation rules
     - Any other .md filename in the current bot persona directory, when provided
 
     Attributes:
@@ -37,18 +36,15 @@ class UpdatePersonalityTool(BaseTool):
         tool = UpdatePersonalityTool()
         # target_file="IDENTITY.md" → current bot identity
         # target_file="SOUL.md" → current bot speech style
-        # target_file="RULES.md" → shared rules
     """
 
     def __init__(
         self,
         base_memory_path: str = "memories",
         llm_service: Any = None,
-        shared_persona_path: str | None = None,
     ):
         self.base_memory_path = base_memory_path
         self.llm_service = llm_service
-        self.shared_persona_path = shared_persona_path
         logger.debug(f"UpdatePersonalityTool initialized with base_path={base_memory_path}")
 
     # ==========================================
@@ -90,12 +86,6 @@ class UpdatePersonalityTool(BaseTool):
     def _persona_dir(self) -> Path:
         return self._resolve_base_path(self.base_memory_path, self._repo_root() / "memories")
 
-    def _shared_persona_dir(self) -> Path:
-        return self._resolve_base_path(
-            self.shared_persona_path,
-            self._repo_root() / "twin" / "shared" / "personas",
-        )
-
     def _normalize_target_file(self, target_file: str | None) -> str:
         target = (target_file or "").strip()
         if not target:
@@ -108,8 +98,6 @@ class UpdatePersonalityTool(BaseTool):
             raise ValueError("target_file không hợp lệ.")
         if not target.endswith(".md"):
             raise ValueError("target_file phải là file Markdown .md.")
-        if target.lower() == "rules.md":
-            return "RULES.md"
         if target.lower() == "identity.md":
             return "IDENTITY.md"
         if target.lower() == "soul.md":
@@ -117,8 +105,6 @@ class UpdatePersonalityTool(BaseTool):
         return target
 
     def _target_path(self, filename: str) -> Path:
-        if filename == "RULES.md":
-            return self._shared_persona_dir() / filename
         return self._persona_dir() / filename
 
     def _read_current_content(self, file_path: str) -> str:
@@ -159,9 +145,8 @@ class UpdatePersonalityTool(BaseTool):
                 f.write(content)
             if self.llm_service and hasattr(self.llm_service, "reload_persona_prompts"):
                 self.llm_service.reload_persona_prompts()
-            scope = "luật chung" if target == "RULES.md" else "persona"
             logger.info("✅ UpdatePersonalityTool: Đã viết lại %s", file_path)
-            return f"Đã cập nhật {target} ({scope}) thành công. Áp dụng ngay cho bot hiện tại từ tin nhắn tiếp theo."
+            return f"Đã cập nhật {target} (persona) thành công. Áp dụng ngay cho bot hiện tại từ tin nhắn tiếp theo."
 
         except ValueError as e:
             return f"Lỗi: {e}"
