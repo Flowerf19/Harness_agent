@@ -187,6 +187,7 @@ class ConsolidateMemoryTool(BaseTool):
                 self.llm_service.generate_response,
                 messages=[{"role": "user", "content": prompt}],
                 include_tool_catalog=False,
+                include_persona=False,
                 max_tokens=Config.LLM_CONSOLIDATION_MAX_TOKENS,
                 reasoning_effort=Config.LLM_CONSOLIDATION_REASONING_EFFORT,
                 langsmith_extra=langsmith_extra(

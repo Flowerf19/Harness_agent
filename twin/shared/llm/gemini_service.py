@@ -67,6 +67,7 @@ class GeminiService(BaseLLMService):
         max_tokens: Optional[int] = None,
         tool_choice: Optional[str] = None,
         reasoning_effort: Optional[str] = None,  # accepted for API parity; Gemini ignores it
+        include_persona: bool = True,
     ) -> Union[str, LLMResponse]:
         """
         Generate response from Gemini API.
@@ -94,7 +95,9 @@ class GeminiService(BaseLLMService):
         # 1. Trộn hệ tư tưởng (System Prompt). Native tools carry descriptions in
         # the tool schemas, so only inject the catalog when native tools are OFF.
         final_system_prompt = self._build_final_system_prompt(
-            system_prompt, include_tool_catalog=(include_tool_catalog and not use_native_tools)
+            system_prompt,
+            include_tool_catalog=(include_tool_catalog and not use_native_tools),
+            include_persona=include_persona,
         )
 
         # 2. Biên dịch mảng `messages` sang chuẩn Gemini

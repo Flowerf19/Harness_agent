@@ -55,6 +55,7 @@ class OpenAIService(BaseLLMService):
         max_tokens: Optional[int] = None,
         tool_choice: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
+        include_persona: bool = True,
     ) -> Union[str, LLMResponse]:
         session = await self._get_session()
         # Native Function Calling carries tool descriptions in the `tools` payload,
@@ -62,7 +63,9 @@ class OpenAIService(BaseLLMService):
         # only when native tools are OFF (fallback / non-native providers) so the
         # model still knows the tool surface. Hot path (native on) stays deduped.
         final_system_prompt = self._build_final_system_prompt(
-            system_prompt, include_tool_catalog=(include_tool_catalog and not use_native_tools)
+            system_prompt,
+            include_tool_catalog=(include_tool_catalog and not use_native_tools),
+            include_persona=include_persona,
         )
 
         # Strict chat templates (Qwen-derived, e.g. LM Studio) raise
