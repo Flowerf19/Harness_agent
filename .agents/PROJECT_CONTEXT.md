@@ -149,19 +149,49 @@ Before implementing platform features, follow
 
 ## Current Implementation Status
 
-Memory rewrite is implemented end-to-end as of 2026-05-28, with a subsequent refactoring to the **A2A Consolidation** mechanism.
+Memory rewrite is implemented end-to-end as of 2026-05-28 and verified for T2
+diary/retrieval on 2026-07-03, with a subsequent refactoring to the **A2A
+Consolidation** mechanism.
 
-- **Shared stack**: `twin/shared/memory/` contains the core implementation components: `ActiveMemory`, `MarkdownProfileStore`, `TimelineSummaryStore`. 
+- **Shared stack**: `twin/shared/memory/` contains the core implementation components: `ActiveMemory`, `MarkdownProfileStore`, `TimelineSummaryStore`.
 - **T1 scope-aware**: `ActiveEntry.scope` (`user`/`channel`), `scope_id`, plus
   `author_*`/`guild_id`/`channel_id`/`message_id`/`reply_to` metadata. Storage
   uses Redis JSON keys `active:{scope}:{scope_id}:{entry_id}` plus
   `active_state:*` and `active_index:*`.
-- **Prompt context**: `SharedMemoryManager.get_context()` injects T3 profile
-  context from `MarkdownProfileStore.get_system_prompt_context()` and T2
-  pre-flight retrieval from `TimelineSummaryStore.search()` (embed query → KNN vector search).
-- **Consolidation flow (A2A)**: When thresholds are met (managed by Evernight's `InactivityTrigger`), March7 uses `ConsolidationClient` to send a consolidation task via A2A HTTP port 8001 to Evernight. Evernight then executes the `ConsolidateMemoryTool`, which summarizes directly from `ActiveMemory` and writes to `TimelineSummaryStore` / `MarkdownProfileStore` via a single LLM call (Summarizer prompt).
-- **T2 timeline/vector**: `TimelineSummary` entries are stored as Redis HASH with
-  RediSearch `VECTOR HNSW` index `timeline_summaries`. Replaces the old `T2Memory` + `T2Topic` JSON model and `idx:t2:mem` / `idx:t2:topic` indexes.
+- **Prompt context**: `SharedMemoryManager.get_context()` returns T1 active
+  entries plus T3 profile context from
+  `MarkdownProfileStore.get_system_prompt_context()`. It still accepts
+  `current_query` for interface compatibility but deletes it; **T2 retrieval is
+  tool-only** via the `search_memory` tool. The gateway context header exposes
+  the platform channel ID so the model can pass `channel_id` for dual-scope
+  search.
+- **T2 recall**: `search_memory` performs user-scope search and, when
+  `channel_id` differs from `user_id`, also searches channel-scope summaries
+  (stored with `user_id=channel_id`). It supports hybrid KNN+BM25, time-window
+  fallback, and cosine-gating. KNN hits show `relevance`; BM25-only fused hits
+  show `match=bm25`. Timeline-only mode lists recent summaries. Time windows
+  are widened automatically when a `days_back` filter yields no hits.
+- **Consolidation flow (A2A)**: When thresholds are met (managed by Evernight's
+  `InactivityTrigger`), March7 reads its own T1 entries and uses
+  `ConsolidationClient` to ship them via A2A HTTP to Evernight's
+  `ConsolidateMemoryTool`. Evernight summarizes the shipped entries and writes
+  to `TimelineSummaryStore` / `MarkdownProfileStore`; it does **not** read or
+  clear March7's T1 directly. On success, March7 trims its own T1 by the exact
+  entry IDs returned. Channel-scope consolidation stores T2 summaries under
+  `user_id=channel_id` and skips T3 profile updates.
+- **T1 archive**: Before trimming, summarized entries are best-effort archived
+  to per-day Redis lists (`t1:archive:{scope}:{scope_id}:{day}`) with a TTL.
+  Archive failure never blocks trim.
+- **T2 timeline/vector**: `TimelineSummary` entries are stored as Redis HASH
+  under key prefix `timeline:summary` with RediSearch `VECTOR HNSW FLOAT32
+  COSINE DIM=<embedding_dim>`. The current deployed dimension is `1024`
+  (`qwen3-embedding:0.6b` via `EMBEDDING_MODEL_NAME`; the Config class default
+  remains `text-embedding-v3`). Schema v3 indexes `user_id`/`topic`/`day` as
+  TAG, `topic_display`/`summary` as TEXT, `importance`/`created_at`/
+  `period_start`/`period_end` as NUMERIC SORTABLE, `version` as NUMERIC, and
+  `embedding` as VECTOR. `day`, `period_start`, and `period_end` are added to
+  existing v2 indexes via `FT.ALTER` without reindexing; only dimension or
+  index-type changes require `FT.DROPINDEX` + recreate.
 - **Legacy removed**: The old local Python pipeline mechanism—including `Extractor`, `PromotionGuard`, `CleanupScheduler`, `Curator`, `TopicResolver`, `Consolidator`, `DiscussionConsolidator`, the old T2 page model, `TimelineStore`, `TimelineSearch`, and `T2Memory`—have been completely removed. InactivityTrigger is also removed from March7's gateway, now exclusively managed by Evernight.
 
 - **Hybrid Profile Consolidation (T2->T3)**: `MarkdownProfileStore.append_raw`
@@ -174,7 +204,11 @@ Memory rewrite is implemented end-to-end as of 2026-05-28, with a subsequent ref
 
 - **T1 Active Memory**: short-term session context in Redis JSON, scoped as
   `user` or `channel`.
-- **T2 Timeline Memory**: Redis Stack semantic/vector memory via `TimelineSummaryStore`, used by both agents for pre-flight retrieval and consolidation. Replaces the old `TimelineStore`/`TimelineSearch` stack.
+- **T2 Timeline Memory**: Redis Stack semantic/vector memory via
+  `TimelineSummaryStore`, used by both agents for consolidation and by the
+  model via the `search_memory` tool. Replaces the old
+  `TimelineStore`/`TimelineSearch` stack. Same-day summaries may be merged when
+  cosine similarity and size limits allow.
 - **T3 Core/Profile Memory**: Markdown files via `MarkdownProfileStore`, default base path `memories/`, rendered as 8 profile sections.
 
 ## Key Environment Groups
@@ -189,6 +223,16 @@ Shared infrastructure and LLM:
 - `BASH_EXECUTOR_URL` legacy; prefer `SYSTEM_GATEWAY_URL`
 - `T1_CONTEXT_MAX_TOKENS`
 - `T1_CONTEXT_MAX_MESSAGES`
+- `T1_ARCHIVE_ENABLED` default `true`
+- `T1_ARCHIVE_TTL_DAYS` default `90`
+- `EMBEDDING_MODEL_NAME` default `text-embedding-v3` in Config; deployed as
+  `qwen3-embedding:0.6b`
+- `EMBEDDING_VECTOR_SIZE`
+- `EMBEDDING_QUERY_PREFIX` default instruct wrapper for Qwen asymmetric search
+- `EMBEDDING_PASSAGE_PREFIX` default empty
+- `T2_MIN_COSINE` default `0.0`; deployed/calibrated `0.35`
+- `T2_MERGE_MIN_COSINE` default `0.60` (same-day merge gate)
+- `T2_MERGE_MAX_CHARS` default `1500`
 - `LLM_PROVIDER` and provider-specific chat/embedding variables
 
 March7:
@@ -216,6 +260,6 @@ Discord/Gateway:
 - `DISCORD_MARCH7_TOKEN`
 - `DISCORD_EVERNIGHT_TOKEN`
 - Zalo env placeholders currently exist (`ZALO_ACCESS_TOKEN`, `ZALO_APP_ID`,
-  `ZALO_ENABLED`) but there is no working Zalo adapter package yet.
+  `ZALALO_ENABLED`) but there is no working Zalo adapter package yet.
 
 Do not print `.env` files or token values.

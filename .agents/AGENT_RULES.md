@@ -96,12 +96,13 @@ Update upstream: `cd ~/.claude/skills && git pull`.
 - Memory source lives under `twin/shared/memory/`. Do not recreate
   `twin/march7/memories/`, `twin/evernight/memories/`, or
   `twin/shared/memories/`.
-- T2 timeline intentionally keeps memories user-centric. Channel scope is
-  consolidated by fan-out per participant; do not store channel sentinel ids
+- T2 timeline keeps memories user-centric for user scope, and also stores
+  channel scope summaries with `user_id=channel_id`. Channel scope is
+  consolidated via A2A with shipped entries; do not invent channel sentinel ids
   as `user_id` in `TimelineSummaryStore`.
-- The legacy local Python consolidation paths (including `DiscussionConsolidator`, `consolidate_t2_memory`, `Consolidator`, `CleanupScheduler`, `TimelineStore`, `TimelineSearch`, and `T2Memory`) were removed. Current flow uses **A2A Consolidation**: `InactivityTrigger` on Evernight detects idle scopes → March7 sends task via `ConsolidationClient` (A2A) → Evernight runs `ConsolidateMemoryTool` to summarize `ActiveMemory` and write to `TimelineSummaryStore` / `MarkdownProfileStore`.
+- The legacy local Python consolidation paths (including `DiscussionConsolidator`, `consolidate_t2_memory`, `Consolidator`, `CleanupScheduler`, `TimelineStore`, `TimelineSearch`, and `T2Memory`) were removed. Current flow uses **A2A Consolidation**: `InactivityTrigger` on Evernight detects idle scopes → March7 sends task via `ConsolidationClient` (A2A) with shipped T1 entries → Evernight runs `ConsolidateMemoryTool` using those shipped entries (it does not re-read March7's T1) and writes to `TimelineSummaryStore` / `MarkdownProfileStore`.
 - Each agent builds the shared stack (`ActiveMemory`, `MarkdownProfileStore`, `TimelineSummaryStore`) in its container. T2 RediSearch index must use Redis DB 0 (`TIMELINE_REDIS_DB=0`).
-- **`twin/shared/tools/` consolidated 2026-05-26.** Core types live in `twin.shared.tools.registry`; individual tool classes live under `twin.shared.tools.modules.<domain>.<tool>` (domains: `execution`, `memory`, `profile`, `web`). The paths `twin.shared.tools.base_tool` / `tool_registry` / `tool_discovery` / `implementations.system.*` no longer exist — do not recreate them.
+- **`twin/shared/tools/` consolidated 2026-05-26.** Core types live in `twin.shared.tools.registry`; individual tool classes live under `twin/shared.tools.modules.<domain>.<tool>` (domains: `execution`, `memory`, `profile`, `web`). The paths `twin.shared.tools.base_tool` / `tool_registry` / `tool_discovery` / `implementations.system.*` no longer exist — do not recreate them.
 - **LLM/embedding endpoints chạy trên host phải dùng `host.docker.internal`, không phải `localhost`.** Container march7/evernight có `extra_hosts: host.docker.internal:host-gateway` trong compose; `localhost` trong `.env` sẽ trỏ vào chính container và fail với `Cannot connect to host localhost:<port>`. Áp dụng cho `OPENAI_API_URL`, `EMBEDDING_API_URL`, `LM_STUDIO_API_URL`, `TOOL_LLM_ENDPOINT`. Service nội-mạng Docker (redis, codebox, bash-executor, evernight) thì dùng service name.
 - **Docker entry for March7 is `python -m gateway`** (`gateway/__main__.py`),
   not `python -m twin.march7`. When wiring new background tasks (triggers,
@@ -116,6 +117,28 @@ Update upstream: `cd ~/.claude/skills && git pull`.
 - **System Gateway runs on the host, not in a container.** Containers reach it
   via `SYSTEM_GATEWAY_URL` (e.g. `http://host.docker.internal:8380`). The
   secret is shared through `SYSTEM_GATEWAY_SHARED_SECRET`.
-- After modifying the T2 FT schema, the existing index must be dropped and
-  recreated (`FT.DROPINDEX timeline_summaries`, then restart). `_create_index`
-  skips creation if the index already exists.
+- **T2 recall is tool-only.** `SharedMemoryManager.get_context` returns only
+  T1 + T3 context and no longer embeds or searches T2. The model obtains
+  timeline context by calling `search_memory`.
+- **T2 index dimension is 1024, not 768.** T2 uses `qwen3-embedding:0.6b`
+  (`EMBEDDING_MODEL_NAME`) with `VECTOR HNSW FLOAT32 COSINE DIM=1024`
+  (`EMBEDDING_VECTOR_SIZE`). Only dimension or index-type changes require
+  `FT.DROPINDEX timeline_summaries` and a restart; adding `day`,
+  `period_start`, and `period_end` is done via `FT.ALTER` without reindex.
+- **New T2/T1 env vars control current behavior:** `EMBEDDING_MODEL_NAME`,
+  `EMBEDDING_VECTOR_SIZE`, `EMBEDDING_QUERY_PREFIX`,
+  `EMBEDDING_PASSAGE_PREFIX`, `T2_MIN_COSINE` (default `0.0`; calibrated/deployed
+  `0.35`), `T2_MERGE_MIN_COSINE` (default `0.60`), `T2_MERGE_MAX_CHARS`
+  (default `1500`), `T1_ARCHIVE_ENABLED` (default `true`),
+  `T1_ARCHIVE_TTL_DAYS` (default `90`).
+- **`search_memory` is the only supported T2 retrieval tool.** It accepts
+  `user_id`, optional `channel_id` (dual-scope), optional `query`, optional
+  `days_back`, and `limit`. It does not accept `mode`, `topic`, `hours`, or
+  `days`. BM25-only fused docs are still cosine-gated by `T2_MIN_COSINE`.
+- **`TimelineSummaryStore` is a package (`twin/shared/memory/diary/`).** Import
+  `TimelineSummaryStore` from `twin.shared.memory.diary`; import `_rrf_fuse`
+  from `twin.shared.memory.diary.store` if needed for tests.
+- **Embedding service must be wired into `TimelineSummaryStore`.** If
+  `embedding_service` is `None`, same-day diary merge is disabled and the store
+  is append-only. Verify probe/production wiring passes the service, not just
+  `embedding_dim`.

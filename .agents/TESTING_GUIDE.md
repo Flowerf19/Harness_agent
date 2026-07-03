@@ -7,8 +7,10 @@ transport, và external services. Dùng file này để chọn test focused; dù
 ## Test Layout
 
 - `tests/unit/` — logic cô lập, không cần service ngoài:
-  - `tests/unit/memory/` — toàn bộ memory stack: `active`, `manager`, `consolidation_client`,
-    `timeline_summary_store`, `search`, `profile`.
+  - `tests/unit/memory/` — memory stack: `active_test.py`,
+    `manager_consolidation_test.py`, `consolidate_tool_test.py`,
+    `profile_test.py`, `test_store_schema.py`, `tools_test.py`, `test_rrf.py`,
+    `test_embedding_prefix.py`.
   - `tests/unit/` (gốc) — `inactivity_trigger`, `a2a_client`, `http_transport`,
     `tool_bootstrap`, `march7_handle_chat_scope`, `discord_send_response`.
 - `tests/gateway/` — gateway core/adapter + models (`test_gateway`,
@@ -41,6 +43,17 @@ is still preferred over bare `pytest`.
 `pytest.ini` discovers both legacy `*_test.py` files and gateway-style
 `test_*.py` files.
 
+Full suite với workaround phoenix/strawberry import conflict và bỏ qua các test
+cần `discord.py`/gateway CLI:
+
+```bash
+conda run -n discord_bot python -m pytest tests -q \
+  --ignore=tests/unit/discord_send_response_test.py \
+  --ignore=tests/unit/evernight_discord_adapter_test.py \
+  --ignore=tests/services/system_gateway_cli_test.py \
+  -p no:phoenix
+```
+
 ## Service Dependencies
 
 - `tests/unit/*` chạy không cần service ngoài (mock Redis/LLM).
@@ -53,9 +66,13 @@ is still preferred over bare `pytest`.
 
 ## Selection Guide
 
-- T1 active memory → `tests/unit/memory/active_test.py` + `manager_test.py`
+- T1 active memory / archive / trim → `tests/unit/memory/active_test.py` +
+  `manager_consolidation_test.py`
+- Cross-DB consolidation / A2A shipped entries →
+  `tests/unit/memory/consolidate_tool_test.py` + `manager_consolidation_test.py`
 - `InactivityTrigger` → `tests/unit/inactivity_trigger_test.py`
-- T2 timeline/vector → `tests/unit/memory/{timeline_summary_store,search}_test.py`
+- T2 timeline/vector → `tests/unit/memory/test_store_schema.py`,
+  `tools_test.py`, `test_rrf.py`, `test_embedding_prefix.py`
 - T3 profile → `tests/unit/memory/profile_test.py` + `tests/unit/manage_profile_tool_test.py`
 - March7 chat scope / A2A → `tests/unit/march7_handle_chat_scope_test.py`, `a2a_client_test.py`
 - Gateway / Discord → `tests/gateway -q`,
@@ -66,8 +83,18 @@ is still preferred over bare `pytest`.
 
 ## Last Verified
 
+- 2026-07-03: `conda run -n discord_bot python -m pytest tests -q --ignore=tests/unit/discord_send_response_test.py --ignore=tests/unit/evernight_discord_adapter_test.py --ignore=tests/services/system_gateway_cli_test.py -p no:phoenix`
+  → 479 passed, 6 skipped.
+- 2026-07-03: Unit memory subset → 399 passed (T2 diary/retrieval + T1
+  archive/trim + cross-DB consolidation).
+- 2026-07-03: Live probes: T2 recall end-to-end PASS (KNN_RESULT cos 0.499),
+  cross-DB consolidation "Cách B" E2E PASS, FT.ALTER thêm `day`/`period_start`/
+  `period_end` vào index v2 thành công không cần reindex.
 - 2026-06-12: `conda run -n discord_bot python -m pytest tests/unit/manage_profile_tool_test.py -q`
   → passed.
+
+## Historical snapshots (pre-T2-diary; kept for archaeology)
+
 - 2026-06-07: `conda run -n discord_bot python -m pytest tests/unit/approval_gate_test.py tests/gateway tests/unit/evernight_discord_adapter_test.py tests/unit/march7_handle_chat_scope_test.py tests/unit/evernight_agent_test.py tests/unit/discord_send_response_test.py tests/unit/tool_bootstrap_test.py tests/unit/memory/manager_test.py -q`
   → 55 passed.
 - 2026-06-07: Docker rebuild/restart via `docker compose -f docker/docker-compose.yml up -d --build`;
@@ -81,5 +108,4 @@ is still preferred over bare `pytest`.
 - 2026-05-28: `pytest` → 221 passed, 13 skipped; `docker compose ps` healthy cho
   march7/evernight/redis/codebox/bash-executor.
 - Lưu ý (2026-06-02): chạy lại đầy đủ cần `discord.py` + Redis trong môi trường;
-  thiếu deps sẽ fail ở collection (`ModuleNotFoundError: discord`). Con số trên
-  giữ nguyên từ lần verify 2026-05-28.
+  thiếu deps sẽ fail ở collection (`ModuleNotFoundError: discord`).
