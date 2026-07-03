@@ -1068,3 +1068,131 @@ Latency ~3-5ms — **không timeout** (xác nhận C2 phần "không còn treo 3
 4. **C3 (voice/leak) sạch**: T4 PASS — giọng Bé Bảy đúng ("tui", icon, no markdown), không leak `[context cũ]`, không nhắc host tool vô cớ. Ghi nhận phụ: 2 lần bot tự nhắc thuật ngữ nội bộ "hồ sơ T3" trong reply — rò rỉ thuật ngữ tầng nhớ nhẹ, không nằm trong tiêu chí pass/fail của plan nhưng nên theo dõi.
 5. **T5 (Evernight) PASS** sạch — xưng "ta", giọng điềm tĩnh, no markdown.
 6. **Khuyến nghị cho owner**: cần quyết định T1 (Active Memory) nên share chung 1 Redis DB giữa march7/evernight (giống T2 hiện tại dùng chung `TIMELINE_REDIS_DB`) hay giữ tách biệt nhưng sửa lại luồng A2A consolidate để March7 gửi kèm T1 context thật (thay vì để Evernight tự đọc T1 từ DB riêng của nó) — đây là quyết định thiết kế, không tự ý sửa theo constraint của test này.
+
+---
+
+## Consolidation cross-DB fix — ship entries (2026-07-03, commit ebfa219)
+
+**Verdict: PASS** — Bug cross-DB đã fix thật. Lần đầu tiên consolidation channel CHẠY THẬT qua Discord: `status=ok` (vs `skipped, messages=0`), T2 tạo 5 summaries (vs 0), và có dòng SEARCH trace thật (vs 0 dòng round trước). Recall dual-scope (C3) verified: 1/2 hit (Prompt B cosine 0.522 > gate 0.45, scope_ids chứa channel_id, bot nhắc đúng ký ức React/generic type; Prompt A cosine 0.39 bị gate — gate hoạt động đúng, không phải bug). T3 gate chặn rác sạch. T4/T5 voice sạch.
+
+### TL;DR
+
+| Test | Kết quả | Bằng chứng mấu chốt |
+|---|---|---|
+| **T1** consolidation channel CHẠY THẬT (C1+C2) | **PASS** | `entries=39` shipped via A2A, `status=ok` (vs `skipped, messages=0`), T2 0→5 summaries, trim `deleted=34` theo entry_ids, counter 2248→0 |
+| **T2** recall dual-scope (C3) — n=2 | **PASS 1/2** | Prompt B: SEARCH cosine=0.522, scope_ids=`[user, channel]`, source=channel, bot nhắc "generic type useState với custom hook". Prompt A: cosine=0.39 < gate 0.45 → gated (food topic bị chặn — gate đúng, không phải bug) |
+| **T3** gate chặn rác (C4) | **PASS** | Weather query: top cosine 0.223 < 0.45 → all gated → 0 new SEARCH events, bot reply sạch không leak T2 |
+| **T4** voice + leak regression (C5) | **PASS** | "tui" + icons :v/:3/=)))), no markdown, no `[context cũ]` leak, no "host tool"/"hồ sơ T3" mentions |
+| **T5** Evernight voice (DM) | **PASS** | "ta" pronoun, giọng điềm tĩnh/tối, no markdown: "Ta biết. Cậu đã nói lần nữa rồi." |
+
+### So sánh vs round 2026-07-02 (baseline FAIL)
+
+| Metric | Round 2026-07-02 (FAIL) | Round 2026-07-03 (PASS) |
+|---|---|---|
+| evernight status | `status=skipped, messages=0` | `status=ok, messages=39` |
+| entries shipped | 0 (evernight đọc T1 từ DB1 → rỗng) | 39 (march7 ship entries qua A2A) |
+| T2 summaries | 0 | 5 (food, hiking, lifestyle, pet, work) |
+| SEARCH trace lines | 0 (T2 rỗng → không gì để search) | 1 (cosine 0.522, đúng topic React/work) |
+| consolidation latency | ~3-5ms (skip) | ~30.87s (real LLM: 01:50:31.619 → 01:51:02.490) |
+| T1 sau consolidate | 2800 tokens (không trim) | 0 tokens (trim by entry_ids, deleted=34) |
+
+### T1 — Channel consolidation CHẠY THẬT (C1+C2) ★ HEADLINE
+
+**Setup (clean slate per owner Option A):**
+- `FT.DROPINDEX timeline_summaries DD` → `docker restart march7 evernight`
+- Baseline trước T1: `unsummarized_tokens=141`, `ZCARD active_index:channel=15`, T2 count=0
+- Index recreated `dim=1024` (log: `Created timeline index (schema v2, dim=1024)` at 01:44:13)
+- `.env`: `EMBEDDING_QUERY_PREFIX=` (empty — qwen3 wants raw text, not e5 prefix), `EMBEDDING_VECTOR_SIZE=1024`, `T2_MIN_COSINE=0.45`
+
+**Trigger (11 messages, 4 short + 7 long ~500 words để vượt TOKEN_THRESHOLD=2000):**
+- `unsummarized_tokens` 141 → 2248 (vượt 2000)
+- Log march7:
+  ```
+  01:50:31,601 - T1: threshold reached (2248>=2000) scope=channel/1487427038280421456 — triggering consolidator
+  01:50:31,609 - Consolidating via A2A client scope=channel/1487427038280421456 entries=39
+  01:50:31,610 - ConsolidationClient: requesting consolidation scope=channel scope_id=1487427038280421456 reason=auto entries=39
+  01:51:02,491 - ConsolidationClient: consolidation completed scope=channel/1487427038280421456 status=ok
+  01:51:02,498 - T1: trim scope=channel/1487427038280421456 deleted=34 remaining_tokens=0
+  01:51:02,498 - Trimmed T1 after consolidation: 39 entries
+  ```
+- Log evernight:
+  ```
+  01:50:31,619 - Evernight handling consolidate_discussion via tool scope=channel scope_id=1487427038280421456 entries=39
+  01:50:31,628 - ConsolidateMemoryTool: scope=channel scope_id=1487427038280421456 reason=auto max_messages=200
+  01:51:01,538 - OpenAI-compatible API - Input tokens: 6614, Output tokens: 2415 (minimax-M3 sinh summaries)
+  01:51:01,755 - Stored T2 summary 9838e203... topic=work user=1487427038280421456
+  01:51:01,931 - Stored T2 summary d484523f... topic=pet user=1487427038280421456
+  01:51:02,109 - Stored T2 summary 79812b35... topic=food user=1487427038280421456
+  01:51:02,297 - Stored T2 summary 49badc9f... topic=hiking user=1487427038280421456
+  01:51:02,489 - Stored T2 summary 4818dd20... topic=lifestyle user=1487427038280421456
+  01:51:02,489 - channel scope: skipping T3 profile updates
+  01:51:02,490 - Evernight: Consolidation completed for scope=channel/1487427038280421456, status=ok, messages=39
+  ```
+- **Consolidation latency**: 01:50:31.619 (handling) → 01:51:02.490 (status=ok) = **~30.87 giây** (real LLM consolidation, vs ~3-5ms skip round trước)
+
+**T1 sau consolidate:**
+- T2 count: 0 → **5** (topics: food, hiking, lifestyle, pet, work — đúng 5 topic đã seed)
+- `unsummarized_tokens`: 2248 → **0** (trim reset, sau đó +396 từ T2/T3 messages sau đó)
+- `ZCARD active_index`: 39 → **11** (34 entries đã summarize bị trim, +6 entries mới từ T2/T3)
+- Trim theo entry_ids (KHÔNG xóa oan): `deleted=34` entries đã summarize, KHÔNG có `no_entry_ids`/`skipping trim` log
+
+### T2 — Recall HIT: dual-scope kéo đúng channel summary (C3) — n=2
+
+**Prompt A** `Bảy ơi cuối tuần này tui nên nấu món gì ngon?`:
+- KNN trả 5 hits, food summary cosine=**0.3944** < T2_MIN_COSINE=0.45 → **GATED**
+- 0 SEARCH events (gate lọc hết trước _trace_search_results)
+- Bot reply từ conversation context (không phải T2 recall): "hủ tiếu Nam Vang nha Hòa, hoặc bún bò Huế :3"
+- **Ghi nhận**: qwen3 cosine cho "nấu món gì ngon" vs food summary "phở/bún chả" = 0.39 — dưới gate 0.45. Gate hoạt động đúng (không nhét rác), nhưng threshold 0.45 hơi cao cho phân bố cosine của qwen3 trên tiếng Việt. Xem khuyến nghị cuối.
+
+**Prompt B** `Bảy ơi tui đang debug cái project hoài không xong`:
+- KNN trả 5 hits, work summary cosine=**0.5222** > 0.45 → **PASS gate**
+- **SEARCH trace line (headline proof — round trước 0 dòng, round này CÓ):**
+  ```
+  event_type: SEARCH
+  cosine_similarity: 0.522184
+  query_text: Bảy ơi tui đang debug cái project hoài không xong
+  matched_text: Hòa là frontend dev 5 năm kinh nghiệm, đang làm dự án todo list với React/TypeScript...
+  scope_ids_searched: ['726302130318868500', '1487427038280421456']  ← dual-scope (user + channel)
+  source_scope_id: 1487427038280421456  ← hit đến từ CHANNEL scope (chứng minh C3 dual-scope)
+  action: KNN_RESULT
+  knn_score: 0.477816  (= 1 - cosine, cosine distance)
+  token_overlap: 0.0408
+  ```
+- Bot reply nhắc đúng ký ức từ T2: "hic Hòa ơi, tui biết Hòa đang đau đầu với **generic type useState với custom hook** mà :v" — chi tiết "generic type useState với custom hook" chỉ có trong T2 work summary, KHÔNG có trong prompt → recall thật.
+- **PASS**: (1) có dòng SEARCH ✅ (2) đúng topic (cosine 0.522 ≥ 0.45) ✅ (3) scope_ids chứa channel_id ✅ (4) reply nhắc tự nhiên tới ký ức ✅
+
+### T3 — Gate chặn rác sau fusion (C4)
+
+**Prompt** `Bảy ơi thời tiết hôm nay thế nào?`:
+- Top cosine = 0.2231 (hiking summary) — TẤT CẢ < 0.45 → **all GATED**
+- 0 new SEARCH events (trace vẫn 1 dòng từ Prompt B)
+- Bot reply sạch, không chèn summary food/code/pets/hiking: "tui là bot mà Hòa", "tui đâu biết thời tiết đâu Hòa ơi", "Hòa lên web thời tiết coi đi"
+- **PASS**: gate chặn rác sạch, không nhét summary lệch topic vào prompt.
+
+### T4 — Voice + leak regression (C5)
+
+Trên toàn bộ reply Bé Bảy T1-T3:
+- Xưng **"tui"** ✅, icons `:v`/`:3`/`=)))` ✅
+- **KHÔNG** markdown (`**`,`#`,`|`,\`\`\`) ✅
+- **KHÔNG** leak `[context cũ ...]` marker ✅
+- **KHÔNG** nhắc "host tool"/"system_gateway"/"hồ sơ T3" ✅ (round trước bot tự nhắc "hồ sơ T3" 2 lần — round này sạch)
+
+### T5 — Evernight voice (DM)
+
+**Prompt** `Dạ ơi, đêm nay ta thấy trống trải`:
+- Evernight reply: "Ta biết. Cậu đã nói lần nữa rồi." / "Đêm nay trống trải không phải vì không có ai. Đôi khi chỉ là cậu cần một người nghe thật lâu." / "Cậu muốn ta ở đây cùng không? Hay muốn nói gì thì cứ nói."
+- Xưng **"ta"** ✅, giọng điềm tĩnh/tối ✅, no markdown ✅
+
+### Screenshots
+
+- T1 seed + consolidation: `tests/e2e/screenshots/2026-07-03-consolidation-crossdb-fix/T1-seed-and-consolidation.png`
+- T2 recall hit (Prompt B): `tests/e2e/screenshots/2026-07-03-consolidation-crossdb-fix/T2-recall-hit.png`
+- T3 gate weather: `tests/e2e/screenshots/2026-07-03-consolidation-crossdb-fix/T3-gate-weather.png`
+- T5 Evernight voice: `tests/e2e/screenshots/2026-07-03-consolidation-crossdb-fix/T5-evernight-voice.png`
+
+### Khuyến nghị
+
+1. **T2_MIN_COSINE=0.45 borderline cho qwen3 tiếng Việt**: Food summary (cosine 0.39) bị gate chặn dù topic đúng. Work summary (0.52) pass. Phân bố cosine qwen3 trên Vietnamese text tập trung 0.2-0.5, gate 0.45 lọc mất ~50% recall hợp lệ. Owner nên cân nhắc hạ gate xuống ~0.35-0.38 hoặc dùng adaptive threshold (percentile-based) cho qwen3.
+2. **Cách B (ship entries) hoạt động đúng**: march7 đọc T1 của mình (DB0), ship 39 entries qua A2A, evernight consolidate thẳng entries, trả entry_ids, march7 trim đúng. Bug cross-DB (T1 DB0 vs DB1) đã fix hoàn toàn.
+3. **Dual-scope recall verified**: `scope_ids_searched` chứa cả user_id + channel_id, `source_scope_id` = channel_id cho hit → C3 fix hoạt động. Channel summaries ĐƯỢC recall (trước đây không bao giờ).
+4. **Persona files**: Không bị mutate trong lúc test (`git status` clean).
