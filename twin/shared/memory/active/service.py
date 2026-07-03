@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
+from twin.shared.config.settings import Config
 from twin.shared.memory.active.constants import (
     KEEP_RECENT_MESSAGES_AFTER_SUMMARY,
     RECENT_CATALOGS_WINDOW,
@@ -165,6 +166,27 @@ class ActiveMemory:
         keep_ids = {e.entry_id for e in all_entries[-keep_recent:]} if keep_recent > 0 else set()
         to_delete = [eid for eid in summarized_entry_ids if eid not in keep_ids]
         if to_delete:
+            # W3: park the raw entries in a cold archive before deleting —
+            # T2 keeps only summaries, so this is the last copy of the
+            # verbatim transcript. Best-effort: an archive failure must
+            # never block the trim (the entries WERE summarized; blocking
+            # would re-summarize them forever).
+            if getattr(Config, "T1_ARCHIVE_ENABLED", True):
+                delete_set = set(to_delete)
+                entries_to_archive = [
+                    e for e in all_entries if e.entry_id in delete_set
+                ]
+                try:
+                    ttl_days = int(getattr(Config, "T1_ARCHIVE_TTL_DAYS", 90))
+                    await self.store.archive_entries(
+                        scope, scope_id, entries_to_archive,
+                        ttl_seconds=ttl_days * 86400,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "T1: archive-on-trim failed scope=%s/%s entries=%d — trimming anyway: %s",
+                        scope, scope_id, len(entries_to_archive), exc,
+                    )
             await self.store.delete_entries(scope, scope_id, to_delete)
 
         remaining = [e for e in all_entries if e.entry_id not in set(to_delete)]

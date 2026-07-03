@@ -129,7 +129,13 @@ async def test_consolidate_scope_ok_without_entry_ids_does_not_trim(caplog):
 
 
 @pytest.mark.asyncio
-async def test_get_context_channel_scope_searches_both_speaker_and_channel():
+async def test_get_context_channel_scope_does_not_touch_t2():
+    """T2 recall is tool-only (2026-07-03): get_context must not search T2.
+
+    The dual-scope (speaker+channel) recall this test used to assert now lives
+    in the search_memory tool — the manager's job is only to expose the channel
+    scope id in the header so the model can pass `channel_id` to the tool.
+    """
     t1 = FakeT1([])
     timeline = FakeTimelineStore()
     manager = SharedMemoryManager(
@@ -139,12 +145,11 @@ async def test_get_context_channel_scope_searches_both_speaker_and_channel():
         embedding_service=FakeEmbeddingService(),
     )
 
-    await manager.get_context(
+    sys_prompt, _ = await manager.get_context(
         user_id="speaker1",
         current_query="nhớ gì không",
         channel_id="chan1",
     )
 
-    # Channel summaries live under user_id=channel_id, so both scopes must be
-    # queried — speaker first, then channel.
-    assert timeline.searched_user_ids == ["speaker1", "chan1"]
+    assert timeline.searched_user_ids == []
+    assert "Platform channel ID: chan1" in sys_prompt

@@ -7,21 +7,25 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from twin.shared.config.settings import Config
 from twin.shared.memory.active import ActiveEntry, ActiveMemory, FastPathDetector
 from twin.shared.memory.active.store import ActiveStore
+from twin.shared.memory.vn_time import vn_day_str
 
 
 class FakeRedis:
     """In-memory stand-in for redis.asyncio supporting the subset T1 needs.
 
     Supports: JSON.SET / JSON.GET, ZADD / ZRANGE / ZREM, HSET / HGETALL /
-    HINCRBY, DELETE.
+    HINCRBY, DELETE, RPUSH / EXPIRE (archive-on-trim).
     """
 
     def __init__(self) -> None:
         self.docs: dict[str, str] = {}
         self.zsets: dict[str, dict[str, float]] = {}
         self.hashes: dict[str, dict[str, str]] = {}
+        self.lists: dict[str, list[str]] = {}
+        self.expire_calls: list[tuple[str, int]] = []
 
     async def execute_command(self, *args):
         cmd = args[0]
@@ -83,6 +87,15 @@ class FakeRedis:
                 del self.zsets[k]
                 n += 1
         return n
+
+    async def rpush(self, key: str, *values):
+        bucket = self.lists.setdefault(key, [])
+        bucket.extend(values)
+        return len(bucket)
+
+    async def expire(self, key: str, seconds: int):
+        self.expire_calls.append((key, seconds))
+        return 1
 
 
 def _make_memory(token_counter=None, trigger=None) -> ActiveMemory:
@@ -190,6 +203,107 @@ async def test_trim_counts_entries_not_yet_summarized():
     state = await mem.store.get_state("user", "u1")
     # Only the late, un-summarized entry's tokens remain.
     assert state["unsummarized_tokens"] == late.tokens == 10
+
+
+# ---------------- archive-on-trim (W3) ----------------
+
+@pytest.mark.asyncio
+async def test_trim_archives_deleted_entries(monkeypatch):
+    monkeypatch.setattr(Config, "T1_ARCHIVE_ENABLED", True)
+    monkeypatch.setattr(Config, "T1_ARCHIVE_TTL_DAYS", 90)
+    mem = _make_memory()
+    entries: list[ActiveEntry] = []
+    for i in range(10):
+        entries.append(await mem.observe("user", "u1", "user", f"msg-{i}"))
+
+    summarized = [e.entry_id for e in entries[:7]]
+    await mem.trim("user", "u1", summarized, keep_recent=5)
+
+    redis: FakeRedis = mem.store.redis  # type: ignore[assignment]
+    # Entries 0-4 were deleted (5,6 protected by keep_recent) → archived.
+    day = vn_day_str(entries[0].created_at.timestamp())
+    key = f"t1:archive:user:u1:{day}"
+    assert key in redis.lists
+    payloads = [json.loads(p) for p in redis.lists[key]]
+    assert [p["entry_id"] for p in payloads] == [e.entry_id for e in entries[:5]]
+    # Serialized entries must round-trip (verbatim transcript preserved).
+    assert payloads[0]["content"] == "msg-0"
+    assert payloads[0]["scope"] == "user"
+    assert payloads[0]["created_at"]  # ISO datetime survived model_dump
+    # TTL refreshed on the day key.
+    assert (key, 90 * 86400) in redis.expire_calls
+    # And the trim itself still happened.
+    remaining_ids = {e.entry_id for e in await mem.get_context("user", "u1")}
+    assert remaining_ids.isdisjoint({e.entry_id for e in entries[:5]})
+
+
+@pytest.mark.asyncio
+async def test_trim_archive_disabled_skips_archive_but_still_trims(monkeypatch):
+    monkeypatch.setattr(Config, "T1_ARCHIVE_ENABLED", False)
+    mem = _make_memory()
+    entries: list[ActiveEntry] = []
+    for i in range(10):
+        entries.append(await mem.observe("user", "u1", "user", f"msg-{i}"))
+
+    await mem.trim("user", "u1", [e.entry_id for e in entries[:7]], keep_recent=5)
+
+    redis: FakeRedis = mem.store.redis  # type: ignore[assignment]
+    assert redis.lists == {}
+    remaining_ids = {e.entry_id for e in await mem.get_context("user", "u1")}
+    assert remaining_ids.isdisjoint({e.entry_id for e in entries[:5]})
+
+
+@pytest.mark.asyncio
+async def test_trim_archive_failure_still_trims(monkeypatch, caplog):
+    """Archive is best-effort: a failure must warn and NOT block the trim —
+    blocking would leave the summarized transcript hot and re-consolidate it
+    forever."""
+    import logging
+
+    monkeypatch.setattr(Config, "T1_ARCHIVE_ENABLED", True)
+    mem = _make_memory()
+    entries: list[ActiveEntry] = []
+    for i in range(10):
+        entries.append(await mem.observe("user", "u1", "user", f"msg-{i}"))
+
+    async def exploding_archive(*args, **kwargs):
+        raise RuntimeError("redis OOM")
+
+    monkeypatch.setattr(mem.store, "archive_entries", exploding_archive)
+
+    with caplog.at_level(logging.WARNING):
+        await mem.trim("user", "u1", [e.entry_id for e in entries[:7]], keep_recent=5)
+
+    assert any("archive-on-trim failed" in rec.message for rec in caplog.records)
+    remaining_ids = {e.entry_id for e in await mem.get_context("user", "u1")}
+    assert remaining_ids.isdisjoint({e.entry_id for e in entries[:5]})
+
+
+@pytest.mark.asyncio
+async def test_archive_entries_groups_by_vn_day():
+    """Entries created on different VN days must land on separate day keys —
+    a trim can carry messages from before midnight."""
+    from datetime import datetime, timezone
+
+    store = ActiveStore(FakeRedis())
+    e1 = ActiveEntry(
+        scope="user", scope_id="u1", role="user", content="tối qua",
+        created_at=datetime(2026, 7, 2, 16, 0, tzinfo=timezone.utc),  # 23:00 VN 02/07
+    )
+    e2 = ActiveEntry(
+        scope="user", scope_id="u1", role="user", content="sáng nay",
+        created_at=datetime(2026, 7, 2, 18, 0, tzinfo=timezone.utc),  # 01:00 VN 03/07
+    )
+
+    await store.archive_entries("user", "u1", [e1, e2], ttl_seconds=86400)
+
+    redis: FakeRedis = store.redis  # type: ignore[assignment]
+    assert set(redis.lists) == {
+        "t1:archive:user:u1:2026-07-02",
+        "t1:archive:user:u1:2026-07-03",
+    }
+    assert ("t1:archive:user:u1:2026-07-02", 86400) in redis.expire_calls
+    assert ("t1:archive:user:u1:2026-07-03", 86400) in redis.expire_calls
 
 
 # ---------------- detector ----------------

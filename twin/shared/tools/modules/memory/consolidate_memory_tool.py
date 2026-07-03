@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from twin.shared.agent.contract import extract_json
 from twin.shared.config.settings import Config
+from twin.shared.memory.vn_time import vn_now
 from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
 from twin.shared.observability.langsmith import traceable
 from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
@@ -14,6 +16,8 @@ from twin.shared.tools.registry.base import BaseTool, ToolExecutionError
 logger = logging.getLogger(__name__)
 
 _SUMMARIZER_PROMPT = """Bạn là Memory Summarizer. Đọc cuộc trò chuyện và trích xuất thông tin đáng nhớ theo từng topic.
+
+Bây giờ là {now} (giờ Việt Nam).
 
 === HỒ SƠ HIỆN TẠI ===
 {profile}
@@ -24,9 +28,11 @@ _SUMMARIZER_PROMPT = """Bạn là Memory Summarizer. Đọc cuộc trò chuyện
 Nhiệm vụ:
 1. Lọc noise (chào hỏi đơn thuần, emoji phiếm, thông tin tạm thời vô nghĩa).
 2. Nếu session TOÀN noise hoặc không có gì đáng nhớ → set has_meaningful_content=false, topics=[].
-3. Với nội dung có ý nghĩa: nhóm theo topic, mỗi topic viết 1-2 câu summary ngắn.
-4. Tối đa 5 topics. Topic slug: lowercase, underscore, tự đặt (ví dụ: work, interest, health, travel, relationship...).
-5. Trích xuất facts mới đáng lưu vào hồ sơ (bỏ qua nếu đã có hoặc mâu thuẫn thì ghi đè).
+3. Với nội dung có ý nghĩa: nhóm theo topic, mỗi topic viết summary 3-5 câu như một trang nhật ký — GIỮ chi tiết cụ thể (tên riêng, con số, tên hàm/lỗi, địa danh, món đồ), không tóm tắt khô kiểu 1 câu.
+4. Đổi mọi mốc thời gian tương đối thành tuyệt đối dựa trên thời điểm hiện tại ở trên ("deadline tuần tới" → "deadline ~10/07/2026", "hôm qua" → ghi rõ ngày).
+5. Tối đa 5 topics. Topic slug: lowercase, underscore, tự đặt (ví dụ: work, interest, health, travel, relationship...).
+6. Trích xuất facts mới đáng lưu vào hồ sơ → profile_updates (bỏ qua nếu đã có trong hồ sơ).
+7. Nếu fact mới MÂU THUẪN với hồ sơ hiện tại (ví dụ user nói "hết thích game" mà hồ sơ có "Thích chơi game"): đưa section đó vào profile_rewrites với TOÀN BỘ danh sách bullet của section viết lại sạch — bỏ bullet lỗi thời, giữ bullet còn đúng, thêm bullet mới. Section đã nằm trong profile_rewrites thì KHÔNG đưa vào profile_updates nữa. Không có mâu thuẫn → profile_rewrites để {{}}.
 
 Return JSON:
 {{
@@ -35,7 +41,7 @@ Return JSON:
     {{
       "topic": "work",
       "topic_display": "Công việc",
-      "summary": "User đang làm dự án X, deadline tuần tới.",
+      "summary": "User đang làm dự án X cho khách hàng Y, deadline ~10/07/2026. Gặp lỗi ImportError ở module auth khi deploy staging, đã thử hạ Python 3.12 xuống 3.11 nhưng chưa ăn thua. Dự định hỏi anh Nam team infra vào 04/07/2026.",
       "importance": 4
     }}
   ],
@@ -48,7 +54,8 @@ Return JSON:
     "psychological": [],
     "rules": [],
     "contact": []
-  }}
+  }},
+  "profile_rewrites": {{}}
 }}
 
 Rules importance:
@@ -214,8 +221,11 @@ class ConsolidateMemoryTool(BaseTool):
                 except Exception as exc:
                     logger.debug("ConsolidateMemoryTool: no profile for scope_id=%s: %s", scope_id, exc)
 
-            # 3. LLM call with Summarizer prompt
+            # 3. LLM call with Summarizer prompt. The current VN datetime lets
+            # the model convert relative time references ("tuần tới") into
+            # absolute dates that stay meaningful when recalled weeks later.
             prompt = _SUMMARIZER_PROMPT.format(
+                now=vn_now().strftime("%H:%M %d/%m/%Y"),
                 profile=profile_text,
                 messages=messages_text,
             )
@@ -268,6 +278,21 @@ class ConsolidateMemoryTool(BaseTool):
             # topics but every store attempt failed, we must NOT report success —
             # the manager trims T1 on status=="ok"+entry_ids, which would delete
             # the transcript while nothing landed in T2 (silent data loss).
+            #
+            # Diary provenance: the period the summaries cover is the span of
+            # the source entries' own timestamps (shipped dicts carry an ISO
+            # "timestamp" from manager._entry_to_snapshot, local reads carry
+            # .created_at — both always present in practice), so the T2 `day`
+            # reflects when the conversation HAPPENED. Consolidate-time is
+            # only a defensive fallback for malformed payloads.
+            entry_timestamps = [
+                ts for ts in (self._entry_timestamp(e) for e in t1_entries)
+                if ts is not None
+            ]
+            now_ts = datetime.now(timezone.utc).timestamp()
+            period_start = min(entry_timestamps) if entry_timestamps else now_ts
+            period_end = max(entry_timestamps) if entry_timestamps else now_ts
+
             summary_ids: list[str] = []
             topics_attempted = 0
             topics_failed = 0
@@ -310,6 +335,9 @@ class ConsolidateMemoryTool(BaseTool):
                             embedding,
                             topic_item,
                             trace_base,
+                            period_start=period_start,
+                            period_end=period_end,
+                            source_entry_ids=entry_ids,
                             langsmith_extra=langsmith_extra(
                                 tags=["memory", "t2", "store"],
                                 metadata={
@@ -357,14 +385,53 @@ class ConsolidateMemoryTool(BaseTool):
             # write — scope_id is a channel id, and appending multi-user
             # profile_updates there would pollute memories/<channel_id>.md,
             # which nothing ever reads (recall reads by speaker user_id).
+            #
+            # Rewrites run BEFORE appends (fix B2): when the summarizer flags a
+            # section whose new facts contradict the profile, it returns the
+            # whole section rewritten clean and we replace it wholesale —
+            # append-only would leave "thích game" and "hết thích game" side
+            # by side in every system prompt. A rewritten section then skips
+            # the append loop so the same bullets aren't re-appended on top.
             profile_updates = data.get("profile_updates", {})
+            profile_rewrites = data.get("profile_rewrites", {})
+            if not isinstance(profile_rewrites, dict):
+                profile_rewrites = {}
             updated_sections = []
+            rewritten_sections: list[str] = []
             if scope == "channel":
                 logger.info("channel scope: skipping T3 profile updates")
                 profile_updates = {}
+                profile_rewrites = {}
             else:
+                for section, bullets in profile_rewrites.items():
+                    # An empty rewrite would wipe the section — too much power
+                    # for a flaky LLM; contradictions always leave >=1 bullet.
+                    if not isinstance(bullets, list) or not bullets:
+                        continue
+                    try:
+                        result = await self._rewrite_profile_section(
+                            scope_id,
+                            section,
+                            [str(b) for b in bullets],
+                            trace_base,
+                            langsmith_extra=langsmith_extra(
+                                tags=["memory", "t3", "rewrite"],
+                                metadata={
+                                    **trace_base,
+                                    "workflow_step": "memory.t3_profile_rewrite",
+                                    "section": section,
+                                },
+                            ),
+                        )
+                        if result.get("ok"):
+                            rewritten_sections.append(section)
+                    except Exception as exc:
+                        logger.warning(
+                            "ConsolidateMemoryTool: profile rewrite failed section=%s: %s",
+                            section, exc,
+                        )
                 for section, bullets in profile_updates.items():
-                    if not bullets:
+                    if not bullets or section in rewritten_sections:
                         continue
                     try:
                         for bullet in bullets:
@@ -400,6 +467,7 @@ class ConsolidateMemoryTool(BaseTool):
                 "summary_ids": summary_ids,
                 "profile_updates": profile_updates,
                 "updated_sections": updated_sections,
+                "rewritten_sections": rewritten_sections,
                 "messages_summarized": len(t1_entries),
                 "entry_ids": entry_ids,
             }, ensure_ascii=False)
@@ -426,6 +494,27 @@ class ConsolidateMemoryTool(BaseTool):
                 author = getattr(entry, "author_name", None) or role
             lines.append(f"[{author}]: {content}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _entry_timestamp(entry: Any) -> float | None:
+        """Epoch ts of one entry, handling the same dual shape as
+        `_format_messages`: shipped dicts carry an ISO "timestamp" string
+        (manager._entry_to_snapshot), local ActiveEntry objects carry a
+        .created_at datetime. None on anything missing/malformed.
+        """
+        if isinstance(entry, dict):
+            raw = entry.get("timestamp")
+            if not raw:
+                return None
+            try:
+                return datetime.fromisoformat(str(raw)).timestamp()
+            except ValueError:
+                return None
+        created = getattr(entry, "created_at", None)
+        try:
+            return created.timestamp() if created is not None else None
+        except (AttributeError, TypeError, ValueError):
+            return None
 
     @traceable(name="memory.t1_read", run_type="retriever", tags=["memory", "t1"])
     async def _read_t1_context(
@@ -477,6 +566,10 @@ class ConsolidateMemoryTool(BaseTool):
         embedding: list[float],
         topic_item: dict[str, Any],
         trace_base: dict[str, Any],
+        *,
+        period_start: float | None = None,
+        period_end: float | None = None,
+        source_entry_ids: list[str] | None = None,
     ) -> str:
         del trace_base
         return await self.timeline_summary_store.store_summary(
@@ -486,6 +579,9 @@ class ConsolidateMemoryTool(BaseTool):
             topic=topic_item.get("topic", "general"),
             topic_display=topic_item.get("topic_display", ""),
             importance=int(topic_item.get("importance", 3)),
+            period_start=period_start,
+            period_end=period_end,
+            source_entry_ids=source_entry_ids,
         )
 
     @traceable(name="memory.t3_profile_append", run_type="tool", tags=["memory", "t3"])
@@ -498,6 +594,25 @@ class ConsolidateMemoryTool(BaseTool):
     ) -> bool:
         del trace_base
         return await self.memory_manager.profile.append_raw(scope_id, section, bullet)
+
+    @traceable(name="memory.t3_profile_rewrite", run_type="tool", tags=["memory", "t3"])
+    async def _rewrite_profile_section(
+        self,
+        scope_id: str,
+        section: str,
+        bullets: list[str],
+        trace_base: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Replace a whole profile section with the summarizer's clean
+        rewrite (fix B2) via the existing MarkdownProfileStore.replace_section.
+        No expected_profile_hash: the rewrite is authoritative for the
+        section and replace_section already serializes writers per user via
+        its file lock.
+        """
+        del trace_base
+        return await self.memory_manager.profile.replace_section(
+            scope_id, section, bullets,
+        )
 
     def _provider_name(self) -> str:
         class_name = self.llm_service.__class__.__name__ if self.llm_service else ""

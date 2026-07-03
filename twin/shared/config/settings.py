@@ -166,13 +166,36 @@ class Config:
     EMBEDDING_TRACE_LOG_PATH = os.getenv(
         "EMBEDDING_TRACE_LOG_PATH", "logs/embedding_trace.jsonl"
     )
-    # Retrieval prefixes. e5 needs "query: "/"passage: "; Qwen3-Embedding and
-    # most modern retrievers want raw text (empty). Provider-agnostic so we can
-    # switch the embedding model via .env without touching call sites.
-    EMBEDDING_QUERY_PREFIX = os.getenv("EMBEDDING_QUERY_PREFIX", "query: ")
-    EMBEDDING_PASSAGE_PREFIX = os.getenv("EMBEDDING_PASSAGE_PREFIX", "passage: ")
+    # Retrieval prefixes. Qwen3-Embedding is instruction-aware and ASYMMETRIC:
+    # the QUERY side wants an instruct wrapper ("Instruct: ...\nQuery: <text>")
+    # while the PASSAGE side wants raw text (empty prefix) — so changing only
+    # the query prefix needs NO reindex. (e5-style models instead use
+    # "query: "/"passage: ".) Provider-agnostic so the embedding model can be
+    # switched via .env without touching call sites. Env values are stored on
+    # one line with a literal backslash-n; both dotenv and docker env_file may
+    # deliver it as two raw chars, so unescape it into a real newline here.
+    EMBEDDING_QUERY_PREFIX = os.getenv(
+        "EMBEDDING_QUERY_PREFIX",
+        "Instruct: Given a user message, retrieve relevant memory summaries "
+        "about the user and past conversation\nQuery: ",
+    ).replace("\\n", "\n")
+    EMBEDDING_PASSAGE_PREFIX = os.getenv("EMBEDDING_PASSAGE_PREFIX", "").replace("\\n", "\n")
     # T2 semantic-recall relevance gate: drop KNN hits whose cosine similarity
     # is below this before injecting into the prompt. 0.0 = off (legacy). A weak
     # embedding model (e.g. e5-small on Vietnamese) collapses all cosines into a
     # narrow high band, so this only bites once a discriminating model is used.
     T2_MIN_COSINE = float(os.getenv("T2_MIN_COSINE", "0.0"))
+    # T2 diary model (write path). A new summary is merged into an existing
+    # same-user same-VN-day doc when their cosine similarity reaches this
+    # floor (calibrated 2026-07-03: same-topic follow-ups 0.507–0.782,
+    # cross-topic max 0.526 — biased high because a missed merge just appends
+    # like before, while a false merge glues unrelated topics together).
+    T2_MERGE_MIN_COSINE = float(os.getenv("T2_MERGE_MIN_COSINE", "0.60"))
+    # Char cap for a merged diary doc: beyond this, append a new doc instead
+    # of growing a mega-doc whose embedding averages into mush.
+    T2_MERGE_MAX_CHARS = int(os.getenv("T2_MERGE_MAX_CHARS", "1500"))
+    # Archive raw T1 entries to a cold per-day Redis list on trim instead of
+    # hard-deleting (W3): t1:archive:{scope}:{scope_id}:{day}. Best-effort —
+    # an archive failure never blocks the trim.
+    T1_ARCHIVE_ENABLED = os.getenv("T1_ARCHIVE_ENABLED", "true").lower() == "true"
+    T1_ARCHIVE_TTL_DAYS = int(os.getenv("T1_ARCHIVE_TTL_DAYS", "90"))

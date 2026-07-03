@@ -9,7 +9,7 @@ from twin.evernight.agent import EvernightAgent
 from twin.evernight.config import EvernightConfig
 from twin.shared.agent.runtime import SharedAgentRuntime, build_shared_agent_runtime
 from twin.shared.tools.registry.bootstrap import build_tool_registry
-from twin.shared.memory.timeline_summary_store import TimelineSummaryStore
+from twin.shared.memory.diary import TimelineSummaryStore
 from twin.shared.config.settings import Config
 from twin.evernight.system_gateway import GatewayMonitor
 

@@ -4,28 +4,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from twin.shared.config.settings import Config
-from twin.shared.llm.embedding.embedding_trace_logger import (
-    cosine_similarity,
-    token_overlap,
-)
 from twin.shared.memory.active import ActiveEntry, ActiveMemory
 from twin.shared.memory.profile import MarkdownProfileStore
 from twin.shared.observability.langsmith import add_current_run_metadata, traceable
 
 logger = logging.getLogger(__name__)
-
-
-def format_preflight_for_prompt(summaries: list[dict]) -> str:
-    if not summaries:
-        return ""
-    lines = ["## Ngữ cảnh nhớ liên quan (dùng tự nhiên, không lộ nguồn)"]
-    for s in summaries:
-        content = s.get("summary") or s.get("content", "")
-        if len(content) > 240:
-            content = content[:240] + "…"
-        lines.append(f"- {content}")
-    return "\n".join(lines)
 
 
 class SharedMemoryManager:
@@ -128,6 +111,12 @@ class SharedMemoryManager:
         user_name: str | None = None,
         mentioned_users: list[dict[str, Any]] | None = None,
     ) -> tuple[str, list[dict]]:
+        # Decision 2026-07-03 — T2 recall is TOOL-ONLY via the search_memory
+        # tool (see tools/prompts/guides/search_memory.md). Automatic T2
+        # preflight injection has been removed twice already; do NOT re-add it
+        # without new measured data. `current_query` stays in the signature for
+        # existing callers even though nothing embeds it here anymore.
+        del current_query
         scope = "channel" if channel_id else "user"
         scope_id = str(channel_id or user_id)
 
@@ -145,17 +134,21 @@ class SharedMemoryManager:
             )
         else:
             user_id_header = f"=== CURRENT USER ===\nPlatform user ID: {user_id}"
+        if channel_id:
+            # The search_memory tool recalls channel summaries via their scope
+            # id (T2 stores them under user_id=channel_id) — expose the id so
+            # the model can pass `channel_id` when it calls the tool.
+            user_id_header += (
+                f"\nĐang chat trong kênh chung (Platform channel ID: {scope_id})"
+            )
         mentioned_context = await self._mentioned_users_context(
             str(user_id),
             mentioned_users,
         )
         profile_context = await self.profile.get_system_prompt_context(str(user_id))
-        t2_context = await self._preflight_context(
-            str(user_id), current_query, channel_id=scope_id if channel_id else None
-        )
         system_parts = [user_id_header] + [
             part
-            for part in (mentioned_context, profile_context, t2_context)
+            for part in (mentioned_context, profile_context)
             if part
         ]
         return "\n\n".join(system_parts), messages
@@ -279,102 +272,6 @@ class SharedMemoryManager:
         return result.get("status") in {"ok", "skipped"}
 
     # ---------------------------------------------------------------- helpers
-
-    async def _preflight_context(
-        self,
-        user_id: str,
-        current_query: str,
-        channel_id: str | None = None,
-    ) -> str:
-        if self.timeline_summary_store is None or not current_query:
-            return ""
-        try:
-            query_text = f"{Config.EMBEDDING_QUERY_PREFIX}{current_query}"
-            query_embedding = await self.embedding_service.get_embedding(query_text)
-            # T2 channel summaries are stored under user_id=channel_id, so a
-            # channel turn must search BOTH the speaker's own summaries and the
-            # channel's — otherwise channel summaries are never recalled.
-            scope_ids = [user_id]
-            if channel_id and channel_id != user_id:
-                scope_ids.append(channel_id)
-
-            merged: list[dict] = []
-            merged_sources: list[str] = []
-            seen: set[str] = set()
-            for sid in scope_ids:
-                results = await self.timeline_summary_store.search(
-                    sid, query_embedding, limit=5, query_text=current_query
-                )
-                for summary in results:
-                    key = summary.get("summary_id") or summary.get("summary") or id(summary)
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    merged.append(summary)
-                    merged_sources.append(sid)
-            merged, merged_sources = merged[:5], merged_sources[:5]
-
-            self._trace_search_results(
-                query_text, current_query, query_embedding, merged,
-                scope_ids=scope_ids, sources=merged_sources,
-            )
-            return format_preflight_for_prompt(merged)
-        except Exception as exc:
-            logger.warning("T2: preflight failed user=%s: %s", user_id, exc)
-            return ""
-
-    def _trace_search_results(
-        self,
-        input_text: str,
-        current_query: str,
-        query_embedding: list[float],
-        summaries: list[dict[str, Any]],
-        scope_ids: list[str] | None = None,
-        sources: list[str] | None = None,
-    ) -> None:
-        """Log every semantic search result for embedding model debugging.
-
-        ``scope_ids``/``sources`` are optional and additive: when a caller (the
-        speaker+channel dual-scope search in ``_preflight_context``) supplies
-        them, each event records which scope_ids were searched and which one
-        this particular hit came from, without touching the fixed trace schema.
-        """
-        trace_logger = getattr(self.embedding_service, "trace_logger", None)
-        if not trace_logger or not trace_logger.enabled:
-            return
-
-        for rank, summary in enumerate(summaries, start=1):
-            matched_text = summary.get("summary") or summary.get("content", "")
-            matched_embedding = summary.get("embedding")
-            if matched_embedding and query_embedding:
-                cs = cosine_similarity(query_embedding, matched_embedding)
-            else:
-                cs = None
-
-            extra = None
-            if scope_ids is not None:
-                extra = {
-                    "scope_ids_searched": scope_ids,
-                    "source_scope_id": sources[rank - 1] if sources and rank <= len(sources) else None,
-                }
-
-            self.embedding_service._trace_embedding_event(
-                input_text=input_text,
-                vector=query_embedding,
-                raw_dim=None,
-                latency_ms=0.0,
-                cache_hit=True,
-                event_type="SEARCH",
-                query_text=current_query,
-                matched_text=matched_text,
-                cosine_similarity=cs,
-                token_overlap=token_overlap(current_query, matched_text),
-                action="KNN_RESULT" if rank == 1 else "KNN_CANDIDATE",
-                knn_score=summary.get("score"),
-                bm25_score=summary.get("_bm25_score"),
-                rrf_rank=rank,
-                extra=extra,
-            )
 
     async def _mentioned_users_context(
         self,
