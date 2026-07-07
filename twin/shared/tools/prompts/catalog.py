@@ -71,7 +71,7 @@ class ToolPromptCatalog:
         lines = []
         for name in sorted(self._specs):
             lines.append(f"- {name}: {self.render_tool_description(name)}")
-        return "\n".join(lines)
+        return "\n\n".join(lines)
 
     def render_tool_guide(self, tool_name: str) -> str:
         body = self._guide_body(tool_name)
@@ -130,10 +130,7 @@ def read_tool_description(
             f"Tool guide missing <{description_tag}> block for {tool_name}: {guide}"
         )
     description = body[start + len(start_tag):end].strip()
-    # Catalog/schema descriptions should be a single micro line; the rest of
-    # the block is rendered by render_tool_guide() when a tool is selected.
-    first_line = description.splitlines()[0].strip() if description else ""
-    return first_line
+    return description
 
 
 def _find_spec_for_tool(

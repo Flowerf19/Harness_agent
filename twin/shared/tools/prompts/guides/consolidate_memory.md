@@ -1,16 +1,15 @@
 <tool_description>
-Tổng hợp tin nhắn gần đây thành timeline summary và cập nhật profile.
+consolidate_memory — Tổng hợp tin nhắn gần đây thành timeline summary (T2) và cập nhật profile (T3).
+
+Khi nên dùng:
+- Nhận A2A request từ March7 khi T1 tràn (token threshold)
+- User đã chat nhiều (>20 messages) và cần lưu thông tin quan trọng
+- Conversation sắp kết thúc hoặc user offline
 </tool_description>
 
 ## consolidate_memory
 
 Tổng hợp tin nhắn T1 thành timeline summary (T2) và cập nhật profile (T3).
-
-### Khi nên dùng
-
-- Nhận A2A request từ March7 khi T1 tràn (token threshold)
-- User đã chat nhiều (>20 messages) và cần lưu thông tin quan trọng
-- Conversation sắp kết thúc hoặc user offline
 
 ### Parameters
 

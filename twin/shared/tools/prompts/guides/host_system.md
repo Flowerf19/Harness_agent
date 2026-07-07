@@ -1,5 +1,10 @@
 <tool_description>
-Tool MỌI câu hỏi/thao tác sự thật về host (uptime, disk, docker, service, log, đọc/ghi file) qua System Gateway: gọi mode=shell với lệnh OS phù hợp, owner duyệt đúng lệnh đó — BẮT BUỘC gọi tool này cho query host, KHÔNG bịa số liệu host từ trí nhớ.
+host_system — Tool MỌI câu hỏi/thao tác sự thật về host (uptime, disk, docker, service, log, đọc/ghi file) qua System Gateway: gọi mode=shell với lệnh OS phù hợp, owner duyệt đúng lệnh đó — BẮT BUỘC gọi tool này cho query host, KHÔNG bịa số liệu host từ trí nhớ. Tính toán → `run_python_code`; web → `web_search`; cài gateway → `gateway_admin`.
+
+Khi nên dùng:
+- User muốn kiểm tra/trên host thật: uptime, load, disk, docker, service, log, …
+- User yêu cầu thao tác host (ghi/đọc file, restart container, …) và đã chấp nhận luồng approve.
+- Muốn biết gateway hỗ trợ OS/shell nào.
 </tool_description>
 
 ## host_system
@@ -28,20 +33,6 @@ thêm code gateway.
 - `shell`: shell mong muốn nếu gateway hỗ trợ (mặc định lấy `shells[0]`).
 - `cwd`: thư mục làm việc cho shell.
 - `timeout`: 5-120 giây.
-
-### Khi nên dùng
-
-- User muốn kiểm tra/trên host thật: uptime, load, disk, docker, service, log, …
-- User yêu cầu thao tác host (ghi/đọc file, restart container, …) và đã chấp nhận
-  luồng approve.
-- Muốn biết gateway hỗ trợ OS/shell nào.
-
-### Khi không nên dùng
-
-- Tính toán / script sandbox: dùng `run_python_code`.
-- Web/research: dùng `web_search`.
-- Cài/update System Gateway: đó là luồng Evernight owner/admin (`gateway_admin`),
-  không phải chat tool thường.
 
 ### Quy tắc an toàn
 

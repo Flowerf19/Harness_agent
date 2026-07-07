@@ -49,8 +49,6 @@ services:
 
       # Shared model/tool endpoints
       - LM_STUDIO_API_URL=http://host.docker.internal:11434/v1
-      - TOOL_LLM_ENDPOINT=http://host.docker.internal:11434/v1
-      - TOOL_LLM_MODEL=minimax-m3:cloud
 
       # Peer agent endpoint
       - EVERNIGHT_A2A_URL=http://evernight:8001

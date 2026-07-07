@@ -1,5 +1,11 @@
 <tool_description>
-Evernight-only: curate T3 profile với hash conflict protection. Hai chế độ: một-section (truyền 'section'+'bullets') hoặc toàn-file (bỏ 'section', truyền 'sections' map). Cần `expected_profile_hash` từ `get_profile` — LUÔN gọi `get_profile` trước để đọc hồ sơ + hash, rồi mới curate.
+manage_user_profile — Evernight-only: curate T3 profile với hash conflict protection. Hai chế độ: một-section (truyền 'section'+'bullets') hoặc toàn-file (bỏ 'section', truyền 'sections' map). Cần `expected_profile_hash` từ `get_profile` — LUÔN gọi `get_profile` trước để đọc hồ sơ + hash, rồi mới curate. Fact mới → `update_user_profile`; persona bot → `update_personality`.
+
+Khi nên dùng:
+- Cleanup duplicate hoặc bullet cũ không còn đúng.
+- Delete, merge, rewrite, hoặc resolve conflict trong hồ sơ T3.
+- Cần giữ section canonical nhưng thay nội dung của một section (một-section).
+- Cần rewrite/dedup nhiều section cùng lúc (toàn-file).
 </tool_description>
 
 ## manage_user_profile
@@ -9,21 +15,7 @@ Curate hồ sơ T3. Tool này là destructive/curation, chỉ dùng cho Evernigh
 - Chế độ một-section: truyền `section` + `bullets`, thay toàn bộ bullet của đúng một section.
 - Chế độ toàn-file: bỏ trống `section`, truyền `sections` map (section->bullets) để ghi đè cả hồ sơ trong một call. Map là authoritative: section vắng mặt trong map sẽ bị xóa sạch.
 
-### Khi nên dùng
-
-- Cleanup duplicate hoặc bullet cũ không còn đúng.
-- Delete, merge, rewrite, hoặc resolve conflict trong hồ sơ T3.
-- Cần giữ section canonical nhưng thay nội dung của một section (một-section).
-- Cần rewrite/dedup nhiều section cùng lúc (toàn-file).
-
-### Khi không nên dùng
-
-- Fact mới vừa xuất hiện: dùng `update_user_profile`.
-- Append realtime T2->T3: dùng `update_user_profile`.
-- Persona hoặc cách nói của bot: dùng `update_personality`.
-
 Trước khi gọi tool này, TỰ gọi `get_profile(user_id)` để đọc nội dung hiện tại và lấy `expected_profile_hash`. KHÔNG hỏi user hash, KHÔNG bắt user chọn section — tự đọc, tự quyết, tự curate.
-
 
 ### Input
 

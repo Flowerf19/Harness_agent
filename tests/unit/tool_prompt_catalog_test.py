@@ -212,7 +212,7 @@ def test_catalog_output_is_unchanged_by_backend_metadata():
 
     catalog = result.tool_prompt_catalog.render_catalog()
 
-    assert catalog == "\n".join(
+    assert catalog == "\n\n".join(
         [
             f"- get_profile: {read_tool_description('get_profile', 'guides/get_profile.md')}",
             f"- host_system: {read_tool_description('host_system', 'guides/host_system.md')}",
@@ -267,7 +267,7 @@ def test_declared_proxy_description_uses_local_guide_for_remote_backend(tmp_path
     local_proxy = DeclaredToolProxy(DummyTool(), local_spec)
     remote_proxy = DeclaredToolProxy(DummyTool(), remote_spec)
 
-    assert remote_proxy.description == "Local guide description."
+    assert remote_proxy.description == "Local guide description.\nRemote metadata is not here."
     assert remote_proxy.get_openai_schema() == local_proxy.get_openai_schema()
     assert "remote_mcp" not in remote_proxy.get_openai_schema()["function"]["description"]
 

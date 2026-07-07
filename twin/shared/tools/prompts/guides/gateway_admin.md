@@ -1,5 +1,11 @@
 <tool_description>
-Owner-only System Gateway administration. Use when the owner asks about gateway status, wants diagnosis, needs the bootstrap install command, or requests an update.
+gateway_admin — Owner-only System Gateway administration. Use when the owner asks about gateway status, wants diagnosis, needs the bootstrap install command, or requests an update.
+
+Khi nên dùng:
+- Owner hỏi trạng thái System Gateway.
+- Owner muốn chẩn đoán gateway có healthy không.
+- Owner cần lệnh bootstrap để cài gateway lần đầu.
+- Owner yêu cầu update gateway.
 </tool_description>
 
 ## gateway_admin
@@ -10,13 +16,6 @@ Tool quản trị System Gateway dành riêng cho owner. Không dùng cho user t
 
 - `command`: `status`, `doctor`, `install_hint`, `update`.
 - `target_version`: phiên bản mục tiêu khi `command=update`.
-
-### Khi nên dùng
-
-- Owner hỏi trạng thái System Gateway.
-- Owner muốn chẩn đoán gateway có healthy không.
-- Owner cần lệnh bootstrap để cài gateway lần đầu.
-- Owner yêu cầu update gateway.
 
 ### Quy tắc an toàn
 

@@ -95,6 +95,6 @@ SYSTEM_TOOL_SPECS: tuple[ToolSpec, ...] = (
         class_name="ExecuteHostBashTool",
         visible_to=frozenset(),
         allowed_to=frozenset(),
-        guide_path="guides/execute_host_bash.md",
+        guide_path="guides/host_system.md",
     ),
 )

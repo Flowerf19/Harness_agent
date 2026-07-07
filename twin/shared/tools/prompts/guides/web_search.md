@@ -1,21 +1,13 @@
 <tool_description>
-Tìm kiếm web hiện tại qua Tavily.
+web_search — Tìm kiếm web hiện tại qua Tavily: tin tức, thời tiết, giá, sự kiện, lịch, phiên bản mới, thông tin có thể thay đổi — dùng khi user cần "mới nhất", "hôm nay", "cập nhật", hoặc cần nguồn web.
+Khi nên dùng:
+- Tin tức, lịch, giá, phiên bản mới, sự kiện hiện tại, thông tin có thể thay đổi.
+- User yêu cầu "mới nhất", "hôm nay", "cập nhật", hoặc cần nguồn web.
 </tool_description>
 
 ## web_search
 
 Tìm kiếm web hiện tại qua Tavily.
-
-### Khi nên dùng
-
-- Tin tức, lịch, giá, phiên bản mới, sự kiện hiện tại, thông tin có thể thay đổi.
-- User yêu cầu "mới nhất", "hôm nay", "cập nhật", hoặc cần nguồn web.
-
-### Khi không nên dùng
-
-- Ký ức/user history: dùng `search_memory`.
-- Tính toán/dữ liệu local: dùng `run_python_code`.
-- Lệnh host/log/docker: dùng `host_system`.
 
 ### Input
 

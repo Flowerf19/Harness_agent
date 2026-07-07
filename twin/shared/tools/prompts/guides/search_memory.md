@@ -1,25 +1,15 @@
 <tool_description>
-Tìm ký ức dài hạn (T2) về user và các cuộc trò chuyện cũ. Bộ nhớ KHÔNG tự nạp vào context — muốn nhớ chuyện cũ PHẢI gọi tool này, với query đã viết lại thành từ khóa chủ đề.
+search_memory — Tìm ký ức dài hạn (T2) về user và các cuộc trò chuyện cũ. Bộ nhớ KHÔNG tự nạp vào context — muốn nhớ chuyện cũ PHẢI gọi tool này, với query đã viết lại thành từ khóa chủ đề.
+Khi nên dùng:
+- User nhắc quá khứ: "hôm bữa", "lần trước", "bữa đó", "nhớ không", hoặc đại từ mơ hồ mà context hiện tại không giải thích được ("vụ đó", "cái hàm đó").
+- Câu hỏi cá nhân về sở thích, thói quen, hoàn cảnh của user.
+- Follow-up việc đang diễn ra (công việc, dự án, deadline, sức khỏe...).
+- Không chắc một fact riêng về user → tra trước khi đoán, đừng bịa.
 </tool_description>
 
 ## search_memory
 
 Bộ nhớ dài hạn (T2) không còn được chèn tự động vào context. Đây là đường **duy nhất** để nhớ lại chuyện cũ ngoài hồ sơ T3.
-
-### Khi nên dùng
-
-- User nhắc quá khứ: "hôm bữa", "lần trước", "bữa đó", "nhớ không", hoặc đại từ mơ hồ mà context hiện tại không giải thích được ("vụ đó", "cái hàm đó").
-- Câu hỏi cá nhân về sở thích, thói quen, hoàn cảnh của user.
-- Follow-up việc đang diễn ra (công việc, dự án, deadline, sức khỏe...).
-- Không chắc một fact riêng về user → tra trước khi đoán, đừng bịa.
-
-### Khi không nên dùng
-
-- Chào hỏi, tán gẫu không dính chuyện cũ.
-- Kiến thức chung không phải chuyện riêng của user.
-- Thông tin đã nằm ngay trong context hiện tại.
-- Hồ sơ ổn định (danh xưng, sở thích tổng quát): dùng `get_profile`.
-- Thông tin thời sự trên web: dùng `web_search`.
 
 ### Cách viết query
 

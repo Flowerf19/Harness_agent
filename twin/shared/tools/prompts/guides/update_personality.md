@@ -1,20 +1,13 @@
 <tool_description>
-Đổi persona hoặc cách nói của chính bot; không dùng cho hồ sơ user.
+update_personality — Đổi persona hoặc cách nói của chính bot: giọng điệu, icon/emoji, slang, cách xưng hô, độ dài câu trả lời, quy tắc hành vi — overwrite IDENTITY.md (bot LÀ AI) hoặc SOUL.md (bot NÓI THẾ NÀO); không dùng cho hồ sơ user (đó là update_user_profile).
+Khi nên dùng:
+- User yêu cầu đổi identity, tính cách, vai trò, cách xưng hô, phong cách nói, icon/emoji, độ dài câu trả lời, hoặc quy tắc hành vi của bot.
+- Yêu cầu rõ ràng là thay đổi bot/persona, không phải profile user.
 </tool_description>
 
 ## update_personality
 
 Viết lại file persona của bot hiện tại. Tool overwrite toàn bộ file mục tiêu; bạn phải tự chọn `target_file`.
-
-### Khi nên dùng
-
-- User yêu cầu đổi identity, tính cách, vai trò, cách xưng hô, phong cách nói, icon/emoji, độ dài câu trả lời, hoặc quy tắc hành vi của bot.
-- Yêu cầu rõ ràng là thay đổi bot/persona, không phải profile user.
-
-### Khi không nên dùng
-
-- User nói về sở thích/thông tin của chính họ: dùng `update_user_profile`.
-- Chỉ cần trả lời trực tiếp câu hỏi thông thường.
 
 ### Input
 
