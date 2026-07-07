@@ -41,6 +41,16 @@ class _FakeHostGatewayClient:
         self.actor = actor
 
 
+class _FakeApprovalGate:
+    def __init__(self, approved: bool = True):
+        self.approved = approved
+        self.calls = []
+
+    async def check_approval(self, tool_name: str, command: str) -> bool:
+        self.calls.append((tool_name, command))
+        return self.approved
+
+
 # ---------------------------------------------------------------------------
 # Owner gate
 # ---------------------------------------------------------------------------
@@ -187,6 +197,109 @@ async def test_install_hint_returns_bootstrap_hint(monkeypatch):
     assert "```" in result
 
 
+@pytest.mark.asyncio
+async def test_install_runs_fixed_bootstrap_after_owner_approval(monkeypatch):
+    approval_gate = _FakeApprovalGate(approved=True)
+    tool = GatewayAdminTool(
+        owner_user_id="owner-123",
+        gateway_monitor=None,
+        approval_gate=approval_gate,
+        executor_url="http://bash-executor:8374",
+        bootstrap_repo_root="/repo",
+        bootstrap_python="/venv/bin/python",
+        bootstrap_venv="/opt/test-system-gateway/venv",
+    )
+
+    ctx = _FakeApprovalContext(user_id="owner-123")
+    monkeypatch.setattr(
+        "twin.shared.tools.modules.system.gateway_admin_tool.get_current_approval_context",
+        lambda: ctx,
+    )
+
+    bridge_calls = []
+
+    class _FakeBridge:
+        def __init__(self, **kwargs):
+            bridge_calls.append(kwargs)
+
+        def build_install_command(self):
+            return "fixed bootstrap command"
+
+        async def install(self):
+            return type(
+                "Result",
+                (),
+                {
+                    "ok": True,
+                    "message": "done",
+                    "stdout": "healthy\nSYSTEM_GATEWAY_SHARED_SECRET=super-token",
+                    "stderr": "",
+                    "exit_code": 0,
+                },
+            )()
+
+    monkeypatch.setattr(
+        "twin.evernight.system_gateway.installer.LegacyBashExecutorBootstrapBridge",
+        _FakeBridge,
+    )
+
+    result = await tool.execute(command="install")
+
+    assert "✅" in result
+    assert "healthy" in result
+    assert "super-token" not in result
+    assert "[redacted system gateway secret line]" in result
+    assert approval_gate.calls == [
+        ("gateway_admin", "system-gateway bootstrap install:\nfixed bootstrap command")
+    ]
+    assert bridge_calls == [
+        {
+            "executor_url": "http://bash-executor:8374",
+            "repo_root": "/repo",
+            "python_executable": "/venv/bin/python",
+            "venv_path": "/opt/test-system-gateway/venv",
+            "timeout": 120,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_install_rejects_when_approval_denied(monkeypatch):
+    approval_gate = _FakeApprovalGate(approved=False)
+    tool = GatewayAdminTool(
+        owner_user_id="owner-123",
+        approval_gate=approval_gate,
+        executor_url="http://bash-executor:8374",
+        bootstrap_repo_root="/repo",
+        bootstrap_python="/venv/bin/python",
+    )
+
+    ctx = _FakeApprovalContext(user_id="owner-123")
+    monkeypatch.setattr(
+        "twin.shared.tools.modules.system.gateway_admin_tool.get_current_approval_context",
+        lambda: ctx,
+    )
+
+    class _FakeBridge:
+        def __init__(self, **kwargs):
+            pass
+
+        def build_install_command(self):
+            return "fixed bootstrap command"
+
+        async def install(self):
+            raise AssertionError("install should not run after rejected approval")
+
+    monkeypatch.setattr(
+        "twin.evernight.system_gateway.installer.LegacyBashExecutorBootstrapBridge",
+        _FakeBridge,
+    )
+
+    result = await tool.execute(command="install")
+
+    assert "bị từ chối" in result
+
+
 # ---------------------------------------------------------------------------
 # Command routing: update
 # ---------------------------------------------------------------------------
@@ -249,8 +362,13 @@ async def test_update_calls_installer_coordinator(monkeypatch):
     coordinator_calls = []
 
     class _FakeCoordinator:
-        def __init__(self, base_url, timeout):
-            coordinator_calls.append({"base_url": base_url, "timeout": timeout})
+        def __init__(self, base_url, timeout, shared_secret=None, actor="evernight"):
+            coordinator_calls.append({
+                "base_url": base_url,
+                "timeout": timeout,
+                "shared_secret": shared_secret,
+                "actor": actor,
+            })
 
         async def request_update(self, current_version, target_version=None, approval_id=None):
             coordinator_calls.append({
@@ -268,6 +386,8 @@ async def test_update_calls_installer_coordinator(monkeypatch):
     result = await tool.execute(command="update", target_version="0.2.0")
     assert "✅" in result
     assert "update queued" in result
+    assert coordinator_calls[0]["shared_secret"] == "test-secret"
+    assert coordinator_calls[0]["actor"] == "evernight"
     assert coordinator_calls[1]["current_version"] == "0.1.0"
     assert coordinator_calls[1]["target_version"] == "0.2.0"
     # approval_id was minted because client has shared_secret
@@ -275,7 +395,7 @@ async def test_update_calls_installer_coordinator(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_update_without_shared_secret_skips_approval_token(monkeypatch):
+async def test_update_without_shared_secret_returns_error(monkeypatch):
     monitor = _FakeGatewayMonitor(version="0.1.0")
     client = _FakeHostGatewayClient(shared_secret=None)
     tool = GatewayAdminTool(
@@ -290,23 +410,9 @@ async def test_update_without_shared_secret_skips_approval_token(monkeypatch):
         lambda: ctx,
     )
 
-    coordinator_calls = []
-
-    class _FakeCoordinator:
-        def __init__(self, base_url, timeout):
-            pass
-
-        async def request_update(self, current_version, target_version=None, approval_id=None):
-            coordinator_calls.append({"approval_id": approval_id})
-            return True, "update queued"
-
-    monkeypatch.setattr(
-        "twin.evernight.system_gateway.installer.InstallerCoordinator",
-        _FakeCoordinator,
-    )
-
     result = await tool.execute(command="update")
-    assert coordinator_calls[0]["approval_id"] is None
+
+    assert "shared secret" in result
 
 
 # ---------------------------------------------------------------------------
@@ -333,4 +439,5 @@ async def test_invalid_command_returns_error(monkeypatch):
     assert "status" in result
     assert "doctor" in result
     assert "install_hint" in result
+    assert "install" in result
     assert "update" in result

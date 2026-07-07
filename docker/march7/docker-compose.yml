@@ -41,7 +41,6 @@ services:
 
       # Native System Gateway (runs on the host; HMAC shared secret from .env)
       - SYSTEM_GATEWAY_URL=http://host.docker.internal:8380
-      - SYSTEM_GATEWAY_SHARED_SECRET=${SYSTEM_GATEWAY_SHARED_SECRET}
 
       # Peer agent endpoint
       - EVERNIGHT_A2A_URL=http://evernight:8001

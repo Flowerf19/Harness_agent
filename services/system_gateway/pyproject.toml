@@ -16,13 +16,23 @@ dependencies = [
 system-gateway = "system_gateway.__main__:main"
 
 [tool.setuptools]
-packages = ["system_gateway", "system_gateway.adapters", "system_gateway.cli"]
+packages = [
+    "system_gateway",
+    "system_gateway.adapters",
+    "system_gateway.cli",
+    "twin",
+    "twin.shared",
+    "twin.shared.system_gateway",
+]
 include-package-data = true
 
 [tool.setuptools.package-dir]
 system_gateway = "."
 "system_gateway.adapters" = "adapters"
 "system_gateway.cli" = "cli"
+"twin" = "../../twin"
+"twin.shared" = "../../twin/shared"
+"twin.shared.system_gateway" = "../../twin/shared/system_gateway"
 
 [tool.setuptools.package-data]
 system_gateway = ["packaging/**/*"]

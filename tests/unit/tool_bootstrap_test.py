@@ -117,6 +117,47 @@ def test_bootstrap_initializes_system_gateway_client(monkeypatch):
     assert result.host_gateway_client.timeout == 12
 
 
+def test_bootstrap_injects_system_gateway_bootstrap_venv(monkeypatch):
+    captured = {}
+
+    from twin.shared.tools.modules.system.gateway_admin_tool import GatewayAdminTool
+
+    def fake_init(
+        self,
+        owner_user_id,
+        gateway_monitor=None,
+        host_gateway_client=None,
+        approval_gate=None,
+        base_url=None,
+        shared_secret=None,
+        timeout=10,
+        executor_url=None,
+        bootstrap_repo_root=None,
+        bootstrap_python=None,
+        bootstrap_venv=None,
+        bootstrap_timeout=120,
+    ):
+        captured.update(
+            {
+                "bootstrap_repo_root": bootstrap_repo_root,
+                "bootstrap_python": bootstrap_python,
+                "bootstrap_venv": bootstrap_venv,
+            }
+        )
+        self.owner_user_id = str(owner_user_id)
+
+    monkeypatch.setattr(GatewayAdminTool, "__init__", fake_init)
+    monkeypatch.setattr(bootstrap.Config, "SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT", "/repo")
+    monkeypatch.setattr(bootstrap.Config, "SYSTEM_GATEWAY_BOOTSTRAP_PYTHON", "/python")
+    monkeypatch.setattr(bootstrap.Config, "SYSTEM_GATEWAY_BOOTSTRAP_VENV", "/opt/sg/venv")
+
+    _bootstrap_for("evernight")
+
+    assert captured["bootstrap_repo_root"] == "/repo"
+    assert captured["bootstrap_python"] == "/python"
+    assert captured["bootstrap_venv"] == "/opt/sg/venv"
+
+
 @pytest.mark.asyncio
 async def test_bootstrap_removes_consolidation_tool_execution():
     march7 = _registry_for("march7")

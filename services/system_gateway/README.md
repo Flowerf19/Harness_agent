@@ -1,186 +1,150 @@
 # System Gateway
 
-Native host service for the Twin agent stack. It is the single host boundary
-between the March7 / Evernight containers and the real operating system.
+Native host boundary for the Twin agent stack. `march7` and `evernight` run in
+Docker, but host operations run through this service on the host OS. Agents do
+not receive a general host shell; they call `host_system`, which signs requests
+to System Gateway, and dangerous operations still require owner approval.
 
-The service runs on the host OS (not inside Docker), binds to localhost by
-default, and exposes a small HTTP API. Every mutating request must be signed
-with HMAC-SHA256 and carry a fresh, action-bound approval token issued by the
-owner approval path.
+## Architecture
 
-## What it does
+```mermaid
+flowchart LR
+    Owner["Owner in Discord"] -->|"asks Evernight"| EV["Evernight agent"]
+    EV -->|"gateway_admin install"| Gate["ApprovalGate / Trạm Gác"]
+    Gate -->|"approve"| Bridge["fixed bootstrap bridge"]
+    Bridge -->|"legacy bash-executor only for first install"| Host["Host OS"]
+    Host -->|"creates venv + systemd unit"| SG["system-gateway :8380"]
 
-- **Capability discovery** — containers call `GET /capabilities` to learn what
-the host supports (platform, shells, Docker, structured actions, raw-shell
-policy).
-- **Read-only structured actions** — `POST /actions/run` executes safe,
-validated actions such as `system.status`, `system.disk_usage`,
-`docker.list_containers`, `docker.container_logs`, and `service.status`.
-- **Raw shell gate** — `POST /shell/run` is denied by default. It can only be
-enabled with `SYSTEM_GATEWAY_RAW_SHELL=true` and still requires a valid
-approval token.
-- **Owner approval binding** — mutating actions and raw shell require an
-approval token minted by Evernight / the owner CLI and bound to the exact
-action and actor.
-- **Audit** — every request lifecycle event is recorded:
-  `APPROVAL_RESOLVED`, `ACTION_STARTED`, `ACTION_COMPLETED`, `ACTION_FAILED`,
-  `ACTION_TIMED_OUT`, `ACTION_DENIED`.
-- **Self-update hook** — `POST /self/update` accepts an owner-approved update
-request and returns a queued status. The service does **not** auto-download or
-restart itself; the admin must run the package update out-of-band.
+    M7["March7 container"] -->|"host_system"| Client["HostGatewayClient"]
+    EV -->|"host_system"| Client
+    Client -->|"HMAC + nonce"| SG
+    SG -->|"policy + approval token"| Shell["OS shell adapter"]
+    Shell -->|"approved command"| Result["tool output"]
 
-## Supported platforms
-
-| Platform | Adapter | Service packaging | Notes |
-|----------|---------|-------------------|-------|
-| Linux    | `system_gateway.adapters.linux` | systemd unit | Full structured actions, no `nsenter` |
-| macOS    | `system_gateway.adapters.macos` | launchd plist | Capability stub; OS-specific actions later |
-| Windows  | `system_gateway.adapters.windows` | Manual / service wrapper stub | Capability stub |
-
-The service starts in read-only/no-shell mode on any platform; unsupported
-actions are rejected with an honest `action_not_supported` response.
-
-## Threat model
-
-- **Trust boundary**: the service is the only process that executes host
-commands. Containers must never shell out to the host directly.
-- **Authentication**: request signatures use a shared HMAC secret. The same
-secret derives approval-token HMACs in the current phase; the approval path
-should later use a separate approval-only key.
-- **Authorization**: deny by default. Read-only structured actions require a
-valid request signature. Mutating actions and raw shell additionally require a
-single-use, action-bound, actor-bound approval token.
-- **Replay protection**: nonces are tracked in memory within a TTL window.
-Approval-token nonces are consumed atomically.
-- **Input validation**: all subprocess calls use explicit arg-lists
-(`asyncio.create_subprocess_exec`), never `shell=True`. Paths and service
-names are validated before reaching the OS.
-- **Network exposure**: binds to `127.0.0.1:8380` by default. Do not expose it
-to the network without a TLS-terminating reverse proxy and strong
-authentication.
-
-## Quick start
-
-### 1. Install
-
-From the repo root:
-
-```bash
-pip install -e services/system_gateway
-system-gateway pair
-system-gateway install
+    SG --> Health["GET /health"]
+    SG --> Caps["GET /capabilities"]
 ```
 
-`pair` generates `/etc/system-gateway/secret` (Linux) or
-`~/Library/Application Support/system-gateway/secret` (macOS) with owner-only
-permissions. `install` deploys the systemd/launchd unit and points it at that
-secret file.
+First install is special: when the service is missing, Evernight can run
+`gateway_admin install` after owner approval. That path uses a narrow,
+code-generated command through the legacy `bash-executor`; it does not accept
+model-written shell fragments. The command parses only required `.env` keys,
+writes `/etc/system-gateway/secret`, creates `/opt/system-gateway/venv`, installs
+the package there, renders a systemd unit, restarts the service, and waits for
+`/health`.
 
-### 2. Verify
+After install, normal host interaction goes through `host_system` and
+`HostGatewayClient`, not through `bash-executor`.
 
-```bash
-system-gateway doctor
+## Current Capabilities
+
+- `GET /health` reports service status, version, uptime, and platform.
+- `GET /capabilities` reports platform, shell, and feature metadata.
+- `POST /shell/run` runs an owner-approved command on the platform shell.
+- `POST /self/update` records an owner-approved update request; it does not
+  download or restart binaries by itself.
+
+Current adapters expose one generic shell path:
+
+| Platform | Shell | Feature |
+| --- | --- | --- |
+| Linux | `/bin/sh` | `generic_shell_exec` |
+| macOS | `/bin/zsh` | `generic_shell_exec` |
+| Windows | `powershell.exe` | `generic_shell_exec` |
+
+## Security Model
+
+- `/health` and `/capabilities` are public for monitoring.
+- Mutating endpoints require HMAC request signing with timestamp and nonce.
+- Shell execution also requires a fresh owner approval token bound to action
+  `shell` and the request actor.
+- Approval tokens are single-use; replayed nonces are rejected.
+- The Linux systemd unit runs from `/opt/system-gateway/venv/bin/python`, keeps
+  `ProtectHome=true`, and reads the shared secret from
+  `/etc/system-gateway/secret`.
+- Bootstrap output is redacted before being returned to chat.
+
+## Quick Start
+
+### Agent-Driven Install
+
+From Discord DM with Evernight:
+
+```text
+Evernight, cài lại System Gateway bằng gateway_admin install.
+Sau khi xong gọi host_system capabilities.
 ```
 
-Expected output: healthy, with platform, version, and structured actions listed.
+Evernight should request approval in Discord. Approve it, then expect a
+successful bootstrap message and a `host_system capabilities` response.
 
-### 3. Wire the agents
+### Manual Install Fallback
 
-Ensure the March7 / Evernight containers can reach the gateway and share the
-secret:
-
-```bash
-# In the host env or .env that launches Docker Compose
-export SYSTEM_GATEWAY_URL=http://host.docker.internal:8380
-export SYSTEM_GATEWAY_SHARED_SECRET=$(cat /etc/system-gateway/secret)
-```
-
-`SYSTEM_GATEWAY_URL` is read by the agents; `SYSTEM_GATEWAY_SHARED_SECRET` is
-used by `HostGatewayClient` to sign requests and mint approval tokens.
-
-## Admin runbook
-
-### Status and capabilities
+From the repo root on the host:
 
 ```bash
-system-gateway status
-system-gateway capabilities
+/usr/bin/python3 -m venv --system-site-packages /opt/system-gateway/venv
+/opt/system-gateway/venv/bin/python -m pip install --no-build-isolation services/system_gateway
+SYSTEM_GATEWAY_HOST=0.0.0.0 \
+SYSTEM_GATEWAY_PORT=8380 \
+SYSTEM_GATEWAY_SHARED_SECRET_FILE=/etc/system-gateway/secret \
+  /opt/system-gateway/venv/bin/python -m system_gateway install
+systemctl restart system-gateway
 ```
 
-### Logs
+Normally the agent-driven installer writes `/etc/system-gateway/secret` from
+`.env`; do not print or commit that value.
+
+## Configuration
+
+| Variable | Default | Used by |
+| --- | --- | --- |
+| `SYSTEM_GATEWAY_URL` | `http://host.docker.internal:8380` | containers |
+| `SYSTEM_GATEWAY_HOST` | `127.0.0.1` | native service |
+| `SYSTEM_GATEWAY_PORT` | `8380` | native service |
+| `SYSTEM_GATEWAY_SHARED_SECRET` | unset | containers / signing |
+| `SYSTEM_GATEWAY_SHARED_SECRET_FILE` | unset | systemd service |
+| `SYSTEM_GATEWAY_RAW_SHELL` | `true` | emergency kill-switch |
+| `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` | unset | Evernight install |
+| `SYSTEM_GATEWAY_BOOTSTRAP_PYTHON` | `/usr/bin/python3` | Evernight install |
+| `SYSTEM_GATEWAY_BOOTSTRAP_VENV` | `/opt/system-gateway/venv` | Evernight install |
+
+Docker compose loads the shared secret from `.env` via `env_file`; do not set it
+to an empty value in `environment:`.
+
+## Operations
 
 ```bash
-system-gateway logs      # Linux: journalctl -u system-gateway -f
-                         # macOS: log stream --predicate 'process == "system-gateway"'
+curl http://127.0.0.1:8380/health
+curl http://127.0.0.1:8380/capabilities
+systemctl status system-gateway --no-pager
+journalctl -u system-gateway -f
 ```
 
-### Update
+Useful agent-facing checks:
+
+```text
+Evernight, gọi gateway_admin status rồi gọi host_system mode=capabilities.
+Evernight, gọi host_system mode=shell command="printf system-gateway-ok && uname -s".
+```
+
+The second command should trigger owner approval before execution.
+
+## Development And Tests
 
 ```bash
-# 1. Owner requests an update token
-system-gateway update --target-version 0.2.0
-
-# 2. Apply the package update out-of-band, then restart
-sudo systemctl restart system-gateway   # Linux
+/home/flowerf/.conda/envs/discord_bot/bin/python -m pytest services/system_gateway/tests -q -p no:phoenix
+/home/flowerf/.conda/envs/discord_bot/bin/python -m pytest \
+  tests/unit/gateway_admin_tool_test.py \
+  tests/unit/evernight_system_gateway_installer_test.py \
+  tests/unit/system_gateway_cli_test.py \
+  tests/unit/tool_bootstrap_test.py \
+  -q -p no:phoenix
 ```
 
-The gateway's `POST /self/update` only records the request; it does not
-auto-install binaries.
+## Migration Note
 
-### Rotate the shared secret
-
-```bash
-system-gateway pair --force
-sudo systemctl restart system-gateway   # Linux
-```
-
-Then update `SYSTEM_GATEWAY_SHARED_SECRET` in the container environment.
-
-### Uninstall
-
-```bash
-system-gateway uninstall
-```
-
-## Environment variables
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `SYSTEM_GATEWAY_HOST` | `127.0.0.1` | Bind host |
-| `SYSTEM_GATEWAY_PORT` | `8380` | Bind port |
-| `SYSTEM_GATEWAY_SHARED_SECRET` | — | HMAC shared secret |
-| `SYSTEM_GATEWAY_SHARED_SECRET_FILE` | — | Path to secret file (used by systemd/launchd units) |
-| `SYSTEM_GATEWAY_RAW_SHELL` | `false` | Enable raw-shell endpoint (still requires approval) |
-
-## API endpoints
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET`  | `/health` | none | Service health, version, uptime, platform |
-| `GET`  | `/capabilities` | none | Host capabilities |
-| `POST` | `/actions/run` | HMAC + approval token | Execute a structured action |
-| `POST` | `/shell/run` | HMAC + approval token | Raw shell gate (denied by default) |
-| `POST` | `/self/update` | HMAC + approval token | Owner-approved update request |
-
-## Development
-
-Run the service in the foreground:
-
-```bash
-SYSTEM_GATEWAY_SHARED_SECRET=dev-secret system-gateway run
-```
-
-Run tests:
-
-```bash
-PYTHONPATH=/home/flowerf/Projects/march7:/home/flowerf/Projects/march7/services \
-  conda run -n discord_bot python -m pytest services/system_gateway/tests/ -q
-```
-
-## Migration from `execute_host_bash`
-
-`execute_host_bash` and the Docker `bash-executor` are legacy Linux-only
-infrastructure. They are hidden from the model-facing tool catalog. New host
-interactions must go through `host_system` → `HostGatewayClient` → native
-`system-gateway`. The bash-executor may be removed once all host workflows are
-ported to structured actions.
+`execute_host_bash` remains hidden from the model-facing catalog. The legacy
+`bash-executor` is still required for the first owner-approved bootstrap while
+System Gateway is absent. Once a separate host package manager path exists, that
+bridge can be removed.

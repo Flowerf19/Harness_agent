@@ -18,6 +18,7 @@ from system_gateway.cli.main import (
     _default_config_dir,
     _ensure_secret_file,
     _read_secret_file,
+    _render_linux_service,
     build_parser,
     main,
 )
@@ -58,6 +59,30 @@ def test_ensure_secret_file_restricts_permissions(tmp_path: Path):
     assert path.read_text(encoding="utf-8") == "s3cret"
     if sys.platform.startswith("linux") or sys.platform == "darwin":
         assert oct(path.stat().st_mode)[-3:] == "600"
+
+
+def test_render_linux_service_uses_current_python_and_env(monkeypatch, tmp_path: Path):
+    raw = "\n".join(
+        [
+            "[Service]",
+            "ExecStart=/usr/local/bin/system-gateway run",
+            "Environment=SYSTEM_GATEWAY_HOST=127.0.0.1",
+            "Environment=SYSTEM_GATEWAY_PORT=8380",
+            "Environment=SYSTEM_GATEWAY_SHARED_SECRET_FILE=/etc/system-gateway/secret",
+            "ProtectHome=true",
+        ]
+    )
+    monkeypatch.setenv("SYSTEM_GATEWAY_HOST", "0.0.0.0")
+    monkeypatch.setenv("SYSTEM_GATEWAY_PORT", "9999")
+
+    rendered = _render_linux_service(raw, secret_file=tmp_path / "secret")
+
+    assert f"ExecStart={sys.executable} -m system_gateway run" in rendered
+    assert "Environment=SYSTEM_GATEWAY_HOST=0.0.0.0" in rendered
+    assert "Environment=SYSTEM_GATEWAY_PORT=9999" in rendered
+    assert f"Environment=SYSTEM_GATEWAY_SHARED_SECRET_FILE={tmp_path / 'secret'}" in rendered
+    assert "Environment=PYTHONPATH=" not in rendered
+    assert "ProtectHome=true" in rendered
 
 
 def test_pair_generates_secret_file(tmp_path: Path, monkeypatch):

@@ -88,10 +88,10 @@ flowchart LR
         H --> G{"Trạm Gác<br/>ApprovalGate"}
         G -->|reject| RA["❌ từ chối bởi Trạm Gác"]
     end
-    G -->|approved<br/>HMAC-signed| N["System Gateway :8765"]:::cur
+    G -->|approved<br/>HMAC-signed| N["System Gateway :8380"]:::cur
     subgraph H["Host"]
         N -->|policy + audit| X["OS adapter<br/>(Linux/macOS/Windows)"]
-        X --> R["structured action / shell"]:::cur
+        X --> R["owner-approved shell"]:::cur
     end
     classDef cur fill:#e6ffe6,stroke:#1f9d55;
 ```
@@ -101,7 +101,7 @@ So với legacy bash-executor (chỉ chạy được trên Linux, trust qua `Ori
 - **HMAC request signing** giữa container ↔ gateway (không còn tin `Origin`).
 - **Nonce + timestamp** chống replay.
 - **Approval id binding** trên mỗi mutating request (server lưu consumed approvals).
-- **Local policy + audit log** ở gateway; structured actions được ưu tiên hơn raw shell.
+- **Local policy + audit log** ở gateway; raw shell chỉ chạy sau owner approval.
 - **OS adapters** (Linux/macOS/Windows) chạy native trên host, không qua Docker `nsenter`.
 
 #### Legacy bash-executor — vẫn chạy được nhưng đang deprecated
@@ -112,7 +112,7 @@ So với legacy bash-executor (chỉ chạy được trên Linux, trust qua `Ori
 - include `shared/docker-compose.bash-executor.yml` trong `docker/docker-compose.yml`
 - spec `ExecuteHostBashTool` trong `SYSTEM_TOOL_SPECS`
 
-Trước khi xóa, đảm bảo: (a) `host_system` đã cover mọi command mà bash-executor đang chạy, (b) owner đã migrate self-heal restart sang gateway route, (c) Docker `pid: host` không còn cần cho runtime.
+Trước khi xóa, đảm bảo: (a) `host_system` đã cover mọi command mà bash-executor đang chạy, (b) owner-approved first-install không còn cần legacy bootstrap bridge, (c) Docker `pid: host` không còn cần cho runtime.
 
 ## Prerequisites
 
@@ -190,6 +190,7 @@ pytest tests/e2e/ -v
 ## Tài liệu liên quan
 
 - [.agents/](.agents/) — agent guidance (start: [README.md](.agents/README.md))
+- [services/system_gateway/README.md](services/system_gateway/README.md) — native host gateway architecture, install, security, and runbook
 - [twin/shared/llm/README.md](twin/shared/llm/README.md) — LLM + embedding config
 - [scripts/README.md](scripts/README.md) — bash executor security
 - [docker/README.md](docker/README.md) — Docker runbook

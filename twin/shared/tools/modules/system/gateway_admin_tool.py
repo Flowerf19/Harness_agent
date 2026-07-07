@@ -8,6 +8,7 @@ from twin.evernight.system_gateway import installer
 from twin.evernight.system_gateway.monitor import GatewayMonitor
 from twin.shared.system_gateway.auth import mint_approval_token
 from twin.shared.tools.approval_context import get_current_approval_context
+from twin.shared.tools.approval_gate import ApprovalGate
 from twin.shared.tools.registry.base import BaseTool
 
 logger = logging.getLogger(__name__)
@@ -25,16 +26,28 @@ class GatewayAdminTool(BaseTool):
         owner_user_id: str,
         gateway_monitor: GatewayMonitor | None = None,
         host_gateway_client=None,
+        approval_gate: ApprovalGate | None = None,
         base_url: str | None = None,
         shared_secret: str | None = None,
         timeout: int = 10,
+        executor_url: str | None = None,
+        bootstrap_repo_root: str | None = None,
+        bootstrap_python: str | None = None,
+        bootstrap_venv: str | None = None,
+        bootstrap_timeout: int = 120,
     ):
         self.owner_user_id = str(owner_user_id)
         self._gateway_monitor = gateway_monitor
         self._host_gateway_client = host_gateway_client
+        self._approval_gate = approval_gate
         self._base_url = base_url
         self._shared_secret = shared_secret
         self._timeout = timeout
+        self._executor_url = executor_url
+        self._bootstrap_repo_root = bootstrap_repo_root
+        self._bootstrap_python = bootstrap_python
+        self._bootstrap_venv = bootstrap_venv
+        self._bootstrap_timeout = bootstrap_timeout
 
     @property
     def name(self) -> str:
@@ -47,7 +60,7 @@ class GatewayAdminTool(BaseTool):
             "properties": {
                 "command": {
                     "type": "string",
-                    "enum": ["status", "doctor", "install_hint", "update"],
+                    "enum": ["status", "doctor", "install_hint", "install", "update"],
                     "description": "Lệnh quản trị gateway.",
                 },
                 "target_version": {
@@ -75,11 +88,13 @@ class GatewayAdminTool(BaseTool):
             return await self._doctor()
         if cmd == "install_hint":
             return self._install_hint()
+        if cmd == "install":
+            return await self._install()
         if cmd == "update":
             return await self._update(target_version)
         return (
             f"❌ Lệnh `{command}` không hợp lệ. "
-            "Các lệnh hỗ trợ: status, doctor, install_hint, update."
+            "Các lệnh hỗ trợ: status, doctor, install_hint, install, update."
         )
 
     def _is_owner(self) -> bool:
@@ -116,6 +131,51 @@ class GatewayAdminTool(BaseTool):
     def _install_hint(self) -> str:
         return installer.build_bootstrap_hint().render_for_chat()
 
+    async def _install(self) -> str:
+        if not self._executor_url:
+            return "❌ Bootstrap executor URL chưa được cấu hình."
+        if not self._bootstrap_repo_root:
+            return "❌ SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT chưa được cấu hình."
+        if not self._bootstrap_python:
+            return "❌ SYSTEM_GATEWAY_BOOTSTRAP_PYTHON chưa được cấu hình."
+        if self._approval_gate is None:
+            return "❌ ApprovalGate chưa được cấu hình."
+
+        bridge = installer.LegacyBashExecutorBootstrapBridge(
+            executor_url=self._executor_url,
+            repo_root=self._bootstrap_repo_root,
+            python_executable=self._bootstrap_python,
+            venv_path=self._bootstrap_venv or "/opt/system-gateway/venv",
+            timeout=self._bootstrap_timeout,
+        )
+        command = bridge.build_install_command()
+        approved = await self._approval_gate.check_approval(
+            self.name,
+            f"system-gateway bootstrap install:\n{command}",
+        )
+        if not approved:
+            return "❌ Cài System Gateway bị từ chối bởi Trạm Gác."
+
+        result = await bridge.install()
+        lines = [
+            (
+                "✅ System Gateway bootstrap completed."
+                if result.ok
+                else f"⚠️ System Gateway bootstrap failed: {result.message}"
+            )
+        ]
+        stdout = _redact_bootstrap_output(result.stdout)
+        stderr = _redact_bootstrap_output(result.stderr)
+        if stdout:
+            lines.extend(["", "Output:", "```", _truncate(stdout, 3000), "```"])
+        if stderr:
+            lines.extend(["", "Stderr:", "```", _truncate(stderr, 2000), "```"])
+        if self._gateway_monitor is not None:
+            snapshot = await self._gateway_monitor.refresh_once()
+            if hasattr(snapshot, "render_for_chat"):
+                lines.extend(["", snapshot.render_for_chat()])
+        return "\n".join(lines)
+
     async def _update(self, target_version: str | None) -> str:
         if self._gateway_monitor is None:
             return "❌ GatewayMonitor chưa được cấu hình."
@@ -136,24 +196,28 @@ class GatewayAdminTool(BaseTool):
         if base_url is None:
             return "❌ Gateway base URL chưa được cấu hình."
 
-        coordinator = installer.InstallerCoordinator(
-            base_url=base_url,
-            timeout=self._timeout,
-        )
-
         approval_id = None
         secret = self._shared_secret
         if secret is None and self._host_gateway_client is not None:
             secret = getattr(self._host_gateway_client, "shared_secret", None)
+        if not secret:
+            return "❌ Gateway shared secret chưa được cấu hình."
+        actor = "evernight"
+        if self._host_gateway_client is not None:
+            actor = getattr(self._host_gateway_client, "actor", actor)
         if secret:
-            actor = "evernight"
-            if self._host_gateway_client is not None:
-                actor = getattr(self._host_gateway_client, "actor", actor)
             approval_id = mint_approval_token(
                 secret=secret,
                 action="self.update",
                 actor=actor,
             )
+
+        coordinator = installer.InstallerCoordinator(
+            base_url=base_url,
+            timeout=self._timeout,
+            shared_secret=secret,
+            actor=actor,
+        )
 
         ok, message = await coordinator.request_update(
             current_version=current_version,
@@ -163,3 +227,20 @@ class GatewayAdminTool(BaseTool):
         if ok:
             return f"✅ Update request accepted: {message}"
         return f"⚠️ Update request failed: {message}"
+
+
+def _truncate(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    half = max_chars // 2
+    return f"{text[:half]}\n... [truncated: {len(text)} chars total] ...\n{text[-half:]}"
+
+
+def _redact_bootstrap_output(text: str) -> str:
+    redacted_lines = []
+    for line in (text or "").splitlines():
+        if "SYSTEM_GATEWAY_SHARED_SECRET" in line:
+            redacted_lines.append("[redacted system gateway secret line]")
+        else:
+            redacted_lines.append(line)
+    return "\n".join(redacted_lines)

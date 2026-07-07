@@ -142,6 +142,10 @@ class Config:
         os.getenv("SYSTEM_GATEWAY_TIMEOUT", str(SYSTEM_GATEWAY_TIMEOUT_DEFAULT))
     )
     SYSTEM_GATEWAY_SHARED_SECRET = os.getenv("SYSTEM_GATEWAY_SHARED_SECRET") or None
+    SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT = os.getenv("SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT", "")
+    SYSTEM_GATEWAY_BOOTSTRAP_PYTHON = os.getenv("SYSTEM_GATEWAY_BOOTSTRAP_PYTHON", "/usr/bin/python3")
+    SYSTEM_GATEWAY_BOOTSTRAP_VENV = os.getenv("SYSTEM_GATEWAY_BOOTSTRAP_VENV", "/opt/system-gateway/venv")
+    SYSTEM_GATEWAY_BOOTSTRAP_TIMEOUT = int(os.getenv("SYSTEM_GATEWAY_BOOTSTRAP_TIMEOUT", "120"))
 
     # === Evernight A2A endpoint (March7 calls Evernight) ===
     EVERNIGHT_A2A_URL = os.getenv("EVERNIGHT_A2A_URL", "http://evernight:8001")

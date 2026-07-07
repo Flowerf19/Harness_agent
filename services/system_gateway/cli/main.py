@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import secrets
+import shlex
 import sys
 import urllib.request
 from pathlib import Path
@@ -212,6 +213,29 @@ def _is_root() -> bool:
     return os.geteuid() == 0 if hasattr(os, "geteuid") else False
 
 
+def _render_linux_service(raw: str, *, secret_file: Path) -> str:
+    """Render the packaged Linux unit for the current Python environment."""
+
+    host = os.getenv("SYSTEM_GATEWAY_HOST", GatewayConfig.host)
+    port = os.getenv("SYSTEM_GATEWAY_PORT", str(GatewayConfig.port))
+    exec_start = f"{shlex.quote(sys.executable)} -m system_gateway run"
+    rendered_lines: list[str] = []
+    for line in raw.splitlines():
+        if line.startswith("ExecStart="):
+            rendered_lines.append(f"ExecStart={exec_start}")
+        elif line.startswith("Environment=SYSTEM_GATEWAY_HOST="):
+            rendered_lines.append(f"Environment=SYSTEM_GATEWAY_HOST={host}")
+        elif line.startswith("Environment=SYSTEM_GATEWAY_PORT="):
+            rendered_lines.append(f"Environment=SYSTEM_GATEWAY_PORT={port}")
+        elif line.startswith("Environment=SYSTEM_GATEWAY_SHARED_SECRET_FILE="):
+            rendered_lines.append(
+                f"Environment=SYSTEM_GATEWAY_SHARED_SECRET_FILE={secret_file}"
+            )
+        else:
+            rendered_lines.append(line)
+    return "\n".join(rendered_lines) + "\n"
+
+
 def _cmd_install(args: argparse.Namespace) -> int:
     """Install and start the native service."""
 
@@ -238,7 +262,8 @@ def _cmd_install(args: argparse.Namespace) -> int:
             print("❌ Linux install requires root (systemctl/systemd).", file=sys.stderr)
             return 1
         dst = _systemd_unit_path()
-        dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+        raw = src.read_text(encoding="utf-8")
+        dst.write_text(_render_linux_service(raw, secret_file=secret_file), encoding="utf-8")
         _run_or_warn(["systemctl", "daemon-reload"])
         _run_or_warn(["systemctl", "enable", "--now", "system-gateway"])
         print(f"✅ Installed {dst} and started system-gateway.service")
