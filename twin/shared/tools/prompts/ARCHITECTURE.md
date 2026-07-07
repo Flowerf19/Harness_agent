@@ -117,9 +117,9 @@ dễ ignore rule.
 
 `host_system.md` — đầy đủ 4 section, anti-hallucination mạnh, là chuẩn.
 3 file đã theo spec: `host_system.md`, `consolidate_memory.md`,
-`gateway_admin.md`. 8 file còn lại đang dùng convention multi-line cũ:
+`gateway_admin.md`. 7 file còn lại đang dùng convention multi-line cũ:
 `search_memory.md`, `get_profile.md`, `update_user_profile.md`,
 `manage_user_profile.md`, `update_personality.md`, `web_search.md`,
-`run_python_code.md`, `execute_host_bash.md`.
+`run_python_code.md`.
 
 Chi tiết từng file cần refactor theo bảng §11 `CONTRIBUTING.md`.

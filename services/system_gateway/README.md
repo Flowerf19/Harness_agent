@@ -10,9 +10,8 @@ to System Gateway, and dangerous operations still require owner approval.
 ```mermaid
 flowchart LR
     Owner["Owner in Discord"] -->|"asks Evernight"| EV["Evernight agent"]
-    EV -->|"gateway_admin install"| Gate["ApprovalGate / Trạm Gác"]
-    Gate -->|"approve"| Bridge["fixed bootstrap bridge"]
-    Bridge -->|"legacy bash-executor only for first install"| Host["Host OS"]
+    EV -->|"gateway_admin install"| Hint["host install command"]
+    Owner -->|"runs command on host"| Host["Host OS"]
     Host -->|"creates venv + systemd unit"| SG["system-gateway :8380"]
 
     M7["March7 container"] -->|"host_system"| Client["HostGatewayClient"]
@@ -25,16 +24,13 @@ flowchart LR
     SG --> Caps["GET /capabilities"]
 ```
 
-First install is special: when the service is missing, Evernight can run
-`gateway_admin install` after owner approval. That path uses a narrow,
-code-generated command through the legacy `bash-executor`; it does not accept
-model-written shell fragments. The command parses only required `.env` keys,
-writes `/etc/system-gateway/secret`, creates `/opt/system-gateway/venv`, installs
-the package there, renders a systemd unit, restarts the service, and waits for
-`/health`.
+First install is special: when the service is missing, there is no host
+execution channel yet. Evernight's `gateway_admin install` returns a
+code-generated command for the owner to run on the host. It does not execute a
+container-side bootstrap bridge.
 
 After install, normal host interaction goes through `host_system` and
-`HostGatewayClient`, not through `bash-executor`.
+`HostGatewayClient`.
 
 ## Current Capabilities
 
@@ -62,11 +58,11 @@ Current adapters expose one generic shell path:
 - The Linux systemd unit runs from `/opt/system-gateway/venv/bin/python`, keeps
   `ProtectHome=true`, and reads the shared secret from
   `/etc/system-gateway/secret`.
-- Bootstrap output is redacted before being returned to chat.
+- There is no Docker privileged host executor in the default stack.
 
 ## Quick Start
 
-### Agent-Driven Install
+### Owner-Driven Install Hint
 
 From Discord DM with Evernight:
 
@@ -75,8 +71,8 @@ Evernight, cài lại System Gateway bằng gateway_admin install.
 Sau khi xong gọi host_system capabilities.
 ```
 
-Evernight should request approval in Discord. Approve it, then expect a
-successful bootstrap message and a `host_system capabilities` response.
+Evernight returns the exact host command. Run it on the host, then ask
+Evernight or March7 for `host_system capabilities` to verify the service.
 
 ### Manual Install Fallback
 
@@ -92,8 +88,9 @@ SYSTEM_GATEWAY_SHARED_SECRET_FILE=/etc/system-gateway/secret \
 systemctl restart system-gateway
 ```
 
-Normally the agent-driven installer writes `/etc/system-gateway/secret` from
-`.env`; do not print or commit that value.
+Create `/etc/system-gateway/secret` first with the same
+`SYSTEM_GATEWAY_SHARED_SECRET` used by the containers. Do not print or commit
+that value.
 
 ## Configuration
 
@@ -105,9 +102,9 @@ Normally the agent-driven installer writes `/etc/system-gateway/secret` from
 | `SYSTEM_GATEWAY_SHARED_SECRET` | unset | containers / signing |
 | `SYSTEM_GATEWAY_SHARED_SECRET_FILE` | unset | systemd service |
 | `SYSTEM_GATEWAY_RAW_SHELL` | `true` | emergency kill-switch |
-| `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` | unset | Evernight install |
-| `SYSTEM_GATEWAY_BOOTSTRAP_PYTHON` | `/usr/bin/python3` | Evernight install |
-| `SYSTEM_GATEWAY_BOOTSTRAP_VENV` | `/opt/system-gateway/venv` | Evernight install |
+| `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` | unset | Evernight install hint |
+| `SYSTEM_GATEWAY_BOOTSTRAP_PYTHON` | `/usr/bin/python3` | Evernight install hint |
+| `SYSTEM_GATEWAY_BOOTSTRAP_VENV` | `/opt/system-gateway/venv` | Evernight install hint |
 
 Docker compose loads the shared secret from `.env` via `env_file`; do not set it
 to an empty value in `environment:`.
@@ -144,7 +141,5 @@ The second command should trigger owner approval before execution.
 
 ## Migration Note
 
-`execute_host_bash` remains hidden from the model-facing catalog. The legacy
-`bash-executor` is still required for the first owner-approved bootstrap while
-System Gateway is absent. Once a separate host package manager path exists, that
-bridge can be removed.
+The legacy Docker bash executor and hidden host-bash tool have been removed.
+System Gateway is the only supported host boundary.

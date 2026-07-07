@@ -11,7 +11,6 @@ from gateway.shared.handler_base import GatewayHandler
 from gateway.shared.model import UnifiedEvent, UnifiedMessage
 from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
 from twin.shared.observability.langsmith import summarize_trace_output, traceable
-from twin.shared.tools.exceptions import BashExecutorUnavailableError
 
 if TYPE_CHECKING:
     from gateway.core.agent_router import AgentRouter
@@ -114,13 +113,6 @@ class GatewayChatHandler(GatewayHandler):
                     hints=hints,
                     agent_name=agent_name,
                 )
-            except BashExecutorUnavailableError:
-                logger.warning(
-                    "Bash executor unavailable while handling message user=%s channel=%s",
-                    msg.user.platform_id,
-                    msg.channel.channel_id,
-                )
-                raise
             except Exception:
                 logger.exception("Error processing message")
                 return ERROR_MESSAGE

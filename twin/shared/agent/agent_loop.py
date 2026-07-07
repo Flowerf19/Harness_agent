@@ -48,7 +48,6 @@ class AgentLoop:
         logger: logging.Logger,
         max_iterations: int = 10,
         tool_timeout: int = 60,
-        raise_bash_unavailable: bool = False,
     ) -> None:
         self.think = Think(llm, logger)
         self.act = Act(tool_registry, tool_timeout, llm_type, logger)
@@ -57,7 +56,6 @@ class AgentLoop:
         self.llm_type = llm_type
         self.logger = logger
         self.max_iterations = max_iterations
-        self.raise_bash_unavailable = raise_bash_unavailable
 
     async def run(
         self,
@@ -296,7 +294,6 @@ class AgentLoop:
                 arguments=refined_call["arguments"],
                 tool_call_id=refined_call["id"] or None,
                 trace_metadata=trace_metadata,
-                raise_bash_unavailable=self.raise_bash_unavailable,
             )
             messages.append(result_message)
             tools_executed += 1

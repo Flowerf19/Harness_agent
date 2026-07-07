@@ -20,7 +20,6 @@ async def main():
     from twin.evernight.container import EvernightContainer
     from twin.evernight.triggers.inactivity_trigger import InactivityTrigger
     from twin.evernight.self_heal.monitor import SelfHealMonitor
-    from twin.shared.config.settings import Config
 
     config = EvernightConfig.from_env()
     container = EvernightContainer(config)
@@ -60,7 +59,6 @@ async def main():
             timeout=config.self_heal_timeout,
             discord_adapter=evernight_adapter,
             notify_user_id=int(config.owner_user_id),
-            bash_executor_url=Config.BASH_EXECUTOR_URL,
             gateway_monitor=container.gateway_monitor,
         )
         await self_heal.start()

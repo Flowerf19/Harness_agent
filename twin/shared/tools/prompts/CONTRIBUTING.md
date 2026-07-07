@@ -523,7 +523,7 @@ context, dễ ignore rule.
 
 ## 10. Trạng thái hiện tại (2026-06-27)
 
-### 10.1 Bảng 11 tool
+### 10.1 Bảng 10 tool
 
 | Tool | Backend | visible_to | Anti-halluc section? |
 |---|---|---|---|
@@ -537,14 +537,13 @@ context, dễ ignore rule.
 | `run_python_code` | local | all | ❌ TODO |
 | `host_system` | local | all | ✅ |
 | `gateway_admin` | local | evernight | ❌ TODO |
-| `execute_host_bash` | local | (hidden) | (legacy) |
 
 ### 10.2 File cần refactor theo spec
 
-8 file đang dùng convention multi-line block (block chứa cả body guide):
+7 file đang dùng convention multi-line block (block chứa cả body guide):
 `search_memory.md`, `get_profile.md`, `update_user_profile.md`,
 `manage_user_profile.md`, `update_personality.md`, `web_search.md`,
-`run_python_code.md`, `execute_host_bash.md`.
+`run_python_code.md`.
 
 ### 10.3 File đã đúng spec
 

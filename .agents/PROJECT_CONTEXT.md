@@ -14,10 +14,8 @@ Main services:
 
 - `redis`: Redis Stack for T1 active memory and T2 timeline/vector memory.
 - `codebox`: sandboxed Python execution service.
-- `system-gateway`: native host service that executes structured host actions
-  and gates raw shell access (replaces the legacy `bash-executor`).
-- `bash-executor`: **legacy** privileged host command execution; kept only for
-  migration and will be removed once all host workflows use `system-gateway`.
+- `system-gateway`: native host service outside Docker that gates host shell
+  access through HMAC signing and owner approval.
 - `march7`: Gateway, Discord bot, and March7 A2A server.
 - `evernight`: Evernight bot, consolidation, and self-heal worker.
 
@@ -27,7 +25,6 @@ Expected local endpoints:
 - Evernight A2A: `http://localhost:8001/.well-known/agent.json`
 - Codebox: port `8069`
 - System Gateway: port `8380` (native host service)
-- Bash Executor: port `8374` (legacy, do not use for new features)
 
 ### Local Python (secondary)
 
@@ -88,9 +85,7 @@ remain the local `web_search` contract; the adapter maps arguments to Tavily's
 `tavily_search` MCP tool and trims results back to the local schema's requested
 `max_results`. There is no legacy Tavily HTTP backend path. Memory/profile/
 consolidation tools are internal stateful tools, `run_python_code` calls the
-codebox sandbox, and `host_system` calls the native System Gateway. The
-`execute_host_bash` tool is legacy and hidden from the catalog; do not use it
-for new host interactions.
+codebox sandbox, and `host_system` calls the native System Gateway.
 
 Future bot-created tools start as drafts and must not become visible or allowed
 without validation and approval. Generated workflow tools should use the
@@ -220,7 +215,6 @@ Shared infrastructure and LLM:
 - `CODEBOX_API_URL`
 - `SYSTEM_GATEWAY_URL` default `http://host.docker.internal:8380`
 - `SYSTEM_GATEWAY_SHARED_SECRET` HMAC secret shared with the native gateway
-- `BASH_EXECUTOR_URL` legacy; prefer `SYSTEM_GATEWAY_URL`
 - `T1_CONTEXT_MAX_TOKENS`
 - `T1_CONTEXT_MAX_MESSAGES`
 - `T1_ARCHIVE_ENABLED` default `true`

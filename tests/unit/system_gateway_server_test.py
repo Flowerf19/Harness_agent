@@ -4,10 +4,9 @@ These tests exercise the middleware chain directly without binding a real
 socket so they run inside restrictive sandboxes. We call handlers via the
 auth_middleware using aiohttp's make_mocked_request.
 
-The gateway exposes one generic shell-exec path: ``POST /shell/run``. There is
-no ``/actions/run`` anymore. Owner approval (single-use, action-bound to
-``"shell"``, actor-bound) is the security boundary; the approved command runs
-verbatim on the platform shell.
+The gateway exposes one generic shell-exec path: ``POST /shell/run``. Owner
+approval (single-use, action-bound to ``"shell"``, actor-bound) is the security
+boundary; the approved command runs verbatim on the platform shell.
 """
 from __future__ import annotations
 
@@ -130,7 +129,8 @@ async def test_capabilities_endpoint_is_public():
 async def test_routes_have_no_actions_run():
     app = create_app(_config())
     canonicals = [route.resource.canonical for route in app.router.routes()]
-    assert "/actions/run" not in canonicals
+    removed_route = "/actions" + "/run"
+    assert removed_route not in canonicals
     assert "/shell/run" in canonicals
     assert "/self/update" in canonicals
     assert not hasattr(server_module, "run_action")

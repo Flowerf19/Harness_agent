@@ -68,7 +68,7 @@ def clear_approval_context():
 async def test_approval_gate_rejects_without_context(monkeypatch):
     monkeypatch.delenv("APPROVAL_AUTO_APPROVE_WITHOUT_CONTEXT", raising=False)
 
-    approved = await ApprovalGate().check_approval("execute_host_bash", "pwd")
+    approved = await ApprovalGate().check_approval("host_system", "pwd")
 
     assert approved is False
 
@@ -84,7 +84,7 @@ async def test_approval_gate_uses_context_backend():
     )
     set_current_approval_context(context)
 
-    approved = await ApprovalGate().check_approval("execute_host_bash", "pwd")
+    approved = await ApprovalGate().check_approval("host_system", "pwd")
 
     assert approved is True
     assert backend.calls == [(context, "pwd")]
@@ -102,7 +102,7 @@ async def test_approval_gate_falls_back_to_channel_backend_when_dm_fails():
     set_current_approval_context(context)
 
     approved = await ApprovalGate(dm_client=FailingDMClient()).check_approval(
-        "execute_host_bash",
+        "host_system",
         "pwd",
     )
 

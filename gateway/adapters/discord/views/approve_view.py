@@ -1,7 +1,7 @@
 """
 ApproveView - Discord View yêu cầu user approve trước khi chạy lệnh host.
 
-Hiện ra khi ApprovalGate cần xác nhận cho execute_host_bash.
+Hiện ra khi ApprovalGate cần xác nhận cho một thao tác có side effect.
 Có 2 nút: [Approve] cho phép chạy, [Reject] từ chối. Timeout 30s.
 """
 

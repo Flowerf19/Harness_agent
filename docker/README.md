@@ -8,7 +8,7 @@ Docker Compose là runtime chính cho kiến trúc Twin-Soul của dự án:
 
 - `march7`: main chat runtime + gateway + A2A `:8000`
 - `evernight`: independent Discord agent for DM/tag/`!9` chat, notifications/approvals, consolidation/self-heal + A2A `:8001`
-- shared infra: Redis, Codebox, Bash Executor
+- shared infra: Redis, Codebox
 
 ## Structure
 
@@ -18,13 +18,9 @@ docker/
 │
 ├── shared/
 │   ├── Dockerfile.base
-│   ├── Dockerfile.bash-executor
 │   ├── docker-compose.base.yml
 │   ├── docker-compose.redis.yml
-│   ├── docker-compose.codebox.yml
-│   ├── docker-compose.bash-executor.yml
-│   ├── bash-executor.service
-│   └── bash-executor-starter.service
+│   └── docker-compose.codebox.yml
 ├── march7/
 │   ├── Dockerfile
 │   └── docker-compose.yml
@@ -46,7 +42,6 @@ docker/
 |---------|-----------|-------|------|---------|
 | `redis` | `march7-redis` | `redis/redis-stack-server` | 6379 | Shared T1 storage + coordination markers |
 | `codebox` | `march7-codebox` | `shroominic/codebox` | 8069 | Python sandbox |
-| `bash-executor` | `march7-bash-executor` | `march7-bash-executor` | 8374 | Shared privileged host executor |
 | `base` | — | `march7-base` | — | Shared Python runtime |
 | `march7` | `march7` | `march7-agent` | 8000 | Gateway + March7 Discord bot + March7 A2A |
 | `evernight` | `evernight` | `evernight-agent` | 8001 | Evernight Discord bot for DM/tag/`!9` chat, notifications/approvals, consolidation + self-healing |
@@ -61,10 +56,6 @@ Xem [ARCHITECTURE.md](ARCHITECTURE.md) để biết boundary private/shared chi 
 - **shared/Dockerfile.base**: runtime Python + dependencies chung.
 - **march7/Dockerfile**: March7-owned image, entrypoint `python -m gateway`.
 - **evernight/Dockerfile**: Evernight-owned image, entrypoint `python -m twin.evernight`.
-
-### Tool Images
-
-`shared/Dockerfile.bash-executor` builds the `bash-executor` tool image. Shared tool containers use hyphenated Docker names, while Python files keep snake_case module names.
 
 ## Quick Start
 

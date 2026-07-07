@@ -1,8 +1,5 @@
-# NOTE: `shared/docker-compose.bash-executor.yml` is included for back-compat.
-# It hosts the LEGACY Linux-only bash-executor. The native System Gateway
-# (services/system_gateway/) is the long-term host boundary and is added via
-# its own packaging (systemd/launchd) outside Docker. Once the native gateway
-# reaches feature parity on the host, drop the bash-executor include here.
+# The native System Gateway (services/system_gateway/) is the host boundary and
+# is installed outside Docker via systemd/launchd/Windows service packaging.
 
 networks:
   march7_net:
@@ -12,6 +9,5 @@ include:
   - shared/docker-compose.base.yml
   - shared/docker-compose.redis.yml
   - shared/docker-compose.codebox.yml
-  - shared/docker-compose.bash-executor.yml
   - march7/docker-compose.yml
   - evernight/docker-compose.yml

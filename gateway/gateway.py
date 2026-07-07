@@ -11,8 +11,6 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from twin.shared.tools.exceptions import BashExecutorUnavailableError
-
 if TYPE_CHECKING:
     from gateway.shared.adapter_base import PlatformAdapter
     from gateway.shared.handler_base import GatewayHandler
@@ -182,8 +180,6 @@ class ChatGateway:
                     timestamp=datetime.now(timezone.utc),
                 )
                 await adapter.send_message(reply_msg)
-        except BashExecutorUnavailableError:
-            raise
         except Exception:
             logger.exception(
                 "Error routing message from platform %s", platform_name

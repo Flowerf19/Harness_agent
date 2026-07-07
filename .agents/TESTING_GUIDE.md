@@ -98,7 +98,7 @@ conda run -n discord_bot python -m pytest tests -q \
 - 2026-06-07: `conda run -n discord_bot python -m pytest tests/unit/approval_gate_test.py tests/gateway tests/unit/evernight_discord_adapter_test.py tests/unit/march7_handle_chat_scope_test.py tests/unit/evernight_agent_test.py tests/unit/discord_send_response_test.py tests/unit/tool_bootstrap_test.py tests/unit/memory/manager_test.py -q`
   → 55 passed.
 - 2026-06-07: Docker rebuild/restart via `docker compose -f docker/docker-compose.yml up -d --build`;
-  `march7`, `evernight`, `bash-executor`, `codebox`, and `redis` healthy. Evernight
+  `march7`, `evernight`, the then-current host executor, `codebox`, and `redis` healthy. Evernight
   A2A chat smoke and Chrome snapshot of `http://localhost:8001/.well-known/agent.json`
   passed; Chrome console only showed favicon 404.
 - 2026-06-07: `conda run -n discord_bot python -m pytest tests/gateway/test_gateway.py tests/gateway/test_models.py tests/gateway/test_core_handler.py tests/unit/march7_handle_chat_scope_test.py tests/unit/evernight_agent_test.py tests/unit/discord_send_response_test.py tests/unit/memory/manager_test.py -q`
@@ -106,6 +106,6 @@ conda run -n discord_bot python -m pytest tests -q \
 - 2026-06-07: `conda run -n discord_bot python -m pytest tests/gateway -q`
   → 22 passed.
 - 2026-05-28: `pytest` → 221 passed, 13 skipped; `docker compose ps` healthy cho
-  march7/evernight/redis/codebox/bash-executor.
+  march7/evernight/redis/codebox plus the then-current host executor.
 - Lưu ý (2026-06-02): chạy lại đầy đủ cần `discord.py` + Redis trong môi trường;
   thiếu deps sẽ fail ở collection (`ModuleNotFoundError: discord`).

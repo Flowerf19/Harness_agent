@@ -1,12 +1,9 @@
 """Tests for SelfHealMonitor GatewayRecoveryExecutor preference."""
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from twin.evernight.self_heal.monitor import (
-    BashExecutorRecoveryExecutor,
     DockerCommandRecoveryExecutor,
     GatewayRecoveryExecutor,
     RecoveryExecutor,
@@ -79,14 +76,8 @@ def test_prefers_injected_recovery_executor_over_all():
     assert isinstance(shm._recovery_executor, FakeRecoveryExecutor)
 
 
-def test_falls_back_to_bash_executor_when_no_gateway_and_url_provided():
-    shm = SelfHealMonitor(bash_executor_url="http://bash.local")
-
-    assert isinstance(shm._recovery_executor, BashExecutorRecoveryExecutor)
-    assert shm._recovery_executor.executor_url == "http://bash.local"
-
-
-def test_falls_back_to_docker_command_when_nothing_else():
+def test_falls_back_to_docker_command_when_nothing_else(monkeypatch):
+    monkeypatch.delenv("SYSTEM_GATEWAY_URL", raising=False)
     shm = SelfHealMonitor()
 
     assert isinstance(shm._recovery_executor, DockerCommandRecoveryExecutor)
@@ -178,14 +169,13 @@ async def test_self_heal_monitor_stop_is_idempotent():
 # ---------------------------------------------------------------------------
 
 
-def test_recovery_executor_priority_ordering():
+def test_recovery_executor_priority_ordering(monkeypatch):
     """
     Priority (highest to lowest):
     1. Explicitly injected recovery_executor
     2. gateway_monitor provided
     3. SYSTEM_GATEWAY_URL env var set
-    4. bash_executor_url provided
-    5. DockerCommandRecoveryExecutor (default)
+    4. DockerCommandRecoveryExecutor (default)
     """
 
     # 1. Injected wins over everything
@@ -193,24 +183,19 @@ def test_recovery_executor_priority_ordering():
     shm = SelfHealMonitor(
         recovery_executor=injected,
         gateway_monitor=FakeGatewayMonitor(),
-        bash_executor_url="http://bash.local",
     )
     assert shm._recovery_executor is injected
 
-    # 2. gateway_monitor wins over env var and bash
+    # 2. gateway_monitor wins over env var
     shm = SelfHealMonitor(
         gateway_monitor=FakeGatewayMonitor(),
-        bash_executor_url="http://bash.local",
     )
     assert isinstance(shm._recovery_executor, GatewayRecoveryExecutor)
 
-    # 3. env var wins over bash
+    # 3. env var selects gateway recovery
     # (tested separately in test_prefers_gateway_recovery_when_system_gateway_url_env_set)
 
-    # 4. bash wins over default docker
-    shm = SelfHealMonitor(bash_executor_url="http://bash.local")
-    assert isinstance(shm._recovery_executor, BashExecutorRecoveryExecutor)
-
-    # 5. default is docker
+    # 4. default is docker
+    monkeypatch.delenv("SYSTEM_GATEWAY_URL", raising=False)
     shm = SelfHealMonitor()
     assert isinstance(shm._recovery_executor, DockerCommandRecoveryExecutor)

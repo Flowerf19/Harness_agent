@@ -12,7 +12,6 @@ import uuid
 from typing import Any
 
 from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
-from twin.shared.tools.exceptions import BashExecutorUnavailableError
 
 
 class Act:
@@ -37,7 +36,6 @@ class Act:
         tool_call_id: str | None = None,
         *,
         trace_metadata: dict[str, Any] | None = None,
-        raise_bash_unavailable: bool = False,
     ) -> dict[str, Any]:
         """Execute *tool_name* with *arguments* and return a formatted result message.
 
@@ -50,9 +48,6 @@ class Act:
             arguments: Arguments to pass to the tool.
             tool_call_id: Optional ID for the tool call; generated if omitted.
             trace_metadata: Optional metadata for tracing.
-            raise_bash_unavailable: If True, propagate BashExecutorUnavailableError
-                instead of converting it to a string error result.
-
         Returns:
             A dict representing the tool result message for the LLM.
         """
@@ -79,11 +74,6 @@ class Act:
                 timeout=self.tool_timeout,
             )
             self.logger.info("Tool '%s' executed successfully", tool_name)
-        except BashExecutorUnavailableError:
-            if raise_bash_unavailable:
-                raise
-            tool_result = f"Lỗi: Tool '{tool_name}' chưa sẵn sàng."
-            self.logger.warning("Tool '%s' unavailable", tool_name)
         except asyncio.TimeoutError:
             tool_result = f"Lỗi: Tool '{tool_name}' timeout."
             self.logger.warning("Tool '%s' timed out", tool_name)

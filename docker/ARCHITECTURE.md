@@ -8,7 +8,6 @@ This Docker setup is split by ownership folders and runtime boundaries.
 docker/
 ├── shared/              # shared base image and shared Docker primitives
 │   └── Dockerfile.base
-│   ├── Dockerfile.bash-executor
 │   └── docker-compose.*.yml
 ├── march7/              # March7-owned image
 │   └── Dockerfile
@@ -28,7 +27,6 @@ These services are shared by both agents:
 | `base` | `shared/docker-compose.base.yml` | shared | common Python runtime image |
 | `redis` | `shared/docker-compose.redis.yml` | shared | T1 active memory and T2 timeline/vector memory |
 | `codebox` | `shared/docker-compose.codebox.yml` | shared | sandboxed Python/code execution |
-| `bash-executor` | `shared/docker-compose.bash-executor.yml` | shared privileged tool | host command execution behind approval |
 | `march7_net` | `docker-compose.yml` | shared | service discovery network |
 
 ## Agent-Owned Services
@@ -78,7 +76,7 @@ Shared:
 - `REDIS_URL`
 - `TIMELINE_REDIS_DB`
 - `CODEBOX_API_URL`
-- `BASH_EXECUTOR_URL`
+- `SYSTEM_GATEWAY_URL`
 - `LLM_*`
 - `EMBEDDING_*`
 

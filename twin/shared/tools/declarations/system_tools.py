@@ -90,11 +90,4 @@ SYSTEM_TOOL_SPECS: tuple[ToolSpec, ...] = (
         allowed_to=frozenset({"evernight"}),
         guide_path="guides/gateway_admin.md",
     ),
-    ToolSpec(
-        module="twin.shared.tools.modules.execution.execute_host_bash_tool",
-        class_name="ExecuteHostBashTool",
-        visible_to=frozenset(),
-        allowed_to=frozenset(),
-        guide_path="guides/host_system.md",
-    ),
 )

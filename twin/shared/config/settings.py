@@ -18,9 +18,6 @@ CODEBOX_TIMEOUT_DEFAULT = 60
 CODEBOX_MAX_OUTPUT_CHARS_DEFAULT = 2000
 CODEBOX_SESSION_TTL_DEFAULT = 1800  # 30 min
 
-# Bash executor.
-BASH_EXECUTOR_TIMEOUT_DEFAULT = 30
-
 # System Gateway.
 SYSTEM_GATEWAY_TIMEOUT_DEFAULT = 30
 
@@ -127,14 +124,6 @@ class Config:
     CODEBOX_TIMEOUT = CODEBOX_TIMEOUT_DEFAULT
     CODEBOX_MAX_OUTPUT_CHARS = CODEBOX_MAX_OUTPUT_CHARS_DEFAULT
     CODEBOX_SESSION_TTL = CODEBOX_SESSION_TTL_DEFAULT
-
-    # === Bash Executor (privileged host command) ===
-    BASH_EXECUTOR_URL = os.getenv("BASH_EXECUTOR_URL", "http://host.docker.internal:8374")
-    BASH_EXECUTOR_TIMEOUT = int(os.getenv("BASH_EXECUTOR_TIMEOUT", str(BASH_EXECUTOR_TIMEOUT_DEFAULT)))
-    BASH_EXECUTOR_ALLOWED_ORIGINS = os.getenv(
-        "BASH_EXECUTOR_ALLOWED_ORIGINS",
-        "march7-bot,http://localhost:8374,http://host.docker.internal:8374",
-    )
 
     # === System Gateway (native host boundary) ===
     SYSTEM_GATEWAY_URL = os.getenv("SYSTEM_GATEWAY_URL", "http://host.docker.internal:8380")

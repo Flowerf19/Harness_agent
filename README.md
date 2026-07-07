@@ -77,7 +77,7 @@ Hệ thống sử dụng cơ chế A2A trực tiếp thay vì các pipeline tu�
 - Redis Stack RediSearch index phải ở DB 0; dùng `TIMELINE_REDIS_DB=0` cho T2, còn T1 có thể dùng DB riêng theo agent.
 - T3 profile inject vào system prompt mỗi turn qua `MarkdownProfileStore.get_system_prompt_context()`.
 
-### Host boundary — System Gateway (current) vs Bash Executor (legacy)
+### Host boundary — System Gateway
 
 Host interaction giờ đi qua **System Gateway** — native service chạy trực tiếp trên host OS (Linux/macOS/Windows), thay vì qua Docker `nsenter`. Model-facing tool là `host_system` (xem `twin/shared/tools/modules/system/host_system_tool.py`).
 
@@ -96,7 +96,7 @@ flowchart LR
     classDef cur fill:#e6ffe6,stroke:#1f9d55;
 ```
 
-So với legacy bash-executor (chỉ chạy được trên Linux, trust qua `Origin` header), System Gateway thêm:
+System Gateway cung cấp:
 
 - **HMAC request signing** giữa container ↔ gateway (không còn tin `Origin`).
 - **Nonce + timestamp** chống replay.
@@ -104,15 +104,7 @@ So với legacy bash-executor (chỉ chạy được trên Linux, trust qua `Ori
 - **Local policy + audit log** ở gateway; raw shell chỉ chạy sau owner approval.
 - **OS adapters** (Linux/macOS/Windows) chạy native trên host, không qua Docker `nsenter`.
 
-#### Legacy bash-executor — vẫn chạy được nhưng đang deprecated
-
-`docker/shared/docker-compose.bash-executor.yml` + `scripts/bash_executor_standalone.py` vẫn được include để demo cũ không gãy. Tool `execute_host_bash` đã bị ẩn khỏi model (`visible_to=frozenset()`) và chỉ gọi được qua `LegacyBashExecutorBridge` với một tập read-only actions rất nhỏ. Khi System Gateway đạt feature parity trên host, xóa:
-- `scripts/bash_executor_standalone.py`, `scripts/bash_executor_starter.py`
-- `docker/shared/Dockerfile.bash-executor`, `docker/shared/docker-compose.bash-executor.yml`
-- include `shared/docker-compose.bash-executor.yml` trong `docker/docker-compose.yml`
-- spec `ExecuteHostBashTool` trong `SYSTEM_TOOL_SPECS`
-
-Trước khi xóa, đảm bảo: (a) `host_system` đã cover mọi command mà bash-executor đang chạy, (b) owner-approved first-install không còn cần legacy bootstrap bridge, (c) Docker `pid: host` không còn cần cho runtime.
+Gateway install/update/admin details live in [services/system_gateway/README.md](services/system_gateway/README.md).
 
 ## Prerequisites
 
@@ -149,7 +141,7 @@ python -m twin.evernight
 
 Nhóm env vars chính (chi tiết ở [.agents/PROJECT_CONTEXT.md](.agents/PROJECT_CONTEXT.md)):
 
-- Shared: `REDIS_URL`, `TIMELINE_REDIS_DB`, `CODEBOX_API_URL`, `BASH_EXECUTOR_URL`
+- Shared: `REDIS_URL`, `TIMELINE_REDIS_DB`, `CODEBOX_API_URL`, `SYSTEM_GATEWAY_URL`
 - March7: `MARCH7_A2A_PORT`, `MARCH7_REDIS_DB`, `MARCH7_PERSONA_PATH`
 - Evernight: `EVERNIGHT_A2A_PORT`, `EVERNIGHT_REDIS_DB`, `POLL_INTERVAL`, `SELF_HEAL_ENABLED`
 - Discord/Gateway: `DISCORD_MARCH7_TOKEN`, `DISCORD_EVERNIGHT_TOKEN`, `GATEWAY_ENABLED_PLATFORMS`
