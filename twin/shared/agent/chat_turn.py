@@ -63,7 +63,6 @@ class ChatTurnRunner:
         system_prompt: str,
         max_iterations: int = 10,
         tool_timeout: int = 60,
-        raise_bash_unavailable: bool = False,
         trace_metadata: dict[str, Any] | None = None,
     ) -> ChatTurnResult:
         metadata = {
@@ -84,7 +83,6 @@ class ChatTurnRunner:
             logger=self.logger,
             max_iterations=max_iterations,
             tool_timeout=tool_timeout,
-            raise_bash_unavailable=raise_bash_unavailable,
         )
 
         loop_result = await loop.run(

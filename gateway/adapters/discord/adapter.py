@@ -21,7 +21,6 @@ from twin.shared.tools.approval_context import (
     clear_current_approval_context,
     set_current_approval_context,
 )
-from twin.shared.tools.exceptions import BashExecutorUnavailableError
 
 if TYPE_CHECKING:
     from gateway.gateway import ChatGateway
@@ -132,21 +131,18 @@ class DiscordPlatformAdapter(PlatformAdapter):
                 object.__setattr__(unified, "extensions", exts)
 
                 set_current_approval_context(build_discord_approval_context(message))
-                try:
-                    if should_respond:
-                        async with message.channel.typing():
-                            await self._gateway.route_message(
-                                f"discord_{self._bot_name}", unified
-                            )
-                    else:
+                if should_respond:
+                    async with message.channel.typing():
                         await self._gateway.route_message(
                             f"discord_{self._bot_name}", unified
                         )
-                except BashExecutorUnavailableError:
-                    await self._handle_bash_executor_unavailable(message, content)
-                finally:
-                    clear_current_approval_context()
+                else:
+                    await self._gateway.route_message(
+                        f"discord_{self._bot_name}", unified
+                    )
+                clear_current_approval_context()
             except Exception:
+                clear_current_approval_context()
                 logger.exception("Error forwarding Discord message to gateway")
 
     def _channel_mode(self, message: discord.Message) -> ChannelMode | None:
@@ -169,31 +165,6 @@ class DiscordPlatformAdapter(PlatformAdapter):
         if ref.resolved and hasattr(ref.resolved, "author"):
             return ref.resolved.author.id == bot_user.id
         return False
-
-    async def _handle_bash_executor_unavailable(
-        self,
-        message: discord.Message,
-        content: str,
-    ) -> None:
-        from gateway.adapters.discord.handler import DiscordGatewayHandler
-        from gateway.adapters.discord.views.bash_executor_start import (
-            BashExecutorStartView,
-        )
-
-        handler = DiscordGatewayHandler(
-            agent_router=getattr(self._gateway._handler, "_agent_router", None)
-        )
-        view = BashExecutorStartView(
-            handler=handler,
-            raw_message=message,
-            user_id=str(message.author.id),
-            content=content,
-        )
-        await message.channel.send(
-            "⚠️ **Host tool chưa sẵn sàng.**\n"
-            "Nếu bạn vừa khởi động lại hệ thống, hãy đợi Docker khởi động xong rồi bấm thử lại.",
-            view=view,
-        )
 
     async def _gateway_setup_hook(self):
         """Override CoreBot.setup_hook - load cogs only, no AppContainer init."""

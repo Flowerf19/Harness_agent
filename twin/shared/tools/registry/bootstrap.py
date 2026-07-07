@@ -113,16 +113,10 @@ def build_tool_registry(
         "host_gateway_client": host_gateway_client,
         "host_gateway_timeout": Config.SYSTEM_GATEWAY_TIMEOUT,
         "approval_gate": approval_gate,
-        "executor_url": Config.BASH_EXECUTOR_URL,
-        "timeout": Config.BASH_EXECUTOR_TIMEOUT,
         "embedding_service": embedding_service,
         "timeline_summary_store": timeline_summary_store,
         "owner_user_id": owner_user_id,
         "gateway_monitor": gateway_monitor,
-        "bootstrap_repo_root": Config.SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT,
-        "bootstrap_python": Config.SYSTEM_GATEWAY_BOOTSTRAP_PYTHON,
-        "bootstrap_venv": Config.SYSTEM_GATEWAY_BOOTSTRAP_VENV,
-        "bootstrap_timeout": Config.SYSTEM_GATEWAY_BOOTSTRAP_TIMEOUT,
     }
 
     registry = ToolRegistry(agent_name=agent_name)

@@ -6,12 +6,8 @@ Rules for coding agents working in this repository.
 
 - Do not reveal secrets. Never print full `.env` files, Discord tokens, API
   keys, or URLs containing credentials.
-- Bash Executor is privileged. Preserve user approval, auditability, timeouts,
-  and security checks. Avoid destructive host commands unless explicitly
-  requested.
 - **System Gateway is the host boundary.** Use `host_system` for new host
-  interactions; `execute_host_bash` is legacy and hidden. Do not add direct
-  host shell calls from containers.
+  interactions. Do not add direct host shell calls from containers.
 - **System Gateway invariants:**
   - Mutating requests must carry a valid HMAC-SHA256 signature from
     `SYSTEM_GATEWAY_SHARED_SECRET`.
@@ -103,7 +99,7 @@ Update upstream: `cd ~/.claude/skills && git pull`.
 - The legacy local Python consolidation paths (including `DiscussionConsolidator`, `consolidate_t2_memory`, `Consolidator`, `CleanupScheduler`, `TimelineStore`, `TimelineSearch`, and `T2Memory`) were removed. Current flow uses **A2A Consolidation**: `InactivityTrigger` on Evernight detects idle scopes → March7 sends task via `ConsolidationClient` (A2A) with shipped T1 entries → Evernight runs `ConsolidateMemoryTool` using those shipped entries (it does not re-read March7's T1) and writes to `TimelineSummaryStore` / `MarkdownProfileStore`.
 - Each agent builds the shared stack (`ActiveMemory`, `MarkdownProfileStore`, `TimelineSummaryStore`) in its container. T2 RediSearch index must use Redis DB 0 (`TIMELINE_REDIS_DB=0`).
 - **`twin/shared/tools/` consolidated 2026-05-26.** Core types live in `twin.shared.tools.registry`; individual tool classes live under `twin/shared.tools.modules.<domain>.<tool>` (domains: `execution`, `memory`, `profile`, `web`). The paths `twin.shared.tools.base_tool` / `tool_registry` / `tool_discovery` / `implementations.system.*` no longer exist — do not recreate them.
-- **LLM/embedding endpoints chạy trên host phải dùng `host.docker.internal`, không phải `localhost`.** Container march7/evernight có `extra_hosts: host.docker.internal:host-gateway` trong compose; `localhost` trong `.env` sẽ trỏ vào chính container và fail với `Cannot connect to host localhost:<port>`. Áp dụng cho `OPENAI_API_URL`, `EMBEDDING_API_URL`, `LM_STUDIO_API_URL`, `TOOL_LLM_ENDPOINT`. Service nội-mạng Docker (redis, codebox, bash-executor, evernight) thì dùng service name.
+- **LLM/embedding endpoints chạy trên host phải dùng `host.docker.internal`, không phải `localhost`.** Container march7/evernight có `extra_hosts: host.docker.internal:host-gateway` trong compose; `localhost` trong `.env` sẽ trỏ vào chính container và fail với `Cannot connect to host localhost:<port>`. Áp dụng cho `OPENAI_API_URL`, `EMBEDDING_API_URL`, `LM_STUDIO_API_URL`, `TOOL_LLM_ENDPOINT`. Service nội-mạng Docker (redis, codebox, evernight) thì dùng service name.
 - **Docker entry for March7 is `python -m gateway`** (`gateway/__main__.py`),
   not `python -m twin.march7`. When wiring new background tasks (triggers,
   workers, schedulers) for March7, add them to `gateway/__main__.py` so they
@@ -111,9 +107,9 @@ Update upstream: `cd ~/.claude/skills && git pull`.
   entry — keep it in sync but treat the gateway entry as authoritative.
 - Local Redis/T2 data may be disposable during development because T3 Markdown
   is the durable profile/core memory. Confirm before deleting production data.
-- **`execute_host_bash` is legacy and hidden.** New host interactions must use
-  the `host_system` tool through the native `system-gateway` service. Do not
-  recreate bash-executor-style host bridges.
+- New host interactions must use the `host_system` tool through the native
+  `system-gateway` service. Do not recreate privileged container-side host
+  bridges.
 - **System Gateway runs on the host, not in a container.** Containers reach it
   via `SYSTEM_GATEWAY_URL` (e.g. `http://host.docker.internal:8380`). The
   secret is shared through `SYSTEM_GATEWAY_SHARED_SECRET`.

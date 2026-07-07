@@ -6,7 +6,6 @@ from twin.shared.agent import ChatTurnRunner
 from twin.shared.llm.base_llm_service import BaseLLMService
 from twin.shared.observability.langsmith import summarize_trace_output, traceable
 from twin.shared.tools.registry import ToolRegistry
-from twin.shared.tools.exceptions import BashExecutorUnavailableError
 from twin.shared.a2a.types import AgentCard
 from twin.shared.memory import SharedMemoryManager
 
@@ -126,7 +125,6 @@ class March7Agent:
                 system_prompt=sys_prompt,
                 max_iterations=10,
                 tool_timeout=TOOL_EXECUTION_TIMEOUT,
-                raise_bash_unavailable=True,
                 trace_metadata={
                     "workflow": "march7.chat",
                     "agent_name": "march7",
@@ -168,8 +166,6 @@ class March7Agent:
 
             return bot_response
 
-        except BashExecutorUnavailableError:
-            raise
         except Exception as e:
             logger.error(f"March7Agent error: {e}")
             return LLM_FAILURE_REPLY

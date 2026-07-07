@@ -21,10 +21,10 @@ class RecoveryExecutor(ABC):
 
 
 class GatewayRecoveryExecutor(RecoveryExecutor):
-    """Restart containers via the System Gateway policy-gated action endpoint.
+    """Restart containers via the System Gateway policy-gated restart path.
 
-    Preferred over BashExecutorRecoveryExecutor / DockerCommandRecoveryExecutor
-    when SYSTEM_GATEWAY_URL is configured.
+    Preferred over DockerCommandRecoveryExecutor when SYSTEM_GATEWAY_URL is
+    configured.
     """
 
     def __init__(self, gateway_monitor):
@@ -75,34 +75,6 @@ class DockerCommandRecoveryExecutor(RecoveryExecutor):
             return False, str(e)
 
 
-class BashExecutorRecoveryExecutor(RecoveryExecutor):
-    def __init__(self, executor_url: str, timeout: int = 30):
-        self.executor_url = executor_url.rstrip("/")
-        self.timeout = timeout
-
-    async def restart_container(self, container_name: str) -> tuple[bool, str]:
-        command = f"docker restart {container_name}"
-        payload = {"command": command, "timeout": self.timeout}
-        headers = {"Content-Type": "application/json", "Origin": "march7-bot"}
-        try:
-            async with aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=self.timeout + 5)
-            ) as session:
-                async with session.post(
-                    f"{self.executor_url}/execute",
-                    json=payload,
-                    headers=headers,
-                ) as resp:
-                    data = await resp.json()
-                    if resp.status >= 400:
-                        return False, data.get("error", f"HTTP {resp.status}")
-                    if data.get("exit_code", 1) == 0:
-                        return True, data.get("stdout", "").strip()
-                    return False, data.get("stderr") or data.get("stdout", "")
-        except Exception as e:
-            return False, str(e)
-
-
 class SelfHealMonitor:
     """Polls March7 health endpoint and restarts it on repeated failures."""
 
@@ -116,7 +88,6 @@ class SelfHealMonitor:
         discord_adapter=None,
         notify_user_id: int = DEFAULT_NOTIFY_USER_ID,
         recovery_executor: RecoveryExecutor | None = None,
-        bash_executor_url: str | None = None,
         gateway_monitor=None,
     ):
         self.march7_url = march7_url.rstrip("/")
@@ -135,8 +106,6 @@ class SelfHealMonitor:
             self._recovery_executor = GatewayRecoveryExecutor(
                 gateway_monitor=gateway_monitor
             )
-        elif bash_executor_url:
-            self._recovery_executor = BashExecutorRecoveryExecutor(bash_executor_url)
         else:
             self._recovery_executor = DockerCommandRecoveryExecutor()
 

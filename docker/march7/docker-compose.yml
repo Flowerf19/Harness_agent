@@ -37,7 +37,6 @@ services:
       - REDIS_DB=0
       - TIMELINE_REDIS_DB=0
       - CODEBOX_API_URL=http://codebox:8069
-      - BASH_EXECUTOR_URL=http://bash-executor:8374
 
       # Native System Gateway (runs on the host; HMAC shared secret from .env)
       - SYSTEM_GATEWAY_URL=http://host.docker.internal:8380

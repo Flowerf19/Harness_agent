@@ -41,16 +41,6 @@ class _FakeHostGatewayClient:
         self.actor = actor
 
 
-class _FakeApprovalGate:
-    def __init__(self, approved: bool = True):
-        self.approved = approved
-        self.calls = []
-
-    async def check_approval(self, tool_name: str, command: str) -> bool:
-        self.calls.append((tool_name, command))
-        return self.approved
-
-
 # ---------------------------------------------------------------------------
 # Owner gate
 # ---------------------------------------------------------------------------
@@ -198,16 +188,10 @@ async def test_install_hint_returns_bootstrap_hint(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_install_runs_fixed_bootstrap_after_owner_approval(monkeypatch):
-    approval_gate = _FakeApprovalGate(approved=True)
+async def test_install_returns_manual_bootstrap_hint(monkeypatch):
     tool = GatewayAdminTool(
         owner_user_id="owner-123",
         gateway_monitor=None,
-        approval_gate=approval_gate,
-        executor_url="http://bash-executor:8374",
-        bootstrap_repo_root="/repo",
-        bootstrap_python="/venv/bin/python",
-        bootstrap_venv="/opt/test-system-gateway/venv",
     )
 
     ctx = _FakeApprovalContext(user_id="owner-123")
@@ -215,89 +199,31 @@ async def test_install_runs_fixed_bootstrap_after_owner_approval(monkeypatch):
         "twin.shared.tools.modules.system.gateway_admin_tool.get_current_approval_context",
         lambda: ctx,
     )
-
-    bridge_calls = []
-
-    class _FakeBridge:
-        def __init__(self, **kwargs):
-            bridge_calls.append(kwargs)
-
-        def build_install_command(self):
-            return "fixed bootstrap command"
-
-        async def install(self):
-            return type(
-                "Result",
-                (),
-                {
-                    "ok": True,
-                    "message": "done",
-                    "stdout": "healthy\nSYSTEM_GATEWAY_SHARED_SECRET=super-token",
-                    "stderr": "",
-                    "exit_code": 0,
-                },
-            )()
-
-    monkeypatch.setattr(
-        "twin.evernight.system_gateway.installer.LegacyBashExecutorBootstrapBridge",
-        _FakeBridge,
-    )
+    monkeypatch.setenv("SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT", "/repo")
 
     result = await tool.execute(command="install")
 
-    assert "✅" in result
-    assert "healthy" in result
-    assert "super-token" not in result
-    assert "[redacted system gateway secret line]" in result
-    assert approval_gate.calls == [
-        ("gateway_admin", "system-gateway bootstrap install:\nfixed bootstrap command")
-    ]
-    assert bridge_calls == [
-        {
-            "executor_url": "http://bash-executor:8374",
-            "repo_root": "/repo",
-            "python_executable": "/venv/bin/python",
-            "venv_path": "/opt/test-system-gateway/venv",
-            "timeout": 120,
-        }
-    ]
+    assert "Legacy bootstrap executor" in result
+    assert "System Gateway bootstrap" in result
+    assert "cd /repo" in result
+    assert "127.0.0.1:8380/health" in result
 
 
 @pytest.mark.asyncio
-async def test_install_rejects_when_approval_denied(monkeypatch):
-    approval_gate = _FakeApprovalGate(approved=False)
+async def test_install_still_requires_owner(monkeypatch):
     tool = GatewayAdminTool(
         owner_user_id="owner-123",
-        approval_gate=approval_gate,
-        executor_url="http://bash-executor:8374",
-        bootstrap_repo_root="/repo",
-        bootstrap_python="/venv/bin/python",
     )
 
-    ctx = _FakeApprovalContext(user_id="owner-123")
+    ctx = _FakeApprovalContext(user_id="someone-else")
     monkeypatch.setattr(
         "twin.shared.tools.modules.system.gateway_admin_tool.get_current_approval_context",
         lambda: ctx,
     )
 
-    class _FakeBridge:
-        def __init__(self, **kwargs):
-            pass
-
-        def build_install_command(self):
-            return "fixed bootstrap command"
-
-        async def install(self):
-            raise AssertionError("install should not run after rejected approval")
-
-    monkeypatch.setattr(
-        "twin.evernight.system_gateway.installer.LegacyBashExecutorBootstrapBridge",
-        _FakeBridge,
-    )
-
     result = await tool.execute(command="install")
 
-    assert "bị từ chối" in result
+    assert "owner" in result.lower()
 
 
 # ---------------------------------------------------------------------------

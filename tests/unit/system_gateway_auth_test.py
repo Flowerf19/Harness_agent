@@ -27,7 +27,7 @@ def test_signature_round_trip_succeeds_with_same_secret():
     signed = sign_request(
         secret=SECRET,
         method="POST",
-        path="/actions/run",
+        path="/shell/run",
         actor="march7",
         body=b'{"action":"system.status"}',
     )
@@ -36,7 +36,7 @@ def test_signature_round_trip_succeeds_with_same_secret():
     assert verify_signature(
         SECRET,
         method="POST",
-        path="/actions/run",
+        path="/shell/run",
         timestamp=signed.timestamp,
         nonce=signed.nonce,
         actor=signed.actor,
@@ -49,7 +49,7 @@ def test_signature_fails_with_different_secret():
     signed = sign_request(
         secret=SECRET,
         method="POST",
-        path="/actions/run",
+        path="/shell/run",
         actor="march7",
         body=b"{}",
     )
@@ -57,7 +57,7 @@ def test_signature_fails_with_different_secret():
     assert not verify_signature(
         OTHER_SECRET,
         method="POST",
-        path="/actions/run",
+        path="/shell/run",
         timestamp=signed.timestamp,
         nonce=signed.nonce,
         actor=signed.actor,
@@ -70,7 +70,7 @@ def test_signature_fails_when_body_changes():
     signed = sign_request(
         secret=SECRET,
         method="POST",
-        path="/actions/run",
+        path="/shell/run",
         actor="march7",
         body=b'{"action":"system.status"}',
     )
@@ -78,7 +78,7 @@ def test_signature_fails_when_body_changes():
     assert not verify_signature(
         SECRET,
         method="POST",
-        path="/actions/run",
+        path="/self/update",
         timestamp=signed.timestamp,
         nonce=signed.nonce,
         actor=signed.actor,
@@ -91,7 +91,7 @@ def test_signature_fails_when_path_changes():
     signed = sign_request(
         secret=SECRET,
         method="POST",
-        path="/actions/run",
+        path="/shell/run",
         actor="march7",
         body=b"{}",
     )
@@ -112,7 +112,7 @@ def test_signature_fails_when_secret_is_missing():
     signed = sign_request(
         secret=SECRET,
         method="POST",
-        path="/actions/run",
+        path="/shell/run",
         actor="march7",
         body=b"{}",
     )
@@ -120,7 +120,7 @@ def test_signature_fails_when_secret_is_missing():
     assert not verify_signature(
         None,
         method="POST",
-        path="/actions/run",
+        path="/shell/run",
         timestamp=signed.timestamp,
         nonce=signed.nonce,
         actor=signed.actor,
@@ -217,7 +217,7 @@ def test_sign_request_assigns_timestamp_and_nonce_when_missing(monkeypatch):
     signed = sign_request(
         secret=SECRET,
         method="POST",
-        path="/actions/run",
+        path="/shell/run",
         actor="march7",
         body=b"{}",
     )

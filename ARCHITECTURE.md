@@ -74,8 +74,7 @@ DMs and `!9` prefix, A2A server on port 8001. Owns:
 - Owner approval delivery for host actions (DM approval backend).
 - `GatewayMonitor` + `SelfHealMonitor` — polls March7 health and the native
   gateway; can request `container.restart` through System Gateway with an
-  owner-minted approval token (`GatewayRecoveryExecutor`, preferred over the
-  legacy bash-executor path when `SYSTEM_GATEWAY_URL` is set).
+  owner-minted approval token (`GatewayRecoveryExecutor`).
 - `gateway_admin` tool (owner-only) for gateway `status` / `doctor` /
   `install_hint` / `update`.
 
@@ -121,10 +120,8 @@ and approval are the model-facing source of truth.
 Host interaction tools:
 
 - `host_system` — the model-facing tool that talks to System Gateway via
-  `HostGatewayClient`. Modes: `capabilities`, `action`, `shell`.
+  `HostGatewayClient`. Modes: `capabilities`, `shell`.
 - `gateway_admin` — Evernight-only, owner-gated, for gateway administration.
-- `execute_host_bash` — **legacy and hard-hidden** (`visible_to` /
-  `allowed_to` empty). Do not use for new host interactions.
 
 ## 5. System Gateway — Host Boundary
 
@@ -145,9 +142,8 @@ The host OS boundary. Runs native on the host (not in Docker), binds to
   `server.py` imports `auth` / `policy` / `audit` from this package — they
   are not duplicated under `services/system_gateway/`.
 - **Platform adapters** `services/system_gateway/adapters/` —
-  `base.py` (interface), `linux.py` (full structured actions via
-  `asyncio.create_subprocess_exec`, no `shell=True`), `macos.py` /
-  `windows.py` (capability stubs with honest unsupported responses).
+  `base.py` (interface), `linux.py` / `macos.py` / `windows.py` shell
+  execution adapters with platform-specific capability reporting.
 - **Evernight monitor** `twin/evernight/system_gateway/` —
   `monitor.py` (`GatewayMonitor`), `installer.py` (bootstrap hint +
   `InstallerCoordinator`).
@@ -157,9 +153,8 @@ The host OS boundary. Runs native on the host (not in Docker), binds to
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
 | `GET`  | `/health`        | none            | version, status, uptime, platform |
-| `GET`  | `/capabilities`  | none            | platform, shells, features, raw-shell policy, structured actions |
-| `POST` | `/actions/run`   | HMAC + approval | execute a structured action |
-| `POST` | `/shell/run`     | HMAC + approval | raw shell gate (denied by default) |
+| `GET`  | `/capabilities`  | none            | platform, shells, features, raw-shell policy |
+| `POST` | `/shell/run`     | HMAC + approval | owner-approved shell command |
 | `POST` | `/self/update`   | HMAC + approval | record owner-approved update request (no auto-download) |
 
 ### 5.3 Authentication — HMAC-SHA256
@@ -199,30 +194,19 @@ same token cannot be reused.
 
 ### 5.5 Policy — default-deny
 
-`evaluate_action_policy` / `evaluate_shell_policy` (`policy.py`):
+`evaluate_shell_policy` (`policy.py`):
 
-- Unknown action → `UNKNOWN_ACTION`.
-- Action reported unavailable by the adapter → `ACTION_NOT_AVAILABLE`.
-- **All structured actions require a valid `approval_id`, including
-  read-only ones.** There is no read-only special case. A request without
-  `approval_id` is denied with `APPROVAL_REQUIRED`.
 - Raw shell is denied unless `SYSTEM_GATEWAY_RAW_SHELL=true`, and still
   requires a valid approval token.
 - Replayed approval id → `APPROVAL_REPLAYED`.
 
-### 5.6 Structured Actions (Linux adapter)
+### 5.6 Generic Shell Path
 
-Read-only, validated, no `shell=True`:
-
-- `system.status` — pure-Python.
-- `system.disk_usage`
-- `docker.list_containers`
-- `docker.container_logs`
-- `service.status`
-
-All subprocess calls use explicit arg-lists
-(`asyncio.create_subprocess_exec`), input validation, timeout, and output
-truncation. macOS/Windows adapters report these actions as unsupported.
+`POST /shell/run` executes exactly the owner-approved command after HMAC and
+approval-token verification. The tool-facing guardrail is `host_system`:
+it requests capabilities first when needed, asks `ApprovalGate` with the raw
+command text, mints a single-use `shell` approval token, and then calls the
+gateway.
 
 ### 5.7 Self-Update Hook
 
@@ -237,14 +221,14 @@ out-of-band. See §7 for the owner-gate gap.
 ```mermaid
 flowchart TD
     U["User asks for a host action in Discord"]
-    T["March7 <b>host_system</b> tool, mode=action"]
-    AG["ApprovalGate.check_approval(tool, 'host action: …')<br/>→ DM (owner) / channel backend<br/>sends Approve / Reject buttons"]
+    T["March7 <b>host_system</b> tool, mode=shell"]
+    AG["ApprovalGate.check_approval(tool, 'host shell: …')<br/>→ DM (owner) / channel backend<br/>sends Approve / Reject buttons"]
     U --> T --> AG
     AG -->|owner clicks Approve| OK["check_approval → True"]
     AG -->|owner clicks Reject / timeout| NO["check_approval → False<br/>tool returns: ❌ bị từ chối bởi Trạm Gác"]
 
     OK --> MINT["<b>mint_approval_token</b>(secret, action, actor)<br/>client-side · binds action+actor+nonce"]
-    MINT --> CALL["HostGatewayClient.run_action(<br/>GatewayActionRequest(approval_id=token, …))<br/>HMAC-signed POST /actions/run"]
+    MINT --> CALL["HostGatewayClient.run_shell(<br/>GatewayShellRequest(approval_id=token, …))<br/>HMAC-signed POST /shell/run"]
     CALL --> SRV
 
     subgraph SRV["System Gateway server — defense-in-depth"]
@@ -275,16 +259,16 @@ this as a non-negotiable invariant.
 Verified strengths (from
 `.agents/notes/system-gateway-debug-verification.md`):
 
-- **Default-deny is real.** All structured actions need `approval_id`; there
-  is no read-only exception. Confirmed at `policy.py:85-90`.
+- **Default-deny is real.** Shell requests need `approval_id`; there is no
+  read-only exception for host execution.
 - **Token binding is real.** Action-bound + actor-bound + single-use + version
   check. Confirmed by direct server test: token for `system.status`
   presented to `/self/update` → 403 `approval_invalid`; wrong actor → 403;
   replayed nonce → 403; wrong `from_version` → 409.
 - **HMAC canonical + skew** is correct (`auth.py:60-78`, skew 300s,
   timestamp in seconds).
-- **No `shell=True`** in the Linux adapter; all subprocess calls are
-  explicit arg-lists with input validation, timeout, and output truncation.
+- **Shell execution is approval-bound.** The approved command text is shown to
+  the owner before `host_system` mints the single-use gateway token.
 - **Network exposure** is loopback only by default (`127.0.0.1:8380`).
 
 Verified gaps to flag for review:
@@ -347,7 +331,6 @@ Master compose: `docker/docker-compose.yml` includes per-ownership files.
 |---------|---------|-------|----------|
 | `redis`     | `shared/`           | shared  | T1 + T2 memory |
 | `codebox`   | `shared/`           | shared  | sandboxed Python execution, port 8069 |
-| `bash-executor` | `shared/`      | shared  | **legacy** Linux-only host bridge, port 8374; kept for migration, hidden from catalog |
 | `march7`    | `march7/`           | March7  | A2A `:8000`, Discord main bot |
 | `evernight` | `evernight/`        | Evernight | A2A `:8001`, Discord DM/`!9` bot |
 | `system-gateway` | (native, not in compose) | host | `127.0.0.1:8380` |
@@ -390,8 +373,6 @@ curl -sf http://localhost:8380/health
 
 - `tests/unit/system_gateway_adapter_test.py` (TASK-027) — missing-executable,
   timeout, truncation, unauthorized-approver cases only partially covered.
-- `LegacyBashExecutorBridge` exists but is not wired into tool bootstrap
-  (TASK-007, partial).
 - Channel-button approver restriction (TASK-026, deferred).
 - `EVENT_APPROVAL_REQUESTED` emission (TASK-045, partial).
 - Audit log persistence (no task yet — flagged in §7.2).

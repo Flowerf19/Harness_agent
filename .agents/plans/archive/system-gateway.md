@@ -1,10 +1,13 @@
 ---
-status: in-progress
+status: archived
 created: 2026-06-23
-last_updated: 2026-06-25
+last_updated: 2026-07-07
 ---
 
 # System Gateway
+
+Archived: superseded by `../remove-system-gateway-legacy.md` after the legacy
+host bridge cleanup.
 
 ## Summary
 

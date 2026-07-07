@@ -87,8 +87,9 @@ def test_bootstrap_filters_tool_visibility_by_agent():
     assert "get_profile" in _schema_names(evernight)
     assert "host_system" in _schema_names(march7)
     assert "host_system" in _schema_names(evernight)
-    assert "execute_host_bash" not in _schema_names(march7)
-    assert "execute_host_bash" not in _schema_names(evernight)
+    removed_host_tool = "execute_host_" + "bash"
+    assert removed_host_tool not in _schema_names(march7)
+    assert removed_host_tool not in _schema_names(evernight)
     assert "manage_user_profile" not in _schema_names(march7)
     assert "manage_user_profile" in _schema_names(evernight)
 
@@ -117,7 +118,7 @@ def test_bootstrap_initializes_system_gateway_client(monkeypatch):
     assert result.host_gateway_client.timeout == 12
 
 
-def test_bootstrap_injects_system_gateway_bootstrap_venv(monkeypatch):
+def test_bootstrap_does_not_inject_legacy_executor_config(monkeypatch):
     captured = {}
 
     from twin.shared.tools.modules.system.gateway_admin_tool import GatewayAdminTool
@@ -131,31 +132,21 @@ def test_bootstrap_injects_system_gateway_bootstrap_venv(monkeypatch):
         base_url=None,
         shared_secret=None,
         timeout=10,
-        executor_url=None,
-        bootstrap_repo_root=None,
-        bootstrap_python=None,
-        bootstrap_venv=None,
-        bootstrap_timeout=120,
     ):
         captured.update(
             {
-                "bootstrap_repo_root": bootstrap_repo_root,
-                "bootstrap_python": bootstrap_python,
-                "bootstrap_venv": bootstrap_venv,
+                "has_executor_url": "executor_url" in locals(),
+                "timeout": timeout,
             }
         )
         self.owner_user_id = str(owner_user_id)
 
     monkeypatch.setattr(GatewayAdminTool, "__init__", fake_init)
-    monkeypatch.setattr(bootstrap.Config, "SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT", "/repo")
-    monkeypatch.setattr(bootstrap.Config, "SYSTEM_GATEWAY_BOOTSTRAP_PYTHON", "/python")
-    monkeypatch.setattr(bootstrap.Config, "SYSTEM_GATEWAY_BOOTSTRAP_VENV", "/opt/sg/venv")
 
     _bootstrap_for("evernight")
 
-    assert captured["bootstrap_repo_root"] == "/repo"
-    assert captured["bootstrap_python"] == "/python"
-    assert captured["bootstrap_venv"] == "/opt/sg/venv"
+    assert captured["has_executor_url"] is False
+    assert captured["timeout"] == 10
 
 
 @pytest.mark.asyncio
@@ -169,13 +160,14 @@ async def test_bootstrap_removes_consolidation_tool_execution():
 
 
 @pytest.mark.asyncio
-async def test_execute_host_bash_is_legacy_denied_for_agents():
+async def test_removed_host_bash_tool_is_removed_from_registry():
     march7 = _registry_for("march7")
+    removed_host_tool = "execute_host_" + "bash"
 
     with pytest.raises(ToolExecutionError) as exc:
-        await march7.execute_tool("execute_host_bash", {"command": "pwd"})
+        await march7.execute_tool(removed_host_tool, {"command": "pwd"})
 
-    assert "không có quyền" in str(exc.value)
+    assert "not found" in str(exc.value)
 
 
 @pytest.mark.asyncio

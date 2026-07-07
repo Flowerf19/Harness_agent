@@ -191,9 +191,8 @@ class GatewayMonitor:
     ) -> tuple[bool, str]:
         """Ask the gateway to restart a container via a policy-gated action.
 
-        This is the replacement for the legacy direct `/execute` path used by
-        ``BashExecutorRecoveryExecutor``. The gateway itself enforces the
-        approval binding; we just route the request through it.
+        The gateway itself enforces the approval binding; we just route the
+        request through it.
         """
 
         if container_name not in RESTART_ALLOWED_CONTAINERS:
