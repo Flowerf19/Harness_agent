@@ -34,6 +34,33 @@ def default_project_name() -> str:
     )
 
 
+def _unique_tags(tags: list[str] | None) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for tag in tags or []:
+        if tag in seen:
+            continue
+        seen.add(tag)
+        unique.append(tag)
+    return unique
+
+
+def summarize_trace_output(output: Any) -> dict[str, Any]:
+    """Keep wrapper spans useful without duplicating full chat replies."""
+    if output is None:
+        return {"has_output": False}
+    if isinstance(output, str):
+        return {"has_output": bool(output), "output_chars": len(output)}
+    content = getattr(output, "content", None)
+    if isinstance(content, str):
+        return {
+            "result_type": type(output).__name__,
+            "has_output": bool(content),
+            "output_chars": len(content),
+        }
+    return {"result_type": type(output).__name__}
+
+
 def _langsmith_traceable(**kwargs: Any):
     trace_kwargs = dict(kwargs)
     trace_kwargs.setdefault("enabled", True)
@@ -43,6 +70,8 @@ def _langsmith_traceable(**kwargs: Any):
 
 def _wrap_noop_or_langsmith(func: Callable[..., Any], trace_kwargs: dict[str, Any]):
     cached: Callable[..., Any] | None = None
+    if "tags" in trace_kwargs:
+        trace_kwargs["tags"] = _unique_tags(trace_kwargs.get("tags"))
 
     def traced_func() -> Callable[..., Any]:
         nonlocal cached
@@ -109,7 +138,7 @@ def langsmith_extra(
 ) -> dict[str, Any]:
     extra: dict[str, Any] = {
         "metadata": _clean_metadata(metadata),
-        "tags": list(tags or []),
+        "tags": _unique_tags(tags),
         "project_name": project_name or default_project_name(),
     }
     if name:
@@ -156,6 +185,26 @@ def current_run_headers() -> dict[str, str]:
 def a2a_parent_headers() -> dict[str, str]:
     """Headers to carry the current LangSmith parent over A2A boundaries."""
     return current_run_headers()
+
+
+def add_current_run_metadata(metadata: Mapping[str, Any] | None) -> None:
+    """Merge ``metadata`` into the currently-executing traced span, if any.
+
+    For a ``@traceable`` function to annotate its OWN span with data it only
+    knows after doing work (e.g. how many entries it trimmed), as opposed to
+    a caller pre-seeding metadata via ``langsmith_extra`` before the call.
+    No-ops silently when tracing is off, there's no active run, or anything
+    goes wrong — mirrors ``current_run_headers()``.
+    """
+    if not tracing_enabled_from_env() or not metadata:
+        return
+    run_tree = get_current_run_tree()
+    if not run_tree:
+        return
+    try:
+        run_tree.add_metadata(_clean_metadata(metadata))
+    except Exception:
+        return
 
 
 @contextmanager

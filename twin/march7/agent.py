@@ -4,8 +4,7 @@ from typing import Any, List, Optional
 
 from twin.shared.agent import ChatTurnRunner
 from twin.shared.llm.base_llm_service import BaseLLMService
-from twin.shared.observability import langsmith_extra
-from twin.shared.observability.langsmith import traceable
+from twin.shared.observability.langsmith import summarize_trace_output, traceable
 from twin.shared.tools.registry import ToolRegistry
 from twin.shared.tools.exceptions import BashExecutorUnavailableError
 from twin.shared.a2a.types import AgentCard
@@ -88,7 +87,12 @@ class March7Agent:
                 "1",
             )
 
-    @traceable(name="march7.chat", run_type="chain", tags=["march7", "chat"])
+    @traceable(
+        name="march7.chat",
+        run_type="chain",
+        tags=["march7"],
+        process_outputs=summarize_trace_output,
+    )
     async def handle_chat(
         self,
         user_id: str,
@@ -133,19 +137,6 @@ class March7Agent:
                     "guild_id": guild_id,
                     "allow_silence": allow_silence,
                 },
-                langsmith_extra=langsmith_extra(
-                    tags=["march7", "chat_turn", self._llm_type],
-                    metadata={
-                        "workflow": "march7.chat",
-                        "agent_name": "march7",
-                        "provider": self._llm_type,
-                        "model": self._model_name,
-                        "user_id": user_id,
-                        "channel_id": channel_id,
-                        "guild_id": guild_id,
-                        "allow_silence": allow_silence,
-                    },
-                ),
             )
 
             bot_response = turn.content

@@ -51,10 +51,22 @@ class OpenAIService(BaseLLMService):
         messages: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
         use_native_tools: bool = False,
+        include_tool_catalog: bool = True,
         max_tokens: Optional[int] = None,
+        tool_choice: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
+        include_persona: bool = True,
     ) -> Union[str, LLMResponse]:
         session = await self._get_session()
-        final_system_prompt = self._build_final_system_prompt(system_prompt)
+        # Native Function Calling carries tool descriptions in the `tools` payload,
+        # so the system-prompt catalog would only duplicate them. Inject the catalog
+        # only when native tools are OFF (fallback / non-native providers) so the
+        # model still knows the tool surface. Hot path (native on) stays deduped.
+        final_system_prompt = self._build_final_system_prompt(
+            system_prompt,
+            include_tool_catalog=(include_tool_catalog and not use_native_tools),
+            include_persona=include_persona,
+        )
 
         # Strict chat templates (Qwen-derived, e.g. LM Studio) raise
         # "No user query found in messages" when the first non-system message
@@ -76,6 +88,14 @@ class OpenAIService(BaseLLMService):
             "frequency_penalty": Config.LLM_FREQUENCY_PENALTY,
             "presence_penalty": Config.LLM_PRESENCE_PENALTY,
         }
+        # Ollama OpenAI-compat bridge maps this to native `think` param.
+        # See Ollama openai.go: "none" -> think=false, "low|medium|high|max"
+        # -> think="<level>". Only include when explicitly set, so providers
+        # that don't understand the field keep working. A per-call override
+        # (e.g. consolidation) beats the global default.
+        effective_effort = reasoning_effort or Config.LLM_REASONING_EFFORT
+        if effective_effort:
+            payload["reasoning_effort"] = effective_effort
 
         if use_native_tools:
             tool_schemas = []
@@ -84,6 +104,9 @@ class OpenAIService(BaseLLMService):
             if tool_schemas:
                 payload["tools"] = tool_schemas
                 self.logger.debug("Native tools enabled: %s tools", len(tool_schemas))
+
+        if tool_choice and "tools" in payload:
+            payload["tool_choice"] = tool_choice
 
         try:
             async with session.post(
@@ -114,7 +137,16 @@ class OpenAIService(BaseLLMService):
                 choice = response_data["choices"][0]
                 message = choice.get("message", {})
                 content = message.get("content", "") or ""
-                reasoning_content = message.get("reasoning_content", "") or None
+                # Ollama proxy returns `reasoning` (OpenAI-compat surface).
+                # `reasoning_details` appears when reasoning_split=True.
+                # Legacy Ollama field `reasoning_content` is also accepted as
+                # a fallback so older provider quirks don't drop the trace.
+                reasoning_content = (
+                    message.get("reasoning")
+                    or message.get("reasoning_details")
+                    or message.get("reasoning_content")
+                    or None
+                )
                 reasoning_only = False
 
                 if not content and reasoning_content:

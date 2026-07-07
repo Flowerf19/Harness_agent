@@ -10,7 +10,7 @@ from typing import Any, TYPE_CHECKING
 from gateway.shared.handler_base import GatewayHandler
 from gateway.shared.model import UnifiedEvent, UnifiedMessage
 from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
-from twin.shared.observability.langsmith import traceable
+from twin.shared.observability.langsmith import summarize_trace_output, traceable
 from twin.shared.tools.exceptions import BashExecutorUnavailableError
 
 if TYPE_CHECKING:
@@ -42,7 +42,7 @@ class GatewayChatHandler(GatewayHandler):
         hints = self._route_hints(msg)
         agent_name = str(hints.get("agent_name") or "march7")
         extra = langsmith_extra(
-            tags=["gateway", "chat", agent_name, msg.user.platform_name],
+            tags=[msg.user.platform_name],
             metadata={
                 "workflow": "gateway.chat",
                 "agent_name": agent_name,
@@ -63,7 +63,12 @@ class GatewayChatHandler(GatewayHandler):
             langsmith_extra=extra,
         )
 
-    @traceable(name="gateway.handle_message", run_type="chain", tags=["gateway", "chat"])
+    @traceable(
+        name="gateway.handle_message",
+        run_type="chain",
+        tags=["gateway", "chat"],
+        process_outputs=summarize_trace_output,
+    )
     async def _handle_message_traced(
         self,
         msg: UnifiedMessage,
@@ -79,25 +84,7 @@ class GatewayChatHandler(GatewayHandler):
         allow_silence_candidate = bool(hints.get("allow_silence", False))
 
         if should_observe and agent_name == "march7":
-            await call_with_langsmith_extra(
-                self._observe_message,
-                msg=msg,
-                content=content,
-                langsmith_extra=langsmith_extra(
-                    tags=["memory", "observe", agent_name],
-                    metadata={
-                        "workflow": "gateway.observe_message",
-                        "agent_name": agent_name,
-                        "platform": msg.user.platform_name,
-                        "channel_type": msg.channel.channel_type,
-                        "channel_id": msg.channel.channel_id,
-                        "guild_id": msg.channel.guild_id,
-                        "user_id": msg.user.platform_id,
-                        "message_id": msg.message_id,
-                        "scope_key": self._scope_key(msg, hints),
-                    },
-                ),
-            )
+            await self._observe_message(msg, content)
 
         if not should_respond:
             return ""
@@ -174,7 +161,7 @@ class GatewayChatHandler(GatewayHandler):
             user_name=msg.user.display_name,
             mentioned_users=self._mentioned_users(msg),
             langsmith_extra=langsmith_extra(
-                tags=["gateway", "router", agent_name],
+                tags=["router"],
                 metadata={
                     "workflow": "gateway.route_agent",
                     "agent_name": agent_name,
@@ -192,7 +179,6 @@ class GatewayChatHandler(GatewayHandler):
         logger.info("Got response from %s: %.80s", agent_name, response)
         return response
 
-    @traceable(name="memory.observe_input", run_type="chain", tags=["memory", "observe"])
     async def _observe_message(self, msg: UnifiedMessage, content: str) -> None:
         if not self._agent_router:
             return

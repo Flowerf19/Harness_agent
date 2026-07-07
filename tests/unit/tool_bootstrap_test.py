@@ -1,7 +1,9 @@
 import pytest
 
 from twin.shared.llm.base_llm_service import BaseLLMService
+from twin.shared.system_gateway import HostGatewayClient
 from twin.shared.tools.mcp_client import MCPClient
+from twin.shared.tools.modules.profile.update_personality_tool import UpdatePersonalityTool
 from twin.shared.tools.registry import ToolExecutionError, build_tool_registry
 from twin.shared.tools.registry import bootstrap
 
@@ -45,7 +47,9 @@ class DummyPersonaLLM(BaseLLMService):
         messages,
         system_prompt=None,
         use_native_tools=False,
+        include_tool_catalog=True,
         max_tokens=None,
+        tool_choice=None,
     ):
         return "ok"
 
@@ -81,6 +85,10 @@ def test_bootstrap_filters_tool_visibility_by_agent():
     assert removed_consolidation_tool not in _schema_names(evernight)
     assert "get_profile" in _schema_names(march7)
     assert "get_profile" in _schema_names(evernight)
+    assert "host_system" in _schema_names(march7)
+    assert "host_system" in _schema_names(evernight)
+    assert "execute_host_bash" not in _schema_names(march7)
+    assert "execute_host_bash" not in _schema_names(evernight)
     assert "manage_user_profile" not in _schema_names(march7)
     assert "manage_user_profile" in _schema_names(evernight)
 
@@ -98,6 +106,58 @@ def test_bootstrap_uses_tavily_remote_mcp_backend_by_default(monkeypatch):
     }
 
 
+def test_bootstrap_initializes_system_gateway_client(monkeypatch):
+    monkeypatch.setattr(bootstrap.Config, "SYSTEM_GATEWAY_URL", "http://system-gateway.local")
+    monkeypatch.setattr(bootstrap.Config, "SYSTEM_GATEWAY_TIMEOUT", 12)
+
+    result = _bootstrap_for("march7")
+
+    assert isinstance(result.host_gateway_client, HostGatewayClient)
+    assert result.host_gateway_client.base_url == "http://system-gateway.local"
+    assert result.host_gateway_client.timeout == 12
+
+
+def test_bootstrap_injects_system_gateway_bootstrap_venv(monkeypatch):
+    captured = {}
+
+    from twin.shared.tools.modules.system.gateway_admin_tool import GatewayAdminTool
+
+    def fake_init(
+        self,
+        owner_user_id,
+        gateway_monitor=None,
+        host_gateway_client=None,
+        approval_gate=None,
+        base_url=None,
+        shared_secret=None,
+        timeout=10,
+        executor_url=None,
+        bootstrap_repo_root=None,
+        bootstrap_python=None,
+        bootstrap_venv=None,
+        bootstrap_timeout=120,
+    ):
+        captured.update(
+            {
+                "bootstrap_repo_root": bootstrap_repo_root,
+                "bootstrap_python": bootstrap_python,
+                "bootstrap_venv": bootstrap_venv,
+            }
+        )
+        self.owner_user_id = str(owner_user_id)
+
+    monkeypatch.setattr(GatewayAdminTool, "__init__", fake_init)
+    monkeypatch.setattr(bootstrap.Config, "SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT", "/repo")
+    monkeypatch.setattr(bootstrap.Config, "SYSTEM_GATEWAY_BOOTSTRAP_PYTHON", "/python")
+    monkeypatch.setattr(bootstrap.Config, "SYSTEM_GATEWAY_BOOTSTRAP_VENV", "/opt/sg/venv")
+
+    _bootstrap_for("evernight")
+
+    assert captured["bootstrap_repo_root"] == "/repo"
+    assert captured["bootstrap_python"] == "/python"
+    assert captured["bootstrap_venv"] == "/opt/sg/venv"
+
+
 @pytest.mark.asyncio
 async def test_bootstrap_removes_consolidation_tool_execution():
     march7 = _registry_for("march7")
@@ -106,6 +166,16 @@ async def test_bootstrap_removes_consolidation_tool_execution():
         await march7.execute_tool("consolidate_" + "t2_memory", {})
 
     assert "not found" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_execute_host_bash_is_legacy_denied_for_agents():
+    march7 = _registry_for("march7")
+
+    with pytest.raises(ToolExecutionError) as exc:
+        await march7.execute_tool("execute_host_bash", {"command": "pwd"})
+
+    assert "không có quyền" in str(exc.value)
 
 
 @pytest.mark.asyncio
@@ -173,6 +243,7 @@ async def test_update_personality_reloads_llm_persona_cache(tmp_path):
     persona_dir.mkdir()
     (persona_dir / "IDENTITY.md").write_text("old identity", encoding="utf-8")
     (persona_dir / "SOUL.md").write_text("old soul", encoding="utf-8")
+    (persona_dir / "VOICE.md").write_text("old voice", encoding="utf-8")
 
     llm = DummyPersonaLLM(persona_path=str(persona_dir))
     result = build_tool_registry(
@@ -185,8 +256,46 @@ async def test_update_personality_reloads_llm_persona_cache(tmp_path):
 
     await result.registry.execute_tool(
         "update_personality",
-        {"instruction": "Nói ngắn gọn hơn trong mọi câu trả lời."},
+        {
+            "target_file": "SOUL.md",
+            "instruction": "Nói ngắn gọn hơn trong mọi câu trả lời.",
+        },
     )
 
     assert llm.static_soul == "Nói ngắn gọn hơn trong mọi câu trả lời."
     assert "Nói ngắn gọn hơn" in llm._build_final_system_prompt("")
+    assert "old voice" in llm._build_final_system_prompt("")
+
+    await result.registry.execute_tool(
+        "update_personality",
+        {
+            "target_file": "VOICE.md",
+            "instruction": "# VOICE.md\n\nNét giọng riêng mới.",
+        },
+    )
+
+    assert (persona_dir / "VOICE.md").read_text(encoding="utf-8") == "# VOICE.md\n\nNét giọng riêng mới.\n"
+    assert "Nét giọng riêng mới." in llm._build_final_system_prompt("")
+
+
+@pytest.mark.asyncio
+async def test_update_personality_requires_target_file(tmp_path):
+    persona_dir = tmp_path / "persona"
+    persona_dir.mkdir()
+    tool = UpdatePersonalityTool(base_memory_path=str(persona_dir))
+
+    result = await tool.execute("Nói ngắn hơn.")
+
+    assert result == "Lỗi: Thiếu target_file."
+
+
+@pytest.mark.asyncio
+async def test_update_personality_rejects_target_paths(tmp_path):
+    persona_dir = tmp_path / "persona"
+    persona_dir.mkdir()
+    tool = UpdatePersonalityTool(base_memory_path=str(persona_dir))
+
+    result = await tool.execute("bad", target_file="../SOUL.md")
+
+    assert result.startswith("Lỗi:")
+    assert not (tmp_path / "SOUL.md").exists()

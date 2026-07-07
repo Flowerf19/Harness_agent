@@ -21,6 +21,9 @@ CODEBOX_SESSION_TTL_DEFAULT = 1800  # 30 min
 # Bash executor.
 BASH_EXECUTOR_TIMEOUT_DEFAULT = 30
 
+# System Gateway.
+SYSTEM_GATEWAY_TIMEOUT_DEFAULT = 30
+
 # Search / T2 retrieval — only SEMANTIC is currently consumed by the
 # orchestrator; the time/topic knobs were never wired.
 SEARCH_TOP_K_SEMANTIC_DEFAULT = 5
@@ -45,6 +48,44 @@ class Config:
     LLM_TOP_K = int(os.getenv("LLM_TOP_K", "40"))
     LLM_FREQUENCY_PENALTY = float(os.getenv("LLM_FREQUENCY_PENALTY", "0.4"))
     LLM_PRESENCE_PENALTY = float(os.getenv("LLM_PRESENCE_PENALTY", "0.1"))
+
+    # Reasoning effort for OpenAI-compat endpoint.
+    # Ollama openai.go maps this to native `think` param:
+    #   "none"      -> think=false
+    #   "low"|"medium"|"high"|"max" -> think="<level>"
+    # Empty / unset = don't send the field, let provider/model decide.
+    _LLM_REASONING_EFFORT_RAW = os.getenv("LLM_REASONING_EFFORT", "").strip().lower()
+    _LLM_REASONING_EFFORT_VALID = {"", "none", "low", "medium", "high", "max"}
+    if _LLM_REASONING_EFFORT_RAW not in _LLM_REASONING_EFFORT_VALID:
+        raise ValueError(
+            f"LLM_REASONING_EFFORT must be one of "
+            f"{{'', 'none', 'low', 'medium', 'high', 'max'}}, "
+            f"got: {_LLM_REASONING_EFFORT_RAW!r}"
+        )
+    LLM_REASONING_EFFORT = _LLM_REASONING_EFFORT_RAW or None
+
+    # Consolidation is a JSON-extraction (Summarizer) task, not open reasoning.
+    # Running it at the global reasoning_effort ("high") makes minimax "think"
+    # for minutes on a large T1 prompt and blow past LLM_REQUEST_TIMEOUT, so it
+    # gets its own lower effort + tighter token cap. Empty = don't send field.
+    _LLM_CONSOLIDATION_EFFORT_RAW = os.getenv("LLM_CONSOLIDATION_REASONING_EFFORT", "low").strip().lower()
+    if _LLM_CONSOLIDATION_EFFORT_RAW not in _LLM_REASONING_EFFORT_VALID:
+        raise ValueError(
+            f"LLM_CONSOLIDATION_REASONING_EFFORT must be one of "
+            f"{{'', 'none', 'low', 'medium', 'high', 'max'}}, "
+            f"got: {_LLM_CONSOLIDATION_EFFORT_RAW!r}"
+        )
+    LLM_CONSOLIDATION_REASONING_EFFORT = _LLM_CONSOLIDATION_EFFORT_RAW or None
+    LLM_CONSOLIDATION_MAX_TOKENS = int(os.getenv("LLM_CONSOLIDATION_MAX_TOKENS", "4000"))
+
+    # OpenAI tool_choice enforcement for Decide stage. Allowed: "" (off, don't send) /
+    # "auto" / "required" / "none". Empty = current behavior (let LLM decide). Set
+    # "required" to force a tool call when user intent clearly needs a tool — but note
+    # Ollama OpenAI-compat proxy may silently ignore this field; test runtime before
+    # relying on it.
+    _LLM_TOOL_CHOICE_RAW = os.getenv("LLM_TOOL_CHOICE", "").strip().lower()
+    LLM_TOOL_CHOICE = _LLM_TOOL_CHOICE_RAW or None
+
     LLM_REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", "120"))
     LLM_CONNECT_TIMEOUT = int(os.getenv("LLM_CONNECT_TIMEOUT", "10"))
 
@@ -95,6 +136,17 @@ class Config:
         "march7-bot,http://localhost:8374,http://host.docker.internal:8374",
     )
 
+    # === System Gateway (native host boundary) ===
+    SYSTEM_GATEWAY_URL = os.getenv("SYSTEM_GATEWAY_URL", "http://host.docker.internal:8380")
+    SYSTEM_GATEWAY_TIMEOUT = int(
+        os.getenv("SYSTEM_GATEWAY_TIMEOUT", str(SYSTEM_GATEWAY_TIMEOUT_DEFAULT))
+    )
+    SYSTEM_GATEWAY_SHARED_SECRET = os.getenv("SYSTEM_GATEWAY_SHARED_SECRET") or None
+    SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT = os.getenv("SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT", "")
+    SYSTEM_GATEWAY_BOOTSTRAP_PYTHON = os.getenv("SYSTEM_GATEWAY_BOOTSTRAP_PYTHON", "/usr/bin/python3")
+    SYSTEM_GATEWAY_BOOTSTRAP_VENV = os.getenv("SYSTEM_GATEWAY_BOOTSTRAP_VENV", "/opt/system-gateway/venv")
+    SYSTEM_GATEWAY_BOOTSTRAP_TIMEOUT = int(os.getenv("SYSTEM_GATEWAY_BOOTSTRAP_TIMEOUT", "120"))
+
     # === Evernight A2A endpoint (March7 calls Evernight) ===
     EVERNIGHT_A2A_URL = os.getenv("EVERNIGHT_A2A_URL", "http://evernight:8001")
 
@@ -112,3 +164,42 @@ class Config:
     EMBEDDING_API_URL = os.getenv("EMBEDDING_API_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
     EMBEDDING_API_KEY = os.getenv("EMBEDDING_API_KEY")
     EMBEDDING_VECTOR_SIZE = int(os.getenv("EMBEDDING_VECTOR_SIZE", "1024"))
+    EMBEDDING_TRACE_LOG_ENABLED = (
+        os.getenv("EMBEDDING_TRACE_LOG_ENABLED", "false").lower() == "true"
+    )
+    EMBEDDING_TRACE_LOG_PATH = os.getenv(
+        "EMBEDDING_TRACE_LOG_PATH", "logs/embedding_trace.jsonl"
+    )
+    # Retrieval prefixes. Qwen3-Embedding is instruction-aware and ASYMMETRIC:
+    # the QUERY side wants an instruct wrapper ("Instruct: ...\nQuery: <text>")
+    # while the PASSAGE side wants raw text (empty prefix) — so changing only
+    # the query prefix needs NO reindex. (e5-style models instead use
+    # "query: "/"passage: ".) Provider-agnostic so the embedding model can be
+    # switched via .env without touching call sites. Env values are stored on
+    # one line with a literal backslash-n; both dotenv and docker env_file may
+    # deliver it as two raw chars, so unescape it into a real newline here.
+    EMBEDDING_QUERY_PREFIX = os.getenv(
+        "EMBEDDING_QUERY_PREFIX",
+        "Instruct: Given a user message, retrieve relevant memory summaries "
+        "about the user and past conversation\nQuery: ",
+    ).replace("\\n", "\n")
+    EMBEDDING_PASSAGE_PREFIX = os.getenv("EMBEDDING_PASSAGE_PREFIX", "").replace("\\n", "\n")
+    # T2 semantic-recall relevance gate: drop KNN hits whose cosine similarity
+    # is below this before injecting into the prompt. 0.0 = off (legacy). A weak
+    # embedding model (e.g. e5-small on Vietnamese) collapses all cosines into a
+    # narrow high band, so this only bites once a discriminating model is used.
+    T2_MIN_COSINE = float(os.getenv("T2_MIN_COSINE", "0.0"))
+    # T2 diary model (write path). A new summary is merged into an existing
+    # same-user same-VN-day doc when their cosine similarity reaches this
+    # floor (calibrated 2026-07-03: same-topic follow-ups 0.507–0.782,
+    # cross-topic max 0.526 — biased high because a missed merge just appends
+    # like before, while a false merge glues unrelated topics together).
+    T2_MERGE_MIN_COSINE = float(os.getenv("T2_MERGE_MIN_COSINE", "0.60"))
+    # Char cap for a merged diary doc: beyond this, append a new doc instead
+    # of growing a mega-doc whose embedding averages into mush.
+    T2_MERGE_MAX_CHARS = int(os.getenv("T2_MERGE_MAX_CHARS", "1500"))
+    # Archive raw T1 entries to a cold per-day Redis list on trim instead of
+    # hard-deleting (W3): t1:archive:{scope}:{scope_id}:{day}. Best-effort —
+    # an archive failure never blocks the trim.
+    T1_ARCHIVE_ENABLED = os.getenv("T1_ARCHIVE_ENABLED", "true").lower() == "true"
+    T1_ARCHIVE_TTL_DAYS = int(os.getenv("T1_ARCHIVE_TTL_DAYS", "90"))

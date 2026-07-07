@@ -26,7 +26,7 @@ from twin.shared.memory.active import (
 from twin.shared.memory.profile import (
     MarkdownProfileStore,
 )
-from twin.shared.memory.timeline_summary_store import TimelineSummaryStore
+from twin.shared.memory.diary import TimelineSummaryStore
 
 @dataclass(slots=True)
 class SharedAgentRuntime:
@@ -72,6 +72,7 @@ async def build_shared_agent_runtime(
     timeline_summary_store = TimelineSummaryStore(
         redis_client=timeline_redis_client,
         embedding_dim=Config.EMBEDDING_VECTOR_SIZE,
+        embedding_service=embedding_service,
     )
     await timeline_summary_store.initialize()
 

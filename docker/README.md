@@ -35,8 +35,7 @@ docker/
 ├── README.md                    # This file
 │
 └── volumes/                     # Persistent data (bind mounts)
-    ├── redis_data/              # Redis AOF/RDB — T1 + coordination
-    └── hf_cache/                # HuggingFace embedding models
+    └── redis_data/              # Redis AOF/RDB — T1 + coordination
 ```
 
 ## Architecture
@@ -112,7 +111,6 @@ Tất cả dữ liệu lưu trong `docker/volumes/` qua bind mounts:
 | Directory | Purpose | Storage |
 |-----------|---------|---------|
 | `redis_data/` | T1 + coordination | Redis AOF/RDB |
-| `hf_cache/` | Embedding models | HuggingFace cache |
 
 ## Commands Reference
 
@@ -168,14 +166,14 @@ GATEWAY_ENABLED_PLATFORMS=discord
 DISCORD_GATEWAY_ENABLED=true
 
 # LLM chat
-LLM_PROVIDER=openai_compat
-OPENAI_API_URL=http://host.docker.internal:1234/v1
+LLM_PROVIDER=openai
+OPENAI_API_URL=http://host.docker.internal:11434/v1
 OPENAI_API_KEY=dummy-key
 OPENAI_MODEL=your-model
 
 # Embeddings
-EMBEDDING_PROVIDER=openai_compat
-EMBEDDING_API_URL=http://host.docker.internal:1234/v1
+EMBEDDING_PROVIDER=openai
+EMBEDDING_API_URL=http://host.docker.internal:11434/v1
 EMBEDDING_API_KEY=dummy-key
 EMBEDDING_MODEL_NAME=your-embedding-model
 EMBEDDING_VECTOR_SIZE=1024

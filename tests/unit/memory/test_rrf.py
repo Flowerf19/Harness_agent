@@ -1,7 +1,7 @@
 """Unit tests for _rrf_fuse in TimelineSummaryStore."""
 from __future__ import annotations
 
-from twin.shared.memory.timeline_summary_store import _rrf_fuse
+from twin.shared.memory.diary.store import _rrf_fuse
 
 
 def _doc(summary_id: str, **kwargs) -> dict:

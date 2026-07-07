@@ -1,3 +1,12 @@
+# =============================================================================
+# LEGACY / DEPRECATED — Linux-only bash-executor for back-compat demos.
+#
+# The native System Gateway (services/system_gateway/) is the long-term host
+# boundary. This compose file stays runnable until the native gateway reaches
+# feature parity on the host. After that, retire this service and remove the
+# file. See scripts/README.md for the deprecation plan.
+# =============================================================================
+
 services:
   bash-executor:
     build:

@@ -12,9 +12,8 @@ from typing import Any
 
 from twin.shared.llm.base_llm_service import LLM_ERROR_RESPONSES
 from twin.shared.llm.llm_response import LLMResponse
-from twin.shared.observability import langsmith_extra
-from twin.shared.observability.langsmith import traceable
-from twin.shared.llm.tool_loop import run_strict_tool_loop
+
+from .agent_loop import AgentLoop
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +56,6 @@ class ChatTurnRunner:
             return "gemini"
         return "openai"
 
-    @traceable(name="chat_turn.run", run_type="chain", tags=["chat_turn"])
     async def run(
         self,
         *,
@@ -76,27 +74,28 @@ class ChatTurnRunner:
             "max_iterations": max_iterations,
             "tool_timeout": tool_timeout,
         }
-        raw_response = await run_strict_tool_loop(
+
+        loop = AgentLoop(
             llm=self.llm,
             tool_registry=self.tool_registry,
             tool_prompt_catalog=getattr(self.llm, "tool_prompt_catalog", None),
-            messages=messages,
-            system_prompt=system_prompt,
             use_native_tools=self.use_native_tools,
             llm_type=self.llm_type,
             logger=self.logger,
             max_iterations=max_iterations,
             tool_timeout=tool_timeout,
             raise_bash_unavailable=raise_bash_unavailable,
-            trace_metadata=metadata,
-            langsmith_extra=langsmith_extra(
-                tags=["tool_loop", self.llm_type],
-                metadata=metadata,
-            ),
         )
 
+        loop_result = await loop.run(
+            messages=messages,
+            system_prompt=system_prompt,
+            trace_metadata=metadata,
+        )
+
+        raw_response = loop_result.raw_response
+        content = loop_result.response
         if isinstance(raw_response, LLMResponse):
-            content = raw_response.content
             result = ChatTurnResult(
                 content=content,
                 raw_response=raw_response,
@@ -108,7 +107,6 @@ class ChatTurnRunner:
                 total_tokens=raw_response.total_tokens,
             )
         else:
-            content = raw_response
             result = ChatTurnResult(
                 content=content,
                 raw_response=raw_response,

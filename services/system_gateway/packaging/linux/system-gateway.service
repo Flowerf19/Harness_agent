@@ -1,0 +1,26 @@
+[Unit]
+Description=System Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/system-gateway run
+Restart=on-failure
+RestartSec=5
+Environment=SYSTEM_GATEWAY_HOST=127.0.0.1
+Environment=SYSTEM_GATEWAY_PORT=8380
+# Load shared secret from a file with owner-only permissions.
+Environment=SYSTEM_GATEWAY_SHARED_SECRET_FILE=/etc/system-gateway/secret
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/system-gateway
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

@@ -5,7 +5,7 @@ from typing import Any, List, Optional
 from twin.shared.agent import ChatTurnRunner
 from twin.shared.llm.base_llm_service import BaseLLMService
 from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
-from twin.shared.observability.langsmith import traceable
+from twin.shared.observability.langsmith import summarize_trace_output, traceable
 from twin.shared.tools.registry import ToolRegistry
 from twin.shared.a2a.types import AgentCard
 from twin.shared.memory import SharedMemoryManager
@@ -33,13 +33,13 @@ class EvernightAgent:
         self.memory = memory_manager
         self.episodic = episodic_memory or self.memory
         self.llm = llm_service or kwargs.pop("llm_client", None)
+        if self.llm is None:
+            raise ValueError("llm_service or llm_client must be provided")
         self._embedding_service = kwargs.pop("embedding_service", None)
         self.tool_registry = tool_registry
         self.use_native_tools = use_native_tools
         self.march7_url = march7_url
         self.consolidator = consolidator
-        self.use_native_tools = use_native_tools
-        self.march7_url = march7_url
 
         self._chat_turn = ChatTurnRunner(
             llm=self.llm,
@@ -85,12 +85,15 @@ class EvernightAgent:
             logger.error(f"Evernight: Consolidation failed: {e}", exc_info=True)
             return False
 
-    async def consolidate_via_tool(self, scope: str = "user", scope_id: str = "", reason: str = "manual", max_messages: int = 200) -> dict:
+    async def consolidate_via_tool(self, scope: str = "user", scope_id: str = "", reason: str = "manual", max_messages: int = 200, entries: list[dict] | None = None) -> dict:
         """
         New consolidation flow: use consolidate_memory tool directly.
 
         This replaces the old pipeline (Extractor → PromotionGuard → Cleanup → Curator)
         with a single LLM call via the Summarizer prompt.
+
+        When ``entries`` are shipped over A2A, the tool consolidates them directly
+        instead of reading Evernight's own (empty for the requester's scopes) T1.
 
         Returns: dict with status, timeline_summary, profile_updates, etc.
         """
@@ -114,6 +117,7 @@ class EvernightAgent:
                 scope_id=scope_id,
                 reason=reason,
                 max_messages=max_messages,
+                entries=entries,
                 langsmith_extra=langsmith_extra(
                     tags=["evernight", "memory", "consolidation"],
                     metadata={
@@ -157,7 +161,12 @@ class EvernightAgent:
     # Chat (new capability for Evernight)
     # ------------------------------------------------------------------
 
-    @traceable(name="evernight.chat", run_type="chain", tags=["evernight", "chat"])
+    @traceable(
+        name="evernight.chat",
+        run_type="chain",
+        tags=["evernight"],
+        process_outputs=summarize_trace_output,
+    )
     async def handle_chat(self, user_id: str, content: str) -> str:
         try:
             await self.memory.add_message(user_id=user_id, role="user", content=content)
@@ -178,16 +187,6 @@ class EvernightAgent:
                     "model": self._model_name,
                     "user_id": user_id,
                 },
-                langsmith_extra=langsmith_extra(
-                    tags=["evernight", "chat_turn", self._llm_type],
-                    metadata={
-                        "workflow": "evernight.chat",
-                        "agent_name": "evernight",
-                        "provider": self._llm_type,
-                        "model": self._model_name,
-                        "user_id": user_id,
-                    },
-                ),
             )
 
             bot_response = turn.content

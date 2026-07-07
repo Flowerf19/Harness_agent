@@ -39,7 +39,7 @@ SYSTEM_TOOL_SPECS: tuple[ToolSpec, ...] = (
         guide_path="guides/search_memory.md",
     ),
     ToolSpec(
-        module="twin.evernight.tools.consolidate_memory_tool",
+        module="twin.shared.tools.modules.memory.consolidate_memory_tool",
         class_name="ConsolidateMemoryTool",
         visible_to=frozenset({"evernight"}),
         allowed_to=frozenset({"evernight"}),
@@ -79,8 +79,22 @@ SYSTEM_TOOL_SPECS: tuple[ToolSpec, ...] = (
         guide_path="guides/run_python_code.md",
     ),
     ToolSpec(
+        module="twin.shared.tools.modules.system.host_system_tool",
+        class_name="HostSystemTool",
+        guide_path="guides/host_system.md",
+    ),
+    ToolSpec(
+        module="twin.shared.tools.modules.system.gateway_admin_tool",
+        class_name="GatewayAdminTool",
+        visible_to=frozenset({"evernight"}),
+        allowed_to=frozenset({"evernight"}),
+        guide_path="guides/gateway_admin.md",
+    ),
+    ToolSpec(
         module="twin.shared.tools.modules.execution.execute_host_bash_tool",
         class_name="ExecuteHostBashTool",
-        guide_path="guides/execute_host_bash.md",
+        visible_to=frozenset(),
+        allowed_to=frozenset(),
+        guide_path="guides/host_system.md",
     ),
 )

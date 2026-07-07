@@ -81,4 +81,8 @@ docker/volumes/conda_envs/
 # Calibration generated output
 scripts/calibration/calibration_results.json
 
+# E2E browser-driven test screenshots (may contain Discord UI + tokens)
+tests/e2e/screenshots/
+
 .qoder/settings.local.json
+docker/march7/tests/e2e/screenshots/20260627-generic-shell/timeline.txt

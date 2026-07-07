@@ -34,12 +34,14 @@ class BaseLLMService(abc.ABC):
         # Load file tính cách từ Markdown (Static Persona)
         self.static_identity = self._load_prompt("IDENTITY.md")
         self.static_soul = self._load_prompt("SOUL.md")
+        self.static_persona_extras = self._load_extra_persona_prompts()
         self.tool_prompt_catalog = None
 
     def reload_persona_prompts(self) -> None:
         """Reload persona Markdown after a runtime persona update."""
         self.static_identity = self._load_prompt("IDENTITY.md")
         self.static_soul = self._load_prompt("SOUL.md")
+        self.static_persona_extras = self._load_extra_persona_prompts()
         self.logger.info("Persona prompts đã được reload")
 
     def set_tool_registry(self, tool_registry) -> None:
@@ -71,24 +73,64 @@ class BaseLLMService(abc.ABC):
             self.logger.error(f"❌ Error loading prompt {filename}: {e}")
             return ""
 
-    def _build_final_system_prompt(self, dynamic_core_prompt: str = "") -> str:
+    def _load_extra_persona_prompts(self) -> list[str]:
+        """Load non-empty persona Markdown files beyond IDENTITY.md and SOUL.md."""
+        try:
+            base_dir = os.path.dirname(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            )
+            persona_dir = os.path.join(base_dir, self._persona_path)
+            if not os.path.isdir(persona_dir):
+                return []
+
+            prompts: list[str] = []
+            for filename in sorted(os.listdir(persona_dir)):
+                if filename in {"IDENTITY.md", "SOUL.md"}:
+                    continue
+                if filename.startswith(".") or not filename.endswith(".md"):
+                    continue
+                filepath = os.path.join(persona_dir, filename)
+                if not os.path.isfile(filepath):
+                    continue
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                if content:
+                    prompts.append(f"## {filename}\n{content}")
+            return prompts
+        except Exception as e:
+            self.logger.error(f"❌ Error loading extra persona prompts: {e}")
+            return []
+
+    def _build_final_system_prompt(
+        self,
+        dynamic_core_prompt: str = "",
+        include_tool_catalog: bool = True,
+        include_persona: bool = True,
+    ) -> str:
         """
         Trộn lẫn Tính cách tĩnh (từ file .md) và Trí nhớ Tiềm thức (Từ Tầng 3).
         Tool schemas được inject qua Native Function Calling (API Tool Calling).
 
         Args:
             dynamic_core_prompt: Hồ sơ user từ T3
+            include_tool_catalog: If True, include the short tool catalog in the prompt.
+            include_persona: If True, prepend IDENTITY.md + SOUL.md. Set False for
+                utility calls (e.g. consolidation Summarizer) where the chat persona
+                is noise — the task lives entirely in the user message.
         """
         parts = []
 
         # 1. Nhét tính cách gốc của Bot vào trước (IDENTITY.md và SOUL.md)
-        if self.static_identity:
-            parts.append(f"=== NHÂN CÁCH CỦA BẠN ===\n{self.static_identity}")
-        if self.static_soul:
-            parts.append(f"=== HƯỚNG DẪN HỘI THOẠI ===\n{self.static_soul}")
+        if include_persona:
+            identity_parts = [part for part in (self.static_identity, *self.static_persona_extras) if part]
+            if identity_parts:
+                identity_prompt = "\n\n".join(identity_parts)
+                parts.append(f"=== NHÂN CÁCH CỦA BẠN ===\n{identity_prompt}")
+            if self.static_soul:
+                parts.append(f"=== HƯỚNG DẪN HỘI THOẠI ===\n{self.static_soul}")
 
         # 2. Nhét micro-catalog tool. Full guide chỉ load sau khi chọn tool.
-        if self.tool_prompt_catalog:
+        if include_tool_catalog and self.tool_prompt_catalog:
             tool_catalog = self.tool_prompt_catalog.render_catalog()
             if tool_catalog:
                 parts.append(f"=== CÔNG CỤ ===\n{tool_catalog}")
@@ -108,7 +150,11 @@ class BaseLLMService(abc.ABC):
         messages: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
         use_native_tools: bool = False,
+        include_tool_catalog: bool = True,
         max_tokens: Optional[int] = None,
+        tool_choice: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
+        include_persona: bool = True,
     ) -> Union[str, LLMResponse]:
         """
         Generate a response from the LLM based on structured messages.
@@ -117,8 +163,18 @@ class BaseLLMService(abc.ABC):
             messages: List of message dicts with "role" and "content" keys
             system_prompt: Dynamic core memory context from T3
             use_native_tools: If True, use Native Function Calling (API Tool Calling)
+            include_tool_catalog: If True, include the short tool catalog in the system prompt
             max_tokens: Per-call output token cap; falls back to Config.LLM_MAX_TOKENS
                 when None. Reasoning models need a larger budget for structured calls.
+            tool_choice: Optional OpenAI-style ``tool_choice`` override ("auto" /
+                "required" / "none"). Providers that don't natively understand the
+                field must accept and ignore it so callers can pass it unconditionally.
+            reasoning_effort: Optional per-call override of the global reasoning
+                effort ("none"/"low"/"medium"/"high"/"max"). Falls back to
+                Config.LLM_REASONING_EFFORT when None. Providers that don't
+                understand it must accept and ignore it.
+            include_persona: If False, omit the bot's IDENTITY/SOUL from the
+                system prompt (utility calls like consolidation).
 
         Returns:
             LLMResponse with content, token metadata, and tool_calls if present

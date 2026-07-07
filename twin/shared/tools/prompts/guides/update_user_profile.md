@@ -1,23 +1,14 @@
 <tool_description>
-Append một bullet ổn định vào hồ sơ Core Memory T3 của user.
+update_user_profile — Append một bullet ổn định vào hồ sơ Core Memory T3 của user (tên, nghề, liên hệ, sở thích, thói quen, rules). Không dùng cho persona bot (đó là `update_personality`).
 
+Khi nên dùng:
+- User cung cấp thông tin bền vững: tên, nghề nghiệp, địa điểm sống, liên hệ, mối quan hệ, sở thích, thói quen, preference lâu dài, rule riêng.
+- Cần lưu một cập nhật profile rõ ràng.
+</tool_description>
 
 ## update_user_profile
 
 Append một bullet ổn định vào hồ sơ Core Memory T3 của user.
-
-### Khi nên dùng
-
-- User cung cấp thông tin bền vững: tên, nghề nghiệp, địa điểm sống, liên hệ, mối quan hệ, sở thích, thói quen, preference lâu dài, rule riêng.
-- Cần lưu một cập nhật profile rõ ràng.
-
-### Khi không nên dùng
-
-- Tâm trạng hoặc nhu cầu một lần.
-- Guess/suy diễn chưa được xác nhận.
-- Nội dung cần ghi đè toàn bộ profile: không dùng tool này.
-</tool_description>
-
 
 ### Input
 
@@ -31,3 +22,4 @@ Append một bullet ổn định vào hồ sơ Core Memory T3 của user.
 - Mỗi call chỉ append một thông tin.
 - Nếu conflict với profile cũ, append thông tin mới; cleanup sẽ merge/supersede sau.
 - Nếu chưa chắc section, đọc `get_profile` hoặc hỏi lại.
+- Section `rules` là rule/preference riêng của user, không phải quy tắc/persona của bot (đó là `update_personality`).

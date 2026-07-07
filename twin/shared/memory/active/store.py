@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from twin.shared.memory.active.models import ActiveEntry
+from twin.shared.memory.vn_time import vn_day_str
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,10 @@ class ActiveStore:
     @staticmethod
     def _index_key(scope: str, scope_id: str) -> str:
         return f"active_index:{scope}:{scope_id}"
+
+    @staticmethod
+    def _archive_key(scope: str, scope_id: str, day: str) -> str:
+        return f"t1:archive:{scope}:{scope_id}:{day}"
 
     async def save(self, entry: ActiveEntry) -> None:
         key = self._entry_key(entry.scope, entry.scope_id, entry.entry_id)
@@ -88,6 +93,34 @@ class ActiveStore:
         await self.redis.zrem(self._index_key(scope, scope_id), *entry_ids)
         logger.debug("T1: deleted %d entries scope=%s/%s", len(entry_ids), scope, scope_id)
 
+    async def archive_entries(
+        self, scope: str, scope_id: str, entries: list[ActiveEntry], *, ttl_seconds: int
+    ) -> None:
+        """RPUSH serialized entries onto cold per-VN-day archive lists (W3).
+
+        Grouped by the entry's own created_at VN day, not today's — a trim
+        can carry messages from before midnight. Every RPUSH refreshes the
+        day-key TTL. Pure Redis ops: the enabled/TTL policy lives in the
+        caller (ActiveMemory.trim), keeping this layer Config-free.
+        """
+        if not entries:
+            return
+        by_day: dict[str, list[str]] = {}
+        for entry in entries:
+            day = vn_day_str(entry.created_at.timestamp())
+            payload = json.dumps(
+                entry.model_dump(mode="json"), ensure_ascii=False, default=_json_default
+            )
+            by_day.setdefault(day, []).append(payload)
+        for day, payloads in by_day.items():
+            key = self._archive_key(scope, scope_id, day)
+            await self.redis.rpush(key, *payloads)
+            await self.redis.expire(key, ttl_seconds)
+        logger.debug(
+            "T1: archived %d entries scope=%s/%s days=%d",
+            len(entries), scope, scope_id, len(by_day),
+        )
+
     async def clear_scope(self, scope: str, scope_id: str) -> None:
         entries = await self.list_entries(scope, scope_id, limit=10_000)
         if entries:
@@ -130,6 +163,20 @@ class ActiveStore:
             else None,
             "recent_catalogs": json.loads(decoded.get("recent_catalogs") or "[]"),
         }
+
+    async def increment_tokens(
+        self, scope: str, scope_id: str, tokens: int, *, last_entry_ts: float | None = None
+    ) -> int:
+        """Atomically add `tokens` to unsummarized_tokens; return the new total.
+
+        Uses HINCRBY so concurrent observes on the same scope never lose an
+        update the way a read-then-write via get_state/update_state would.
+        """
+        key = self._state_key(scope, scope_id)
+        new_total = await self.redis.hincrby(key, "unsummarized_tokens", tokens)
+        if last_entry_ts is not None:
+            await self.redis.hset(key, mapping={"last_entry_ts": str(float(last_entry_ts))})
+        return int(new_total)
 
     async def update_state(
         self,

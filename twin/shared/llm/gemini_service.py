@@ -63,7 +63,11 @@ class GeminiService(BaseLLMService):
         messages: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
         use_native_tools: bool = False,
+        include_tool_catalog: bool = True,
         max_tokens: Optional[int] = None,
+        tool_choice: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,  # accepted for API parity; Gemini ignores it
+        include_persona: bool = True,
     ) -> Union[str, LLMResponse]:
         """
         Generate response from Gemini API.
@@ -72,6 +76,11 @@ class GeminiService(BaseLLMService):
             messages: Mảng tin nhắn theo chuẩn [{"role": "user/assistant", "content": "..."}]
             system_prompt: Dữ liệu Tiềm thức từ Tầng 3 (Dynamic Core Memory).
             use_native_tools: Nếu True, sử dụng Native Function Calling (API Tool Calling).
+            include_tool_catalog: Nếu True, bao gồm tool catalog trong system prompt.
+            max_tokens: Per-call output token cap.
+            tool_choice: Accepted for cross-provider signature parity with the
+                OpenAI service. Gemini uses ``toolConfig.functionCallingConfig``
+                instead, so this field is intentionally ignored here.
 
         Returns:
             LLMResponse object with content, token metadata, and tool_calls if present.
@@ -83,8 +92,13 @@ class GeminiService(BaseLLMService):
 
         session = await self._get_session()
 
-        # 1. Trộn hệ tư tưởng (System Prompt)
-        final_system_prompt = self._build_final_system_prompt(system_prompt)
+        # 1. Trộn hệ tư tưởng (System Prompt). Native tools carry descriptions in
+        # the tool schemas, so only inject the catalog when native tools are OFF.
+        final_system_prompt = self._build_final_system_prompt(
+            system_prompt,
+            include_tool_catalog=(include_tool_catalog and not use_native_tools),
+            include_persona=include_persona,
+        )
 
         # 2. Biên dịch mảng `messages` sang chuẩn Gemini
         gemini_contents = []

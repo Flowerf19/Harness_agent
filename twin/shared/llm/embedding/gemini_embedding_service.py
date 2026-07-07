@@ -17,9 +17,13 @@ full 3072 vector is pre-normalised).
 from __future__ import annotations
 
 import math
-from typing import List
+import time
+from typing import TYPE_CHECKING, List
 
 from .base_embedding_service import BaseEmbeddingService
+
+if TYPE_CHECKING:
+    from .embedding_trace_logger import EmbeddingTraceLogger
 
 _DEFAULT_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 _DEFAULT_MODEL = "gemini-embedding-001"
@@ -36,13 +40,17 @@ class GeminiEmbeddingService(BaseEmbeddingService):
         api_url: str | None = None,
         output_dimensionality: int | None = None,
         expected_dim: int | None = None,
+        trace_logger: EmbeddingTraceLogger | None = None,
+        provider: str = "gemini",
     ):
         super().__init__(
             model_name=model_name,
             expected_dim=expected_dim or output_dimensionality,
+            trace_logger=trace_logger,
+            provider=provider,
+            api_url=(api_url or _DEFAULT_API_URL).rstrip("/"),
         )
         self.api_key = api_key
-        self.api_url = (api_url or _DEFAULT_API_URL).rstrip("/")
         self.output_dimensionality = output_dimensionality
 
     async def initialize(self) -> None:
@@ -55,12 +63,20 @@ class GeminiEmbeddingService(BaseEmbeddingService):
 
         cached = self._cache_get(text)
         if cached is not None:
+            self._trace_embedding_event(
+                input_text=text,
+                vector=cached,
+                raw_dim=None,
+                latency_ms=0.0,
+                cache_hit=True,
+            )
             return cached
 
         body: dict = {"content": {"parts": [{"text": text}]}}
         if self.output_dimensionality:
             body["outputDimensionality"] = self.output_dimensionality
 
+        started_at = time.perf_counter()
         try:
             session = await self._get_session()
             url = f"{self.api_url}/{self.model_name}:embedContent?key={self.api_key}"
@@ -82,10 +98,19 @@ class GeminiEmbeddingService(BaseEmbeddingService):
                     self.logger.error("Gemini embedding response missing values: %s", data)
                     return []
 
+                raw_dim = len(vector)
                 if self.output_dimensionality and self.output_dimensionality < _NATIVE_DIM:
                     vector = _l2_normalize(vector)
 
                 vector = self._fit_vector(vector)
+                latency_ms = (time.perf_counter() - started_at) * 1000
+                self._trace_embedding_event(
+                    input_text=text,
+                    vector=vector,
+                    raw_dim=raw_dim,
+                    latency_ms=latency_ms,
+                    cache_hit=False,
+                )
                 self._cache_put(text, vector)
                 return vector
 

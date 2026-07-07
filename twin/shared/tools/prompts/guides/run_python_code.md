@@ -1,22 +1,14 @@
 <tool_description>
-Chạy Python hoặc bash trong sandbox CodeBox/Jupyter. Trạng thái được giữ riêng theo từng user.
+run_python_code — Chạy Python hoặc bash trong sandbox CodeBox/Jupyter. Trạng thái được giữ riêng theo từng user. Web → `web_search`; host/docker/log → `host_system`.
 
+Khi nên dùng:
+- Tính toán cần chính xác, phân tích dữ liệu, tạo/kiểm tra script, đọc/xử lý file trong sandbox.
+- Cần pandas/numpy/matplotlib hoặc cần chạy đoạn code ngắn để kiểm chứng.
+</tool_description>
 
 ## run_python_code
 
 Chạy Python hoặc bash trong sandbox CodeBox/Jupyter. Trạng thái được giữ riêng theo từng user.
-
-### Khi nên dùng
-
-- Tính toán cần chính xác, phân tích dữ liệu, tạo/kiểm tra script, đọc/xử lý file trong sandbox.
-- Cần pandas/numpy/matplotlib hoặc cần chạy đoạn code ngắn để kiểm chứng.
-
-### Khi không nên dùng
-
-- Thông tin web/current: dùng `web_search`.
-- Trạng thái máy host, docker, log: dùng `execute_host_bash`.
-- Câu hỏi đơn giản có thể trả lờitrực trực tiếp.
-</tool_description>
 
 ### Input
 

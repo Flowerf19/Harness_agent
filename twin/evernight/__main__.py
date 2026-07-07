@@ -61,6 +61,7 @@ async def main():
             discord_adapter=evernight_adapter,
             notify_user_id=int(config.owner_user_id),
             bash_executor_url=Config.BASH_EXECUTOR_URL,
+            gateway_monitor=container.gateway_monitor,
         )
         await self_heal.start()
         logger.info(f"Self-heal monitor started (interval={config.self_heal_interval}s)")

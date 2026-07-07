@@ -81,11 +81,13 @@ class EvernightA2AHandler:
         scope_id = payload.get("scope_id")
         reason = payload.get("reason", "discussion")
         max_messages = payload.get("max_messages", 200)
+        entries = payload.get("entries") or None
 
         logger.info(
-            "Evernight handling consolidate_discussion via tool scope=%s scope_id=%s",
+            "Evernight handling consolidate_discussion via tool scope=%s scope_id=%s entries=%d",
             scope,
             scope_id,
+            len(entries or []),
         )
 
         if not scope_id:
@@ -106,6 +108,7 @@ class EvernightA2AHandler:
                 scope_id=scope_id,
                 reason=reason,
                 max_messages=max_messages,
+                entries=entries,
             )
             # Add scope info to result for compatibility
             result["scope"] = scope

@@ -1,3 +1,9 @@
+# NOTE: `shared/docker-compose.bash-executor.yml` is included for back-compat.
+# It hosts the LEGACY Linux-only bash-executor. The native System Gateway
+# (services/system_gateway/) is the long-term host boundary and is added via
+# its own packaging (systemd/launchd) outside Docker. Once the native gateway
+# reaches feature parity on the host, drop the bash-executor include here.
+
 networks:
   march7_net:
     driver: bridge

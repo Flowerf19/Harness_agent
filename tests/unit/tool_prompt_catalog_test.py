@@ -48,7 +48,9 @@ class DummyLLMService(BaseLLMService):
         messages,
         system_prompt=None,
         use_native_tools=False,
+        include_tool_catalog=True,
         max_tokens=None,
+        tool_choice=None,
     ):
         return "ok"
 
@@ -118,7 +120,7 @@ def test_native_schema_description_comes_from_tool_description_tag():
         "update_personality": "guides/update_personality.md",
         "web_search": "guides/web_search.md",
         "run_python_code": "guides/run_python_code.md",
-        "execute_host_bash": "guides/execute_host_bash.md",
+        "host_system": "guides/host_system.md",
     }
     descriptions = {
         schema["function"]["name"]: schema["function"]["description"]
@@ -167,6 +169,19 @@ def test_final_system_prompt_uses_micro_catalog_not_persona_tool_md():
     assert "dynamic memory" in prompt
 
 
+def test_final_system_prompt_includes_identity_and_soul():
+    # Both Think(decide) calls go through _build_final_system_prompt, so the
+    # bot's IDENTITY.md and SOUL.md must always be present in the system prompt.
+    llm = DummyLLMService(persona_path="twin/march7/personas")
+
+    prompt = llm._build_final_system_prompt("")
+
+    assert "=== NHÂN CÁCH CỦA BẠN ===" in prompt
+    assert "## Danh tính" in prompt  # from IDENTITY.md
+    assert "=== HƯỚNG DẪN HỘI THOẠI ===" in prompt
+    assert "## Phong cách giao tiếp" in prompt  # from SOUL.md
+
+
 def test_current_tool_backend_classification():
     backends_by_class = {
         spec.class_name: spec.backend
@@ -197,10 +212,10 @@ def test_catalog_output_is_unchanged_by_backend_metadata():
 
     catalog = result.tool_prompt_catalog.render_catalog()
 
-    assert catalog == "\n".join(
+    assert catalog == "\n\n".join(
         [
-            f"- execute_host_bash: {read_tool_description('execute_host_bash', 'guides/execute_host_bash.md')}",
             f"- get_profile: {read_tool_description('get_profile', 'guides/get_profile.md')}",
+            f"- host_system: {read_tool_description('host_system', 'guides/host_system.md')}",
             f"- run_python_code: {read_tool_description('run_python_code', 'guides/run_python_code.md')}",
             f"- search_memory: {read_tool_description('search_memory', 'guides/search_memory.md')}",
             f"- update_personality: {read_tool_description('update_personality', 'guides/update_personality.md')}",
@@ -252,7 +267,7 @@ def test_declared_proxy_description_uses_local_guide_for_remote_backend(tmp_path
     local_proxy = DeclaredToolProxy(DummyTool(), local_spec)
     remote_proxy = DeclaredToolProxy(DummyTool(), remote_spec)
 
-    assert remote_proxy.description == "Local guide description."
+    assert remote_proxy.description == "Local guide description.\nRemote metadata is not here."
     assert remote_proxy.get_openai_schema() == local_proxy.get_openai_schema()
     assert "remote_mcp" not in remote_proxy.get_openai_schema()["function"]["description"]
 

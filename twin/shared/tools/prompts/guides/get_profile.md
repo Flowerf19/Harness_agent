@@ -1,22 +1,13 @@
 <tool_description>
-Khi cần đọc hồ sơ T3 ổn định của user. Gọi tool này TRƯỚC khi curate/`manage_user_profile` để lấy `expected_profile_hash` hiện tại.
-
+get_profile — Đọc hồ sơ T3 ổn định của user (tên, nghề, liên hệ, sở thích, thói quen, rules). Gọi TRƯỚC khi curate/`manage_user_profile` để lấy `expected_profile_hash`. Không dùng để đọc persona/SOUL.md/IDENTITY.md/system prompt của bot — đó là `update_personality`.
+Khi nên dùng:
+- Cần biết chính xác hồ sơ hiện có trước khi trả lời hoặc trước khi append thông tin mới.
+- User hỏi về thông tin ổn định của họ: tên, công việc, liên hệ, sở thích, hoặc rules.
+</tool_description>
 
 ## get_profile
 
 Đọc hồ sơ Markdown T3 ổn định của user.
-
-### Khi nên dùng
-
-- Cần biết chính xác hồ sơ hiện có trước khi trả lời hoặc trước khi append thông tin mới.
-- User hỏi về thông tin ổn định của họ: tên, công việc, liên hệ, sở thích, hoặc rules.
-
-### Khi không nên dùng
-
-- Cần tìm hội thoại quá khứ: dùng `search_memory`.
-- User vừa cung cấp thông tin ngay trong context: có thể trả lời trực tiếp.
-
-</tool_description>
 
 ### Input
 

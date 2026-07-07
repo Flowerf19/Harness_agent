@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.twin.system-gateway</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/system-gateway</string>
+        <string>run</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>SYSTEM_GATEWAY_HOST</key>
+        <string>127.0.0.1</string>
+        <key>SYSTEM_GATEWAY_PORT</key>
+        <string>8380</string>
+        <key>SYSTEM_GATEWAY_SHARED_SECRET_FILE</key>
+        <string>/Users/me/Library/Application Support/system-gateway/secret</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/me/Library/Logs/system-gateway.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/me/Library/Logs/system-gateway.error.log</string>
+</dict>
+</plist>

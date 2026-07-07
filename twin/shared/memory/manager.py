@@ -6,21 +6,9 @@ from typing import Any, Callable
 
 from twin.shared.memory.active import ActiveEntry, ActiveMemory
 from twin.shared.memory.profile import MarkdownProfileStore
-from twin.shared.observability.langsmith import traceable
+from twin.shared.observability.langsmith import add_current_run_metadata, traceable
 
 logger = logging.getLogger(__name__)
-
-
-def format_preflight_for_prompt(summaries: list[dict]) -> str:
-    if not summaries:
-        return ""
-    lines = ["## Ngữ cảnh nhớ liên quan (dùng tự nhiên, không lộ nguồn)"]
-    for s in summaries:
-        content = s.get("summary") or s.get("content", "")
-        if len(content) > 240:
-            content = content[:240] + "…"
-        lines.append(f"- {content}")
-    return "\n".join(lines)
 
 
 class SharedMemoryManager:
@@ -34,6 +22,7 @@ class SharedMemoryManager:
         timeline_summary_store: Any = None,
         embedding_service: Any = None,
         consolidation_client: Any = None,
+        local_consolidator: Any = None,
     ) -> None:
         self.t1 = active
         self.profile = profile_store
@@ -41,6 +30,7 @@ class SharedMemoryManager:
         self.timeline_summary_store = timeline_summary_store
         self.embedding_service = embedding_service
         self.consolidation_client = consolidation_client
+        self.local_consolidator = local_consolidator
 
     # ------------------------------------------------------------------ writes
 
@@ -121,6 +111,12 @@ class SharedMemoryManager:
         user_name: str | None = None,
         mentioned_users: list[dict[str, Any]] | None = None,
     ) -> tuple[str, list[dict]]:
+        # Decision 2026-07-03 — T2 recall is TOOL-ONLY via the search_memory
+        # tool (see tools/prompts/guides/search_memory.md). Automatic T2
+        # preflight injection has been removed twice already; do NOT re-add it
+        # without new measured data. `current_query` stays in the signature for
+        # existing callers even though nothing embeds it here anymore.
+        del current_query
         scope = "channel" if channel_id else "user"
         scope_id = str(channel_id or user_id)
 
@@ -138,15 +134,21 @@ class SharedMemoryManager:
             )
         else:
             user_id_header = f"=== CURRENT USER ===\nPlatform user ID: {user_id}"
+        if channel_id:
+            # The search_memory tool recalls channel summaries via their scope
+            # id (T2 stores them under user_id=channel_id) — expose the id so
+            # the model can pass `channel_id` when it calls the tool.
+            user_id_header += (
+                f"\nĐang chat trong kênh chung (Platform channel ID: {scope_id})"
+            )
         mentioned_context = await self._mentioned_users_context(
             str(user_id),
             mentioned_users,
         )
         profile_context = await self.profile.get_system_prompt_context(str(user_id))
-        t2_context = await self._preflight_context(str(user_id), current_query)
         system_parts = [user_id_header] + [
             part
-            for part in (mentioned_context, profile_context, t2_context)
+            for part in (mentioned_context, profile_context)
             if part
         ]
         return "\n\n".join(system_parts), messages
@@ -165,33 +167,84 @@ class SharedMemoryManager:
         run_type="chain",
         tags=["memory", "consolidation", "request"],
     )
-    async def consolidate_scope(self, scope: str, scope_id: str) -> dict:
-        """Consolidate T1 messages via A2A call to Evernight."""
-        if self.consolidation_client is None:
-            logger.error("ConsolidationClient not configured")
-            return {"status": "failed", "scope": scope, "scope_id": scope_id, "error": "consolidation_client not configured"}
-        
-        logger.info(
-            "Consolidating via A2A client scope=%s/%s", scope, scope_id,
-        )
-        result_dict = await self.consolidation_client.consolidate_scope(
-            scope=scope,
-            scope_id=scope_id,
-            reason="auto",
-        )
-        
-        # Trim T1 if consolidation succeeded
+    async def consolidate_scope(
+        self,
+        scope: str,
+        scope_id: str,
+        entries: list[dict] | None = None,
+    ) -> dict:
+        """Consolidate T1 messages, then trim on success.
+
+        Uses the remote A2A client if configured (March7 → Evernight), else a
+        local consolidator if set (Evernight worker), else fails.
+
+        On the A2A path the caller's OWN T1 entries are shipped over the wire so
+        Evernight consolidates this agent's messages (not its own T1, which is
+        empty for this agent's scopes). ``entries`` may be supplied directly by a
+        payload that already carries them; otherwise we read them here.
+        """
+        if self.consolidation_client is not None:
+            if entries is None:
+                t1_entries = await self.t1.get_context(scope, scope_id, limit=200)
+                entries = [self._entry_to_snapshot(e) for e in t1_entries]
+            logger.info(
+                "Consolidating via A2A client scope=%s/%s entries=%d",
+                scope, scope_id, len(entries),
+            )
+            result_dict = await self.consolidation_client.consolidate_scope(
+                scope=scope,
+                scope_id=scope_id,
+                reason="auto",
+                entries=entries,
+            )
+        elif self.local_consolidator is not None:
+            logger.info(
+                "Consolidating locally scope=%s/%s", scope, scope_id,
+            )
+            result_dict = await self.local_consolidator(
+                scope=scope,
+                scope_id=scope_id,
+                reason="auto",
+                entries=entries,
+            )
+        else:
+            logger.error("No consolidator configured (neither client nor local)")
+            add_current_run_metadata({
+                "entries_shipped": len(entries or []),
+                "trimmed": 0,
+                "trim_skipped_reason": "no_consolidator_configured",
+            })
+            return {"status": "failed", "scope": scope, "scope_id": scope_id, "error": "consolidator not configured"}
+
+        # Trim T1 by the EXACT entry_ids the consolidator summarized. Trimming by
+        # count (the old path) could delete entries that were never summarized —
+        # a remote agent's own T1, or messages that raced in mid-consolidation.
+        # If no entry_ids came back, skip trimming rather than risk data loss.
+        trimmed = 0
+        trim_skipped_reason: str | None = None
         if result_dict.get("status") == "ok":
-            messages_summarized = result_dict.get("messages_summarized", 0)
-            if messages_summarized > 0:
-                # Get the entry IDs that were summarized
-                entries = await self.t1.get_context(scope, scope_id, limit=messages_summarized)
-                entry_ids = [e.entry_id for e in entries]
+            entry_ids = result_dict.get("entry_ids")
+            if entry_ids:
                 await self.t1.trim(scope, scope_id, entry_ids)
+                trimmed = len(entry_ids)
                 logger.info(
-                    "Trimmed T1 after A2A consolidation: %d entries", len(entry_ids),
+                    "Trimmed T1 after consolidation: %d entries", trimmed,
                 )
-        
+            else:
+                trim_skipped_reason = "no_entry_ids"
+                logger.warning(
+                    "Consolidation ok but no entry_ids returned scope=%s/%s — "
+                    "skipping trim to avoid deleting un-summarized entries",
+                    scope, scope_id,
+                )
+        else:
+            trim_skipped_reason = f"status_{result_dict.get('status')}"
+
+        add_current_run_metadata({
+            "entries_shipped": len(entries or []),
+            "trimmed": trimmed,
+            "trim_skipped_reason": trim_skipped_reason,
+        })
         return result_dict
 
     async def consolidate_snapshot(
@@ -218,41 +271,7 @@ class SharedMemoryManager:
         result = await self.consolidate_scope("user", str(user_id))
         return result.get("status") in {"ok", "skipped"}
 
-    async def consolidate_payload(self, payload: dict) -> dict:
-        scope = str(payload.get("scope") or "user")
-        scope_id = str(payload.get("scope_id") or payload.get("user_id") or "")
-        if not scope_id:
-            return {"status": "failed", "scope": scope, "scope_id": scope_id, "error": "scope_id required"}
-        for item in payload.get("entries") or []:
-            content = str(item.get("content") or "")
-            if not content.strip():
-                continue
-            await self.t1.observe(
-                scope,
-                scope_id,
-                self._normalize_role(str(item.get("role") or "user")),
-                content,
-                author_id=item.get("author_id") or item.get("user_id"),
-                author_name=item.get("author_name"),
-                message_id=item.get("message_id") or item.get("entry_id"),
-                guild_id=payload.get("guild_id") or item.get("guild_id"),
-                channel_id=payload.get("channel_id") or item.get("channel_id"),
-                reply_to=item.get("reply_to"),
-            )
-        return await self.consolidate_scope(scope, scope_id)
-
     # ---------------------------------------------------------------- helpers
-
-    async def _preflight_context(self, user_id: str, current_query: str) -> str:
-        if self.timeline_summary_store is None or not current_query:
-            return ""
-        try:
-            query_embedding = await self.embedding_service.get_embedding(f"query: {current_query}")
-            summaries = await self.timeline_summary_store.search(user_id, query_embedding, limit=5, query_text=current_query)
-            return format_preflight_for_prompt(summaries)
-        except Exception as exc:
-            logger.debug("T2: preflight failed user=%s: %s", user_id, exc)
-            return ""
 
     async def _mentioned_users_context(
         self,
@@ -318,6 +337,28 @@ class SharedMemoryManager:
         for entry in entries:
             role = "assistant" if entry.role == "assistant" else "user"
             content = entry.content
+            if entry.role == "assistant":
+                lowered = content.lower()
+                # Only mark prior assistant turns that look like host-state
+                # output — narrow tokens avoid over-marking casual chat. The
+                # marker nudges the LLM to re-call host_system instead of reusing
+                # stale numbers when the user asks again about realtime host.
+                if any(
+                    token in lowered
+                    for token in (
+                        "uptime",
+                        "load average",
+                        "df -h",
+                        "docker ps",
+                        "docker logs",
+                        "container",
+                        "systemctl",
+                    )
+                ):
+                    content = (
+                        "[context cũ — số liệu host có thể stale; nếu user hỏi lại trạng thái host BẮT BUỘC gọi host_system lại] "
+                        + content
+                    )
             if entry.scope == "channel" and entry.role == "user" and entry.author_name:
                 label = entry.author_name
                 if entry.author_id:

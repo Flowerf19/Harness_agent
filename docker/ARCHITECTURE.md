@@ -80,7 +80,6 @@ Shared:
 - `CODEBOX_API_URL`
 - `BASH_EXECUTOR_URL`
 - `LLM_*`
-- `QWEN_*`
 - `EMBEDDING_*`
 
 Peer/coordination:
