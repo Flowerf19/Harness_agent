@@ -1,4 +1,4 @@
-"""Evernight System Gateway orchestration.
+"""Evernight Host Gateway orchestration.
 
 Owns:
 - gateway health/capabilities monitoring and degraded-state reporting
@@ -7,7 +7,7 @@ Owns:
 - post-bootstrap update flow (gated through the gateway updater endpoint)
 - System Gateway self-heal restart path
 """
-from twin.evernight.system_gateway.installer import (
+from twin.evernight.host_gateway.installer import (
     BootstrapHint,
     InstallerAction,
     InstallerCoordinator,
@@ -15,7 +15,7 @@ from twin.evernight.system_gateway.installer import (
     build_bootstrap_hint,
     compare_versions,
 )
-from twin.evernight.system_gateway.monitor import (
+from twin.evernight.host_gateway.monitor import (
     GatewayMonitor,
     GatewayMonitorStatus,
     GatewaySnapshot,

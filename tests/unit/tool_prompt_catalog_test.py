@@ -8,6 +8,7 @@ from twin.shared.tools.prompts.catalog import (
     ToolPromptCatalog,
     ToolPromptSpec,
     read_tool_description,
+    _read_guide,
 )
 from twin.shared.tools.registry import ToolExecutionError, ToolRegistry, build_tool_registry
 from twin.shared.tools.registry.base import BaseTool
@@ -90,6 +91,44 @@ def test_render_tool_guide_wraps_full_selected_guide():
     assert web_description in guide
     assert "## web_search" in guide
     assert "<tool_description>" not in guide
+
+
+def test_include_directive_inlines_guide_body(tmp_path: Path):
+    # @include in a guide body pulls in another guide file (single level).
+    included = tmp_path / "included.md"
+    included.write_text(
+        "## included body\nDòng bootstrap được nhúng từ file khác.", encoding="utf-8"
+    )
+    host = tmp_path / "host.md"
+    host.write_text(
+        "<tool_description>\nMô tả ngắn.\n</tool_description>\n\n"
+        "## host\nTrước include.\n\n@include included.md\n\nSau include.",
+        encoding="utf-8",
+    )
+    spec = ToolPromptSpec(name="host_tool", guide_path=host)
+
+    # Short description must NOT contain the included body.
+    short = read_tool_description("host_tool", host)
+    assert "bootstrap được nhúng" not in short
+    assert "Mô tả ngắn" in short
+
+    # Full guide must contain the inlined body, with the @include line gone.
+    full = _read_guide(spec)
+    assert "@include" not in full
+    assert "Dòng bootstrap được nhúng từ file khác." in full
+    assert "Trước include." in full and "Sau include." in full
+
+
+def test_include_missing_target_fails_loudly(tmp_path: Path):
+    host = tmp_path / "host.md"
+    host.write_text(
+        "<tool_description>\nMô tả.\n</tool_description>\n\n"
+        "@include does_not_exist.md",
+        encoding="utf-8",
+    )
+    spec = ToolPromptSpec(name="host_tool", guide_path=host)
+    with pytest.raises(FileNotFoundError, match="@include target not found"):
+        _read_guide(spec)
 
 
 def test_missing_description_block_fails_clearly(tmp_path: Path):

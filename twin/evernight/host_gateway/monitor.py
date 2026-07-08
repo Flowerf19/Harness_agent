@@ -1,4 +1,4 @@
-"""Evernight-side System Gateway monitor.
+"""Evernight-side Host Gateway monitor.
 
 This module is read-only from the agent's perspective. It does not execute
 host actions — the native `system-gateway` service is the single source of

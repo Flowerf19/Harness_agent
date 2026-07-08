@@ -1,11 +1,11 @@
 <tool_description>
-gateway_admin — Owner-only System Gateway administration. Use when the owner asks about gateway status, wants diagnosis, wants agent-driven bootstrap install, needs the bootstrap install command, or requests an update.
+gateway_admin — Owner-only System Gateway administration. Use when the owner asks about gateway status, wants diagnosis, needs the bootstrap install command, or requests an update.
 
 Khi nên dùng:
 - Owner hỏi trạng thái System Gateway.
 - Owner muốn chẩn đoán gateway có healthy không.
-- Owner muốn Evernight tự bootstrap/cài System Gateway.
-- Owner cần lệnh bootstrap để cài gateway lần đầu.
+- Owner muốn cài gateway lần đầu / cài lại (bootstrap).
+- Owner cần lệnh bootstrap để chạy trên host.
 - Owner yêu cầu update gateway.
 </tool_description>
 
@@ -32,3 +32,12 @@ Tool quản trị System Gateway dành riêng cho owner. Không dùng cho user t
   `pip install ...`, `curl | bash ...`).
 - Nếu output trông bất thường hoặc thiếu, **báo lại cho owner** thay vì bịa command.
 - Khi trích dẫn, ghi rõ "Output từ tool:" để owner phân biệt với phần cậu nhận xét.
+
+### Khi Gateway chưa cài / không phản hồi (MISSING)
+
+Khi `status`/`doctor` báo `missing`, BẮT BUỘC làm theo quy trình bootstrap dưới
+đây để hướng dẫn owner cài trên host. Agent KHÔNG tự cài được (vòng lẩn quẩn:
+`host_system` cần gateway đang chạy). Quy trình đầy đủ (hỏi repo path, khớp
+secret, trình bày lệnh nguyên xi, xác minh) nằm ở guide được include bên dưới:
+
+@include gateway_bootstrap.md

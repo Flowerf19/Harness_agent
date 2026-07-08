@@ -206,7 +206,7 @@ async def test_install_returns_manual_bootstrap_hint(monkeypatch):
     assert "Legacy bootstrap executor" in result
     assert "System Gateway bootstrap" in result
     assert "cd /repo" in result
-    assert "127.0.0.1:8380/health" in result
+    assert "scripts/bootstrap_system_gateway.py" in result
 
 
 @pytest.mark.asyncio
@@ -305,7 +305,7 @@ async def test_update_calls_installer_coordinator(monkeypatch):
             return True, "update queued"
 
     monkeypatch.setattr(
-        "twin.evernight.system_gateway.installer.InstallerCoordinator",
+        "twin.evernight.host_gateway.installer.InstallerCoordinator",
         _FakeCoordinator,
     )
 

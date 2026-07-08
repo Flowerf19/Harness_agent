@@ -124,7 +124,7 @@ services/system_gateway/
 Evernight monitor/orchestrator:
 
 ```text
-twin/evernight/system_gateway/
+twin/evernight/host_gateway/
   __init__.py
   monitor.py
   installer.py
@@ -206,7 +206,7 @@ docker/shared/docker-compose.bash-executor.yml
 
 | ID | Task | Done | Date |
 |----|------|------|------|
-| TASK-028 | Add `twin/evernight/system_gateway/monitor.py` to check gateway health/capabilities/version and report degraded/missing state. | ✅ | 2026-06-24 |
+| TASK-028 | Add `twin/evernight/host_gateway/monitor.py` to check gateway health/capabilities/version and report degraded/missing state. | ✅ | 2026-06-24 |
 | TASK-029 | Add owner-only Evernight commands or internal handlers for gateway status/doctor/update approval. Keep chat-platform specifics in adapters. | ✅ | 2026-06-25 |
 | TASK-030 | Define first-run bootstrap flow: if native gateway is absent, Evernight sends an OS-specific one-time installer command for the owner to run manually. | ✅ | 2026-06-24 |
 | TASK-031 | Define post-bootstrap update flow: if gateway is present and owner approves, Evernight can ask gateway to update/restart itself through a restricted updater endpoint. | ✅ | 2026-06-25 |
@@ -301,7 +301,7 @@ tests/unit/system_gateway_policy_test.py
 tests/unit/system_gateway_audit_test.py
 tests/unit/system_gateway_server_test.py
 tests/unit/system_gateway_legacy_test.py
-tests/unit/evernight_system_gateway_monitor_test.py
+tests/unit/evernight_host_gateway_monitor_test.py
 tests/services/tools/host_system_tool_test.py
 ```
 

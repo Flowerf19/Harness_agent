@@ -7,6 +7,18 @@ to System Gateway, and dangerous operations still require owner approval.
 
 ## Architecture
 
+Directory ownership:
+
+- `services/system_gateway/` is the native host service package. This is what
+  gets installed into the host venv and runs as `system-gateway.service`.
+- `twin/shared/system_gateway/` is shared protocol code: HMAC auth, request and
+  response types, client errors, and `HostGatewayClient`.
+- `twin/evernight/host_gateway/` is Evernight-side orchestration only:
+  health monitor, `gateway_admin` bootstrap hints, and update requests. It is
+  not a second service implementation.
+- `scripts/bootstrap_system_gateway.py` is the one-command installer for the
+  native service package in `services/system_gateway/`.
+
 ```mermaid
 flowchart LR
     Owner["Owner in Discord"] -->|"asks Evernight"| EV["Evernight agent"]
@@ -79,18 +91,13 @@ Evernight or March7 for `host_system capabilities` to verify the service.
 From the repo root on the host:
 
 ```bash
-/usr/bin/python3 -m venv --system-site-packages /opt/system-gateway/venv
-/opt/system-gateway/venv/bin/python -m pip install --no-build-isolation services/system_gateway
-SYSTEM_GATEWAY_HOST=0.0.0.0 \
-SYSTEM_GATEWAY_PORT=8380 \
-SYSTEM_GATEWAY_SHARED_SECRET_FILE=/etc/system-gateway/secret \
-  /opt/system-gateway/venv/bin/python -m system_gateway install
-systemctl restart system-gateway
+python3 scripts/bootstrap_system_gateway.py
 ```
 
-Create `/etc/system-gateway/secret` first with the same
-`SYSTEM_GATEWAY_SHARED_SECRET` used by the containers. Do not print or commit
-that value.
+The bootstrap script creates/syncs the shared secret, creates the venv, installs
+the package, registers the native service, restarts it, and verifies `/health`.
+On Linux it re-execs through `sudo` when root is required. If it writes a new
+secret into `.env`, restart the Docker stack so containers pick up the value.
 
 ## Configuration
 
@@ -103,8 +110,7 @@ that value.
 | `SYSTEM_GATEWAY_SHARED_SECRET_FILE` | unset | systemd service |
 | `SYSTEM_GATEWAY_RAW_SHELL` | `true` | emergency kill-switch |
 | `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` | unset | Evernight install hint |
-| `SYSTEM_GATEWAY_BOOTSTRAP_PYTHON` | `/usr/bin/python3` | Evernight install hint |
-| `SYSTEM_GATEWAY_BOOTSTRAP_VENV` | `/opt/system-gateway/venv` | Evernight install hint |
+| `SYSTEM_GATEWAY_BOOTSTRAP_VENV` | `/opt/system-gateway/venv` | bootstrap script |
 
 Docker compose loads the shared secret from `.env` via `env_file`; do not set it
 to an empty value in `environment:`.
@@ -133,7 +139,7 @@ The second command should trigger owner approval before execution.
 /home/flowerf/.conda/envs/discord_bot/bin/python -m pytest services/system_gateway/tests -q -p no:phoenix
 /home/flowerf/.conda/envs/discord_bot/bin/python -m pytest \
   tests/unit/gateway_admin_tool_test.py \
-  tests/unit/evernight_system_gateway_installer_test.py \
+  tests/unit/evernight_host_gateway_installer_test.py \
   tests/unit/system_gateway_cli_test.py \
   tests/unit/tool_bootstrap_test.py \
   -q -p no:phoenix

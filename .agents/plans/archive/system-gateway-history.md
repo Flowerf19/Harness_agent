@@ -17,7 +17,7 @@ Corrected from a code review of the (mostly uncommitted) working tree. Basis is 
 
 - **Done but were left unchecked** → now ✅: TASK-008/009/010 (legacy banners, README, compose still runs);
   TASK-011/012/014/015 (`twin/shared/system_gateway/types.py`, `policy.py`); TASK-028/030
-  (`twin/evernight/system_gateway/monitor.py`, `installer.py`); TASK-038/042 (README + deprecation note).
+  (`twin/evernight/host_gateway/monitor.py`, `installer.py`); TASK-038/042 (README + deprecation note).
 - **Overclaimed** → downgraded to 🟡: TASK-020 was ✅ but `run_action` returns HTTP 501
   `action_execution_not_implemented` (`services/system_gateway/server.py:205-215`); the Linux adapter only reports
   capability metadata (`adapters/linux.py:14-48`). No structured action executes yet.

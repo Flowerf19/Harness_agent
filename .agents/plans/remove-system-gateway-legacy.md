@@ -52,7 +52,7 @@ Success criteria:
 
 ## Test Plan
 
-- `python -m pytest tests/unit/gateway_admin_tool_test.py tests/unit/evernight_system_gateway_installer_test.py tests/unit/tool_bootstrap_test.py tests/unit/self_heal_monitor_test.py tests/unit/system_gateway_server_test.py tests/unit/system_gateway_client_test.py -q -p no:phoenix`
+- `python -m pytest tests/unit/gateway_admin_tool_test.py tests/unit/evernight_host_gateway_installer_test.py tests/unit/tool_bootstrap_test.py tests/unit/self_heal_monitor_test.py tests/unit/system_gateway_server_test.py tests/unit/system_gateway_client_test.py -q -p no:phoenix`
 - `python -m pytest services/system_gateway/tests -q -p no:phoenix`
 - `docker compose -f docker/docker-compose.yml config march7`
 - `docker compose -f docker/docker-compose.yml config evernight`

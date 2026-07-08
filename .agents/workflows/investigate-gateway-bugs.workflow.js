@@ -18,7 +18,7 @@ const BUGS = [
       'twin/shared/tools/modules/system/host_system_tool.py (schema: mode/command/shell/cwd/timeout — có còn "action" hay "system.status" nào không?)',
       'twin/shared/tools/prompts/guides/host_system.md (guide có nhắc "system.status" không?)',
       'twin/march7/personas/SOUL.md (có nhắc system.status / action cũ không?)',
-      'twin/evernight/system_gateway/monitor.py (render_for_chat — có in "capabilities" / "system.status" gì không?)',
+      'twin/evernight/host_gateway/monitor.py (render_for_chat — có in "capabilities" / "system.status" gì không?)',
       'services/system_gateway/adapters/*.py (xem còn action nào không — structured_actions)',
     ],
     question: '`system.status` thực sự còn tồn tại ở đâu trong code/prompt/catalog không, hay LLM hoàn toàn bịa? Có leak từ guide/SOUL/monitor/adapter nào không?',

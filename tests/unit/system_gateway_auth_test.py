@@ -99,7 +99,7 @@ def test_signature_fails_when_path_changes():
     assert not verify_signature(
         SECRET,
         method="POST",
-        path="/shell/run",
+        path="/self/update",
         timestamp=signed.timestamp,
         nonce=signed.nonce,
         actor=signed.actor,

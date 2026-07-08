@@ -1,31 +1,38 @@
-"""Tests for Evernight-side System Gateway bootstrap helpers."""
+"""Tests for Evernight-side Host Gateway bootstrap helpers."""
 from __future__ import annotations
 
 import json
 
 import pytest
 
-from twin.evernight.system_gateway.installer import (
+from twin.evernight.host_gateway.installer import (
     build_bootstrap_hint,
     InstallerCoordinator,
 )
 
 
-def test_bootstrap_hint_generates_manual_host_install_command(monkeypatch):
+def test_bootstrap_hint_emits_single_script_call(monkeypatch):
     monkeypatch.setenv("SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT", "/repo with space")
-    monkeypatch.setenv("SYSTEM_GATEWAY_BOOTSTRAP_PYTHON", "/usr/bin/python3")
-    monkeypatch.setenv("SYSTEM_GATEWAY_BOOTSTRAP_VENV", "/opt/system gateway/venv")
 
     hint = build_bootstrap_hint("linux")
 
     assert hint.platform == "linux"
+    # Hint is now a single bootstrap-script call instead of 9 separate commands.
     assert "cd '/repo with space'" in hint.command
-    assert "/etc/system-gateway/secret" in hint.command
-    assert "/usr/bin/python3 -m venv --system-site-packages '/opt/system gateway/venv'" in hint.command
-    assert "'/opt/system gateway/venv'/bin/python -m pip install --no-build-isolation services/system_gateway" in hint.command
-    assert "'/opt/system gateway/venv'/bin/python -m system_gateway install" in hint.command
-    assert "systemctl restart system-gateway" in hint.command
-    assert "curl -sf http://127.0.0.1:8380/health" in hint.command
+    assert "scripts/bootstrap_system_gateway.py" in hint.command
+    assert "python3 scripts/bootstrap_system_gateway.py" in hint.command
+    assert "sudo" not in hint.command
+    # Per-OS variant sanity checks.
+    mac_hint = build_bootstrap_hint("macos")
+    assert "python3 scripts/bootstrap_system_gateway.py" in mac_hint.command
+    assert "sudo" not in mac_hint.command
+    win_hint = build_bootstrap_hint("windows")
+    assert "python scripts/bootstrap_system_gateway.py" in win_hint.command
+    # Old manual commands must NOT leak into the simplified hint.
+    assert "venv" not in hint.command
+    assert "pip install" not in hint.command
+    assert "systemctl restart" not in hint.command
+    assert "curl -sf" not in hint.command
 
 
 @pytest.mark.asyncio
@@ -59,7 +66,7 @@ async def test_installer_coordinator_signs_self_update_request(monkeypatch):
             return _FakeResponse()
 
     monkeypatch.setattr(
-        "twin.evernight.system_gateway.installer.aiohttp.ClientSession",
+        "twin.evernight.host_gateway.installer.aiohttp.ClientSession",
         _FakeSession,
     )
 
