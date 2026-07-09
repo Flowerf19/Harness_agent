@@ -38,3 +38,14 @@ def test_agent_a2a_ports_are_internal_only_in_compose():
 
         assert service.get("ports") in (None, [])
         assert expected_port in {str(port) for port in service["expose"]}
+
+
+def test_agent_services_mount_shared_data_dir_for_embedding_trace():
+    for compose_path, service_name in (
+        ("docker/march7/docker-compose.yml", "march7"),
+        ("docker/evernight/docker-compose.yml", "evernight"),
+    ):
+        with open(compose_path, encoding="utf-8") as f:
+            service = yaml.safe_load(f)["services"][service_name]
+
+        assert "../../data:/app/data:z" in service["volumes"]
