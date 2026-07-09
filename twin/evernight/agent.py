@@ -7,6 +7,7 @@ from twin.shared.llm.base_llm_service import BaseLLMService
 from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
 from twin.shared.observability.langsmith import summarize_trace_output, traceable
 from twin.shared.tools.registry import ToolRegistry
+from twin.evernight.a2a.card import build_agent_card
 from twin.shared.a2a.types import AgentCard
 from twin.shared.memory import SharedMemoryManager
 
@@ -53,19 +54,7 @@ class EvernightAgent:
         logger.debug(f"EvernightAgent initialized: model={self._model_name}")
 
     def get_agent_card(self) -> AgentCard:
-        return AgentCard(
-            name="Evernight",
-            description="Memory consolidation and analysis agent",
-            url="http://evernight:8001",
-            version="1.0.0",
-            capabilities=["chat", "consolidation", "streaming"],
-            skills=[
-                {"id": "chat", "name": "Chat", "description": "Conversational chat with memory and tools"},
-                {"id": "consolidate", "name": "Consolidate", "description": "Consolidate T1 snapshot into T2 timeline"},
-                {"id": "consolidate_discussion", "name": "Consolidate Discussion", "description": "Process shared-memory payload into user-centric T2 timeline entries"},
-                {"id": "get_snapshot", "name": "Get Snapshot", "description": "Get T1 memory snapshot"},
-            ],
-        )
+        return build_agent_card()
 
     async def get_status(self) -> dict:
         return {"status": "online", "model": self._model_name}

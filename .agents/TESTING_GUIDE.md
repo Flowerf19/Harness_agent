@@ -99,8 +99,8 @@ conda run -n discord_bot python -m pytest tests -q \
   → 55 passed.
 - 2026-06-07: Docker rebuild/restart via `docker compose -f docker/docker-compose.yml up -d --build`;
   `march7`, `evernight`, the then-current host executor, `codebox`, and `redis` healthy. Evernight
-  A2A chat smoke and Chrome snapshot of `http://localhost:8001/.well-known/agent.json`
-  passed; Chrome console only showed favicon 404.
+  A2A chat smoke and Chrome snapshot of Evernight's agent card passed while
+  A2A was host-published at the time; current compose keeps A2A ports internal.
 - 2026-06-07: `conda run -n discord_bot python -m pytest tests/gateway/test_gateway.py tests/gateway/test_models.py tests/gateway/test_core_handler.py tests/unit/march7_handle_chat_scope_test.py tests/unit/evernight_agent_test.py tests/unit/discord_send_response_test.py tests/unit/memory/manager_test.py -q`
   → 44 passed.
 - 2026-06-07: `conda run -n discord_bot python -m pytest tests/gateway -q`

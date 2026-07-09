@@ -6,6 +6,7 @@ from twin.shared.agent import ChatTurnRunner
 from twin.shared.llm.base_llm_service import BaseLLMService
 from twin.shared.observability.langsmith import summarize_trace_output, traceable
 from twin.shared.tools.registry import ToolRegistry
+from twin.march7.a2a.card import build_agent_card
 from twin.shared.a2a.types import AgentCard
 from twin.shared.memory import SharedMemoryManager
 
@@ -56,18 +57,7 @@ class March7Agent:
         )
 
     def get_agent_card(self) -> AgentCard:
-        return AgentCard(
-            name="March7",
-            description="Conversational AI agent - friendly and helpful companion",
-            url="http://march7:8000",
-            version="1.0.0",
-            capabilities=["chat", "streaming"],
-            skills=[
-                {"id": "chat", "name": "Chat", "description": "Conversational chat with memory and tools"},
-                {"id": "get_snapshot", "name": "Get Snapshot", "description": "Get T1 memory snapshot"},
-                {"id": "clear_session", "name": "Clear Session", "description": "Clear T1 memory after successful consolidation"},
-            ],
-        )
+        return build_agent_card()
 
     async def get_status(self) -> dict:
         return {"status": "online", "model": self._model_name}

@@ -33,8 +33,8 @@ These services are shared by both agents:
 
 | Service | Compose file | Owner | Public boundary |
 | --- | --- | --- | --- |
-| `march7` | `march7/docker-compose.yml` + `march7/Dockerfile` | March7 | A2A `:8000`, Discord main bot |
-| `evernight` | `evernight/docker-compose.yml` + `evernight/Dockerfile` | Evernight | A2A `:8001`, Discord DM/tag/`!9` bot |
+| `march7` | `march7/docker-compose.yml` + `march7/Dockerfile` | March7 | internal A2A `:8000`, Discord main bot |
+| `evernight` | `evernight/docker-compose.yml` + `evernight/Dockerfile` | Evernight | internal A2A `:8001`, Discord DM/tag/`!9` bot |
 
 March7 owns normal chat, tool calling, shared-memory writes, and the A2A memory boundary:
 
@@ -98,7 +98,10 @@ docker compose ps
 docker compose logs -f march7 evernight
 ```
 
-Expected health endpoints:
+Expected internal health checks:
 
-- March7: `http://localhost:8000/.well-known/agent.json`
-- Evernight: `http://localhost:8001/.well-known/agent.json`
+- March7: `docker exec march7 curl -sf http://localhost:8000/.well-known/agent.json`
+- Evernight: `docker exec evernight curl -sf http://localhost:8001/.well-known/agent.json`
+
+A2A ports are not published to the host by default; peer containers use
+`http://march7:8000` and `http://evernight:8001` on `march7_net`.

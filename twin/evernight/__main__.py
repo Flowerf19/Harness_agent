@@ -39,7 +39,7 @@ async def main():
         logger.info("Evernight Discord bot started")
 
     # Start A2A server with Discord bot reference for approval DM support
-    from twin.evernight.server.a2a_server import start_server
+    from twin.evernight.a2a.server import start_server
     discord_bot = evernight_adapter.bot if evernight_adapter else None
     server = start_server(
         container.agent,

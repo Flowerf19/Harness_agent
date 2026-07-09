@@ -46,7 +46,7 @@ async def _run_gateway() -> None:
     await march7_container.initialize()
 
     # March7 A2A server (port 8000) — for Evernight and external callers
-    from twin.march7.server.a2a_server import start_server
+    from twin.march7.a2a.server import start_server
     a2a_server = start_server(march7_container.agent, port=march7_container.config.port)
     await a2a_server.start()
     logger.info(f"March7 A2A server listening on port {march7_container.config.port}")

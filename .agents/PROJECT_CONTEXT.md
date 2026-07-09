@@ -19,12 +19,15 @@ Main services:
 - `march7`: Gateway, Discord bot, and March7 A2A server.
 - `evernight`: Evernight bot, consolidation, and self-heal worker.
 
-Expected local endpoints:
+Expected local checks:
 
-- March7 A2A: `http://localhost:8000/.well-known/agent.json`
-- Evernight A2A: `http://localhost:8001/.well-known/agent.json`
+- March7 A2A: `docker exec march7 curl -sf http://localhost:8000/.well-known/agent.json`
+- Evernight A2A: `docker exec evernight curl -sf http://localhost:8001/.well-known/agent.json`
 - Codebox: port `8069`
 - System Gateway: port `8380` (native host service)
+
+March7/Evernight A2A ports are internal Docker-network boundaries by default;
+do not publish them to the host unless a deliberate debug session requires it.
 
 ### Local Python (secondary)
 

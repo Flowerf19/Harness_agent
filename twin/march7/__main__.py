@@ -18,7 +18,7 @@ logger = logging.getLogger("march7.main")
 async def main():
     from twin.march7.config import March7Config
     from twin.march7.container import March7Container
-    from twin.march7.server.a2a_server import start_server
+    from twin.march7.a2a.server import start_server
     from twin.evernight.triggers.inactivity_trigger import InactivityTrigger
 
     config = March7Config.from_env()

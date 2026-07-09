@@ -10,8 +10,8 @@ services:
     restart: unless-stopped
     networks:
       - march7_net
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     command: ["python", "-m", "gateway"]
     depends_on:
       redis:

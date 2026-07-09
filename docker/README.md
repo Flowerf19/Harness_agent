@@ -6,8 +6,8 @@
 
 Docker Compose là runtime chính cho kiến trúc Twin-Soul của dự án:
 
-- `march7`: main chat runtime + gateway + A2A `:8000`
-- `evernight`: independent Discord agent for DM/tag/`!9` chat, notifications/approvals, consolidation/self-heal + A2A `:8001`
+- `march7`: main chat runtime + gateway + internal A2A `:8000`
+- `evernight`: independent Discord agent for DM/tag/`!9` chat, notifications/approvals, consolidation/self-heal + internal A2A `:8001`
 - shared infra: Redis, Codebox
 
 ## Structure
@@ -43,8 +43,8 @@ docker/
 | `redis` | `march7-redis` | `redis/redis-stack-server` | 6379 | Shared T1 storage + coordination markers |
 | `codebox` | `march7-codebox` | `shroominic/codebox` | 8069 | Python sandbox |
 | `base` | — | `march7-base` | — | Shared Python runtime |
-| `march7` | `march7` | `march7-agent` | 8000 | Gateway + March7 Discord bot + March7 A2A |
-| `evernight` | `evernight` | `evernight-agent` | 8001 | Evernight Discord bot for DM/tag/`!9` chat, notifications/approvals, consolidation + self-healing |
+| `march7` | `march7` | `march7-agent` | internal 8000 | Gateway + March7 Discord bot + March7 A2A |
+| `evernight` | `evernight` | `evernight-agent` | internal 8001 | Evernight Discord bot for DM/tag/`!9` chat, notifications/approvals, consolidation + self-healing |
 
 Xem [ARCHITECTURE.md](ARCHITECTURE.md) để biết boundary private/shared chi tiết.
 
@@ -69,10 +69,13 @@ docker compose up -d
 docker compose logs -f
 ```
 
-Health endpoints sau khi chạy:
+Health checks sau khi chạy:
 
-- `http://localhost:8000/.well-known/agent.json`
-- `http://localhost:8001/.well-known/agent.json`
+- `docker exec march7 curl -sf http://localhost:8000/.well-known/agent.json`
+- `docker exec evernight curl -sf http://localhost:8001/.well-known/agent.json`
+
+A2A ports are exposed only on the internal Docker network. Use service URLs
+such as `http://march7:8000` and `http://evernight:8001` from other containers.
 
 ### From project root
 
