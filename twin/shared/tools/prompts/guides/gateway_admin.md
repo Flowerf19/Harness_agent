@@ -22,7 +22,8 @@ Tool quản trị System Gateway dành riêng cho owner. Không dùng cho user t
 
 - Tool từ chối nếu caller không phải owner.
 - Không tự động cài hoặc update nếu owner chưa yêu cầu rõ.
-- `install` chạy bootstrap command cố định do code sinh ra qua legacy bootstrap bridge, sau approval. KHÔNG nhận shell command do model/user viết.
+- `install` chỉ trả bootstrap command do code sinh ra để owner tự chạy trên host.
+  KHÔNG nhận shell command do model/user viết.
 - `install_hint` chỉ cung cấp command để owner tự chạy trên host; không chạy thay owner.
 
 ### Quy tắc chống hallucination output
@@ -38,6 +39,6 @@ Tool quản trị System Gateway dành riêng cho owner. Không dùng cho user t
 Khi `status`/`doctor` báo `missing`, BẮT BUỘC làm theo quy trình bootstrap dưới
 đây để hướng dẫn owner cài trên host. Agent KHÔNG tự cài được (vòng lẩn quẩn:
 `host_system` cần gateway đang chạy). Quy trình đầy đủ (hỏi repo path, khớp
-secret, trình bày lệnh nguyên xi, xác minh) nằm ở guide được include bên dưới:
+trình bày lệnh nguyên xi, xác minh) nằm ở guide được include bên dưới:
 
 @include gateway_bootstrap.md

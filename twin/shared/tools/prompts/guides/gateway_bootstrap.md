@@ -23,10 +23,11 @@ nhất nên agent KHÔNG thể tự cài — agent chỉ hướng dẫn owner ch
    (hoặc `install_hint`), copy **nguyên xi** code block tool trả về. Không bịa
    command, không tự ghép pip/curl/systemctl — bootstrap đã được gói vào
    `scripts/bootstrap_system_gateway.py` (chạy được trên Linux/macOS/Windows).
-3. **`cd` phải đúng repo host.** Lệnh `cd` trong output hint lấy từ
-   `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` trong `.env`. Nếu thấy `/path/to/march7`
-   (placeholder) hoặc trống → BẮT BUỘC hỏi owner "repo march7 trên host ở đường
-   dẫn tuyệt đối nào?" RỒI mới trình bày lệnh. Không đoán.
+3. **`cd` phải là repo root chạy được.** Tool chỉ đưa path tuyệt đối khi
+   `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` trỏ tới repo root mà Evernight verify
+   được (`scripts/bootstrap_system_gateway.py` và `services/system_gateway/`).
+   Nếu không verify được, tool dùng placeholder `/path/to/march7`; khi đó nhắc
+   owner thay placeholder bằng repo root thật trên host. Không đoán path.
 4. **Script tự lo secret.** `bootstrap_system_gateway.py` tự sinh/đồng bộ
    shared secret: nếu `.env` đã có `SYSTEM_GATEWAY_SHARED_SECRET` → ghi vào
    `/etc/system-gateway/secret` (hoặc tương đương theo OS); nếu chưa có → sinh
@@ -39,10 +40,10 @@ nhất nên agent KHÔNG thể tự cài — agent chỉ hướng dẫn owner ch
 - Trả `missing` → tiếp tục.
 - Trả `healthy`/`degraded` → KHÔNG bootstrap; báo owner trạng thái thật.
 
-**Bước 2 — Hỏi repo path nếu cần.** Đọc lệnh `cd` trong output `install_hint`
-(gọi `gateway_admin install_hint` trước nếu cần xem). Nếu là `/path/to/march7`
-hoặc trống → hỏi owner đường dẫn tuyệt đối repo trên host. Chờ owner trả lời
-xong mới sang bước 3.
+**Bước 2 — Kiểm tra repo path trong hint.** Đọc lệnh `cd` trong output
+`install_hint` (gọi `gateway_admin install_hint` trước nếu cần xem). Nếu là
+`/path/to/march7`, đó là placeholder vì Evernight không verify được path host;
+đừng đoán path, chỉ nhắc owner thay bằng repo root thật trước khi chạy.
 
 **Bước 3 — Trình bày lệnh bootstrap.** Gọi `gateway_admin install`. Trình bày
 cho owner **nguyên xi** code block trả về (về cơ bản là 2 lệnh: `cd <repo>` +
@@ -59,7 +60,7 @@ doctor` để confirm `healthy`. Nếu vẫn `missing` → dùng bảng troubles
 
 | Triệu chứng | Gợi ý cho owner |
 |-------------|-----------------|
-| `cd /path/to/march7` trong hint | Set `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` trong `.env` = repo host thật |
+| `cd /path/to/march7` trong hint | Thay placeholder bằng repo root thật trên host, hoặc set `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` tới path mà Evernight/container nhìn thấy và verify được |
 | `/health` trả 401/empty sau khi start | secret file host ≠ `SYSTEM_GATEWAY_SHARED_SECRET` trong `.env` → chạy lại `bootstrap_system_gateway.py` để đồng bộ, hoặc kiểm tra bằng `sudo cat /etc/system-gateway/secret` |
 | Agent log `not reachable at host.docker.internal:8380` | gateway bind `127.0.0.1` → đảm bảo `SYSTEM_GATEWAY_HOST=0.0.0.0`; compose cần `extra_hosts: host.docker.internal:host-gateway` |
 | `permission denied … docker.sock` | `sudo usermod -aG docker $USER` + re-login |

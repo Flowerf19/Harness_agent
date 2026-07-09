@@ -5,6 +5,10 @@ Docker, but host operations run through this service on the host OS. Agents do
 not receive a general host shell; they call `host_system`, which signs requests
 to System Gateway, and dangerous operations still require owner approval.
 
+This README describes the repo package and expected operating model. It does
+not mean the service is currently installed on this host; when in doubt, ask
+Evernight for `gateway_admin status` or `gateway_admin doctor`.
+
 ## Architecture
 
 Directory ownership:
@@ -18,6 +22,9 @@ Directory ownership:
   not a second service implementation.
 - `scripts/bootstrap_system_gateway.py` is the one-command installer for the
   native service package in `services/system_gateway/`.
+- March7 and Evernight use `host_system` for host operations. Evernight also
+  exposes owner-only `gateway_admin` commands for status, diagnosis, install
+  hints, and update requests.
 
 ```mermaid
 flowchart LR
@@ -37,7 +44,8 @@ flowchart LR
 ```
 
 First install is special: when the service is missing, there is no host
-execution channel yet. Evernight's `gateway_admin install` returns a
+execution channel yet. Install guidance comes from Evernight's
+`gateway_admin install` or `gateway_admin install_hint`, which returns a
 code-generated command for the owner to run on the host. It does not execute a
 container-side bootstrap bridge.
 
@@ -86,18 +94,12 @@ Sau khi xong gọi host_system capabilities.
 Evernight returns the exact host command. Run it on the host, then ask
 Evernight or March7 for `host_system capabilities` to verify the service.
 
-### Manual Install Fallback
-
-From the repo root on the host:
-
-```bash
-python3 scripts/bootstrap_system_gateway.py
-```
-
-The bootstrap script creates/syncs the shared secret, creates the venv, installs
-the package, registers the native service, restarts it, and verifies `/health`.
-On Linux it re-execs through `sudo` when root is required. If it writes a new
-secret into `.env`, restart the Docker stack so containers pick up the value.
+The generated command only uses `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` when
+Evernight can verify that path contains both
+`scripts/bootstrap_system_gateway.py` and `services/system_gateway/`. If the
+path is unset or not visible from Evernight's runtime, the hint falls back to
+the placeholder `/path/to/march7`; replace it with the real repo root on the
+host before running the command.
 
 ## Configuration
 
@@ -106,14 +108,12 @@ secret into `.env`, restart the Docker stack so containers pick up the value.
 | `SYSTEM_GATEWAY_URL` | `http://host.docker.internal:8380` | containers |
 | `SYSTEM_GATEWAY_HOST` | `127.0.0.1` | native service |
 | `SYSTEM_GATEWAY_PORT` | `8380` | native service |
-| `SYSTEM_GATEWAY_SHARED_SECRET` | unset | containers / signing |
-| `SYSTEM_GATEWAY_SHARED_SECRET_FILE` | unset | systemd service |
 | `SYSTEM_GATEWAY_RAW_SHELL` | `true` | emergency kill-switch |
 | `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` | unset | Evernight install hint |
 | `SYSTEM_GATEWAY_BOOTSTRAP_VENV` | `/opt/system-gateway/venv` | bootstrap script |
 
-Docker compose loads the shared secret from `.env` via `env_file`; do not set it
-to an empty value in `environment:`.
+Signing configuration is managed by the bootstrap/tooling path. Keep sensitive
+values out of docs and chat.
 
 ## Operations
 

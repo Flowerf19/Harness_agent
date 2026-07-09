@@ -2,6 +2,7 @@
 import logging
 from typing import AsyncIterator, TYPE_CHECKING
 
+import discord
 from aiohttp import web
 from discord.ext import commands
 
@@ -319,8 +320,16 @@ class EvernightA2AHandler:
                 content = f"🔐 **Lệnh đã bị từ chối:**\n`{command[:200]}`"
 
             await channel.send(content)
+        except (discord.Forbidden, discord.NotFound) as exc:
+            logger.warning(
+                "Skipping approval result notification for inaccessible channel %s: %s",
+                channel_id,
+                exc,
+            )
+        except discord.HTTPException as exc:
+            logger.warning("Failed to send approval result to channel %s: %s", channel_id, exc)
         except Exception:
-            logger.exception("Failed to send approval result to channel %s", channel_id)
+            logger.exception("Unexpected error sending approval result to channel %s", channel_id)
 
 
 def start_server(

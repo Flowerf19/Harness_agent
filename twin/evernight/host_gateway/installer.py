@@ -20,6 +20,7 @@ import json as jsonlib
 import shlex
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Optional
 
 import aiohttp
@@ -30,6 +31,8 @@ logger = logging.getLogger(__name__)
 # Stable sentinel — GatewayMonitor.compare_versions can compare against this
 # to detect "newer than what we know about" without needing a real registry.
 KNOWN_GOOD_VERSIONS = ("0.1.0",)
+BOOTSTRAP_REPO_PLACEHOLDER = "/path/to/march7"
+BOOTSTRAP_SCRIPT_REL = "scripts/bootstrap_system_gateway.py"
 
 
 class InstallerAction(str, Enum):
@@ -79,6 +82,21 @@ def sys_platform() -> str:
     return sys.platform
 
 
+def _verified_repo_root() -> tuple[str, bool]:
+    repo_root = os.getenv("SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT")
+    if not repo_root:
+        return BOOTSTRAP_REPO_PLACEHOLDER, False
+
+    root = Path(repo_root).expanduser()
+    markers = (
+        root / BOOTSTRAP_SCRIPT_REL,
+        root / "services" / "system_gateway",
+    )
+    if all(marker.exists() for marker in markers):
+        return str(root), True
+    return BOOTSTRAP_REPO_PLACEHOLDER, False
+
+
 def build_bootstrap_hint(platform_name: Optional[str] = None) -> BootstrapHint:
     """Return the bootstrap command for the given platform.
 
@@ -87,21 +105,28 @@ def build_bootstrap_hint(platform_name: Optional[str] = None) -> BootstrapHint:
     """
 
     name = platform_name or _detect_platform()
-    repo_root = os.getenv("SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT", "/path/to/march7")
-    script_rel = "scripts/bootstrap_system_gateway.py"
+    repo_root, repo_root_verified = _verified_repo_root()
+    repo_note = (
+        "Repo root đã được verify từ SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT."
+        if repo_root_verified
+        else (
+            "Thay `/path/to/march7` bằng repo root thật trên host "
+            "(thư mục chứa scripts/bootstrap_system_gateway.py)."
+        )
+    )
     if name == "linux":
         return BootstrapHint(
             platform=name,
             command="\n".join(
                 [
                     f"cd {shlex.quote(repo_root)}",
-                    f"python3 {shlex.quote(script_rel)}",
+                    f"python3 {shlex.quote(BOOTSTRAP_SCRIPT_REL)}",
                 ]
             ),
             notes=(
                 "Chạy trên host, KHÔNG chạy trong container.",
+                repo_note,
                 "Script tự sinh/đồng bộ secret, tạo venv, cài + restart service, health check.",
-                "Nếu `repo_root` là `/path/to/march7` (placeholder) → hỏi owner đường dẫn tuyệt đối repo trên host.",
             ),
         )
     if name == "macos":
@@ -110,11 +135,12 @@ def build_bootstrap_hint(platform_name: Optional[str] = None) -> BootstrapHint:
             command="\n".join(
                 [
                     f"cd {shlex.quote(repo_root)}",
-                    f"python3 {shlex.quote(script_rel)}",
+                    f"python3 {shlex.quote(BOOTSTRAP_SCRIPT_REL)}",
                 ]
             ),
             notes=(
                 "Chạy trên host, KHÔNG chạy trong container.",
+                repo_note,
                 "Script tự lo secret/venv/install (launchd plist)/health check.",
             ),
         )
@@ -124,11 +150,12 @@ def build_bootstrap_hint(platform_name: Optional[str] = None) -> BootstrapHint:
             command="\n".join(
                 [
                     f"cd {repo_root}",
-                    f"python {shlex.quote(script_rel)}",
+                    f"python {shlex.quote(BOOTSTRAP_SCRIPT_REL)}",
                 ]
             ),
             notes=(
                 "Chạy trong Administrator shell (PowerShell/cmd as Admin).",
+                repo_note,
                 "Windows chưa hỗ trợ background service — script sẽ in lệnh run foreground.",
             ),
         )

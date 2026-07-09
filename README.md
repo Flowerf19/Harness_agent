@@ -81,6 +81,12 @@ Hệ thống sử dụng cơ chế A2A trực tiếp thay vì các pipeline tu�
 
 Host interaction giờ đi qua **System Gateway** — native service chạy trực tiếp trên host OS (Linux/macOS/Windows), thay vì qua Docker `nsenter`. Model-facing tool là `host_system` (xem `twin/shared/tools/modules/system/host_system_tool.py`).
 
+Ranh giới code:
+
+- `services/system_gateway/` là native host service package được cài và chạy trên host.
+- `twin/shared/system_gateway/` là protocol/client chung cho HMAC signing, request/response types và `HostGatewayClient`.
+- March7/Evernight gọi host qua `host_system`; riêng Evernight có `gateway_admin` để status/doctor/install/update gateway.
+
 ```mermaid
 flowchart LR
     subgraph C["Container (march7-bot)"]
@@ -105,6 +111,12 @@ System Gateway cung cấp:
 - **OS adapters** (Linux/macOS/Windows) chạy native trên host, không qua Docker `nsenter`.
 
 Gateway install/update/admin details live in [services/system_gateway/README.md](services/system_gateway/README.md).
+Install guidance phải lấy từ `gateway_admin install` hoặc `gateway_admin install_hint`.
+Repo path thật chỉ được đưa vào install hint khi `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT`
+trỏ tới một repo root mà Evernight có thể verify marker
+`scripts/bootstrap_system_gateway.py` và `services/system_gateway/`. Nếu không
+verify được, hint dùng placeholder `/path/to/march7` để owner tự thay bằng repo
+root trên host.
 
 ## Prerequisites
 

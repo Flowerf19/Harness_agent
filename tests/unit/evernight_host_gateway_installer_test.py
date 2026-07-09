@@ -11,14 +11,15 @@ from twin.evernight.host_gateway.installer import (
 )
 
 
-def test_bootstrap_hint_emits_single_script_call(monkeypatch):
-    monkeypatch.setenv("SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT", "/repo with space")
+def test_bootstrap_hint_uses_placeholder_when_repo_root_unset(monkeypatch):
+    monkeypatch.delenv("SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT", raising=False)
 
     hint = build_bootstrap_hint("linux")
 
     assert hint.platform == "linux"
     # Hint is now a single bootstrap-script call instead of 9 separate commands.
-    assert "cd '/repo with space'" in hint.command
+    assert "cd /path/to/march7" in hint.command
+    assert "Thay `/path/to/march7`" in hint.render_for_chat()
     assert "scripts/bootstrap_system_gateway.py" in hint.command
     assert "python3 scripts/bootstrap_system_gateway.py" in hint.command
     assert "sudo" not in hint.command
@@ -33,6 +34,29 @@ def test_bootstrap_hint_emits_single_script_call(monkeypatch):
     assert "pip install" not in hint.command
     assert "systemctl restart" not in hint.command
     assert "curl -sf" not in hint.command
+
+
+def test_bootstrap_hint_uses_placeholder_when_configured_root_is_not_visible(monkeypatch):
+    monkeypatch.setenv("SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT", "/repo with space")
+
+    hint = build_bootstrap_hint("linux")
+
+    assert "cd /path/to/march7" in hint.command
+    assert "/repo with space" not in hint.command
+
+
+def test_bootstrap_hint_uses_verified_repo_root(monkeypatch, tmp_path):
+    repo = tmp_path / "repo with space"
+    (repo / "scripts").mkdir(parents=True)
+    (repo / "scripts" / "bootstrap_system_gateway.py").write_text("", encoding="utf-8")
+    (repo / "services" / "system_gateway").mkdir(parents=True)
+    monkeypatch.setenv("SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT", str(repo))
+
+    hint = build_bootstrap_hint("linux")
+
+    assert f"cd {repo!s}" not in hint.command
+    assert f"cd '{repo!s}'" in hint.command
+    assert "Repo root đã được verify" in hint.render_for_chat()
 
 
 @pytest.mark.asyncio

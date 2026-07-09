@@ -34,14 +34,26 @@ class ApproveView(discord.ui.View):
         for child in self.children:
             child.disabled = True
 
+    async def _edit_interaction_message(
+        self,
+        interaction: discord.Interaction,
+        content: str,
+    ) -> None:
+        try:
+            await interaction.response.edit_message(content=content, view=self)
+        except discord.NotFound:
+            logger.warning("Approval message disappeared before it could be updated")
+        except discord.HTTPException as exc:
+            logger.warning("Failed to update approval message: %s", exc)
+
     @discord.ui.button(label="✅ Approve", style=discord.ButtonStyle.green)
     async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         self._approved = True
         self._result.set()
         self._disable_all()
-        await interaction.response.edit_message(
-            content=f"✅ **Đã approve:** `{self.command[:80]}`\nĐang thực thi...",
-            view=self,
+        await self._edit_interaction_message(
+            interaction,
+            f"✅ **Đã approve:** `{self.command[:80]}`\nĐang thực thi...",
         )
 
     @discord.ui.button(label="❌ Reject", style=discord.ButtonStyle.red)
@@ -49,9 +61,9 @@ class ApproveView(discord.ui.View):
         self._approved = False
         self._result.set()
         self._disable_all()
-        await interaction.response.edit_message(
-            content=f"❌ **Đã từ chối:** `{self.command[:80]}`",
-            view=self,
+        await self._edit_interaction_message(
+            interaction,
+            f"❌ **Đã từ chối:** `{self.command[:80]}`",
         )
 
     async def wait_for_decision(self) -> bool:

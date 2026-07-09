@@ -205,7 +205,7 @@ async def test_install_returns_manual_bootstrap_hint(monkeypatch):
 
     assert "Legacy bootstrap executor" in result
     assert "System Gateway bootstrap" in result
-    assert "cd /repo" in result
+    assert "cd /path/to/march7" in result
     assert "scripts/bootstrap_system_gateway.py" in result
 
 
