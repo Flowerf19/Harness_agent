@@ -54,6 +54,14 @@ class GatewayAdminTool(BaseTool):
                     "type": "string",
                     "description": "Phiên bản mục tiêu khi command=update.",
                 },
+                "install_path": {
+                    "type": "string",
+                    "description": (
+                        "Thư mục cài March7 trên host, hoặc path tới "
+                        "scripts/bootstrap_system_gateway.py, khi command là "
+                        "install/install_hint."
+                    ),
+                },
             },
             "required": ["command"],
         }
@@ -62,6 +70,8 @@ class GatewayAdminTool(BaseTool):
         self,
         command: str,
         target_version: str | None = None,
+        install_path: str | None = None,
+        repo_root: str | None = None,
     ) -> str:
         if not self._is_owner():
             return "❌ Lệnh này chỉ dành cho owner."
@@ -74,9 +84,9 @@ class GatewayAdminTool(BaseTool):
         if cmd == "doctor":
             return await self._doctor()
         if cmd == "install_hint":
-            return self._install_hint()
+            return self._install_hint(install_path=install_path or repo_root)
         if cmd == "install":
-            return await self._install()
+            return await self._install(install_path=install_path or repo_root)
         if cmd == "update":
             return await self._update(target_version)
         return (
@@ -115,15 +125,17 @@ class GatewayAdminTool(BaseTool):
             lines.append(self._install_hint())
         return "\n".join(lines)
 
-    def _install_hint(self) -> str:
-        return installer.build_bootstrap_hint().render_for_chat()
+    def _install_hint(self, *, install_path: str | None = None) -> str:
+        try:
+            return installer.build_bootstrap_hint(install_path=install_path).render_for_chat()
+        except ValueError as exc:
+            return f"❌ install_path không hợp lệ: {exc}"
 
-    async def _install(self) -> str:
+    async def _install(self, *, install_path: str | None = None) -> str:
         return "\n".join(
             [
-                "ℹ️ Legacy bootstrap executor đã bị gỡ. Chạy install command này trên host:",
-                "",
-                self._install_hint(),
+                "Chạy trên host, không chạy trong container:",
+                self._install_hint(install_path=install_path),
             ]
         )
 

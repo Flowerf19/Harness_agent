@@ -112,11 +112,12 @@ System Gateway cung cấp:
 
 Gateway install/update/admin details live in [services/system_gateway/README.md](services/system_gateway/README.md).
 Install guidance phải lấy từ `gateway_admin install` hoặc `gateway_admin install_hint`.
-Repo path thật chỉ được đưa vào install hint khi `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT`
-trỏ tới một repo root mà Evernight có thể verify marker
-`scripts/bootstrap_system_gateway.py` và `services/system_gateway/`. Nếu không
-verify được, hint dùng placeholder `/path/to/march7` để owner tự thay bằng repo
-root trên host.
+Khi owner đưa thư mục cài March7 trên host, truyền path đó vào `install_path`;
+tool sẽ sinh lệnh `cd <repo> && python3 scripts/bootstrap_system_gateway.py`.
+Nếu không có `install_path`, Evernight chỉ auto-fill path khi
+`SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` verify được marker
+`scripts/bootstrap_system_gateway.py` và `services/system_gateway/`; không
+verify được thì dùng placeholder `/path/to/march7`.
 
 ## Prerequisites
 

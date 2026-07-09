@@ -33,6 +33,10 @@ logger = logging.getLogger(__name__)
 KNOWN_GOOD_VERSIONS = ("0.1.0",)
 BOOTSTRAP_REPO_PLACEHOLDER = "/path/to/march7"
 BOOTSTRAP_SCRIPT_REL = "scripts/bootstrap_system_gateway.py"
+_BOOTSTRAP_SCRIPT_SUFFIXES = (
+    f"/{BOOTSTRAP_SCRIPT_REL}",
+    "\\scripts\\bootstrap_system_gateway.py",
+)
 
 
 class InstallerAction(str, Enum):
@@ -53,13 +57,13 @@ class BootstrapHint:
 
     def render_for_chat(self) -> str:
         lines = [
-            f"📦 **System Gateway bootstrap** (`{self.platform}`):",
-            "```",
+            f"**System Gateway install** (`{self.platform}`):",
+            "```sh",
             self.command,
             "```",
         ]
         if self.notes:
-            lines.append("\n".join(f"- {n}" for n in self.notes))
+            lines.extend(self.notes)
         return "\n".join(lines)
 
 
@@ -82,10 +86,35 @@ def sys_platform() -> str:
     return sys.platform
 
 
-def _verified_repo_root() -> tuple[str, bool]:
+def _normalise_owner_repo_root(repo_root: str) -> str:
+    """Accept either repo root or the bootstrap script path from the owner."""
+
+    value = repo_root.strip().strip("\"'")
+    trimmed = value.rstrip("/\\")
+    lowered = trimmed.lower()
+    for suffix in _BOOTSTRAP_SCRIPT_SUFFIXES:
+        if lowered.endswith(suffix.lower()):
+            return str(Path(trimmed[: -len(suffix)]).expanduser())
+    for suffix in ("/scripts", "\\scripts"):
+        if lowered.endswith(suffix):
+            return str(Path(trimmed[: -len(suffix)]).expanduser())
+    return str(Path(value).expanduser())
+
+
+def _quote_windows_cmd_arg(value: str) -> str:
+    unsafe = {'"', "\r", "\n", "\x00", "%", "!"}
+    if any(ch in value for ch in unsafe):
+        raise ValueError("Unsafe Windows install_path for cmd.exe command")
+    return f'"{value}"'
+
+
+def _resolve_repo_root(install_path: str | None = None) -> tuple[str, str]:
+    if install_path and install_path.strip():
+        return _normalise_owner_repo_root(install_path), "owner"
+
     repo_root = os.getenv("SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT")
     if not repo_root:
-        return BOOTSTRAP_REPO_PLACEHOLDER, False
+        return BOOTSTRAP_REPO_PLACEHOLDER, "placeholder"
 
     root = Path(repo_root).expanduser()
     markers = (
@@ -93,11 +122,16 @@ def _verified_repo_root() -> tuple[str, bool]:
         root / "services" / "system_gateway",
     )
     if all(marker.exists() for marker in markers):
-        return str(root), True
-    return BOOTSTRAP_REPO_PLACEHOLDER, False
+        return str(root), "verified"
+    return BOOTSTRAP_REPO_PLACEHOLDER, "placeholder"
 
 
-def build_bootstrap_hint(platform_name: Optional[str] = None) -> BootstrapHint:
+def build_bootstrap_hint(
+    platform_name: Optional[str] = None,
+    *,
+    install_path: str | None = None,
+    repo_root: str | None = None,
+) -> BootstrapHint:
     """Return the bootstrap command for the given platform.
 
     The exact commands are intentionally simple and explicit so the owner can
@@ -105,58 +139,47 @@ def build_bootstrap_hint(platform_name: Optional[str] = None) -> BootstrapHint:
     """
 
     name = platform_name or _detect_platform()
-    repo_root, repo_root_verified = _verified_repo_root()
-    repo_note = (
-        "Repo root đã được verify từ SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT."
-        if repo_root_verified
-        else (
-            "Thay `/path/to/march7` bằng repo root thật trên host "
-            "(thư mục chứa scripts/bootstrap_system_gateway.py)."
-        )
-    )
+    repo_root, repo_source = _resolve_repo_root(install_path or repo_root)
+    repo_note = {
+        "owner": "Path cài đặt owner cung cấp; script tự biết phần còn lại.",
+        "verified": "Repo root đã verify; chạy lệnh trên host.",
+        "placeholder": (
+            "Đổi `/path/to/march7` thành thư mục cài March7 trên host; "
+            "script tự biết phần còn lại."
+        ),
+    }[repo_source]
     if name == "linux":
         return BootstrapHint(
             platform=name,
-            command="\n".join(
-                [
-                    f"cd {shlex.quote(repo_root)}",
-                    f"python3 {shlex.quote(BOOTSTRAP_SCRIPT_REL)}",
-                ]
+            command=(
+                f"cd {shlex.quote(repo_root)} "
+                f"&& python3 {shlex.quote(BOOTSTRAP_SCRIPT_REL)}"
             ),
             notes=(
-                "Chạy trên host, KHÔNG chạy trong container.",
                 repo_note,
-                "Script tự sinh/đồng bộ secret, tạo venv, cài + restart service, health check.",
             ),
         )
     if name == "macos":
         return BootstrapHint(
             platform=name,
-            command="\n".join(
-                [
-                    f"cd {shlex.quote(repo_root)}",
-                    f"python3 {shlex.quote(BOOTSTRAP_SCRIPT_REL)}",
-                ]
+            command=(
+                f"cd {shlex.quote(repo_root)} "
+                f"&& python3 {shlex.quote(BOOTSTRAP_SCRIPT_REL)}"
             ),
             notes=(
-                "Chạy trên host, KHÔNG chạy trong container.",
                 repo_note,
-                "Script tự lo secret/venv/install (launchd plist)/health check.",
             ),
         )
     if name == "windows":
         return BootstrapHint(
             platform=name,
-            command="\n".join(
-                [
-                    f"cd {repo_root}",
-                    f"python {shlex.quote(BOOTSTRAP_SCRIPT_REL)}",
-                ]
+            command=(
+                f"cd /d {_quote_windows_cmd_arg(repo_root)} "
+                "&& python scripts\\bootstrap_system_gateway.py"
             ),
             notes=(
-                "Chạy trong Administrator shell (PowerShell/cmd as Admin).",
                 repo_note,
-                "Windows chưa hỗ trợ background service — script sẽ in lệnh run foreground.",
+                "Windows: chạy trong Administrator shell.",
             ),
         )
     return BootstrapHint(

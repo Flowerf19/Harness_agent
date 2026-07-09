@@ -91,15 +91,17 @@ Evernight, cài lại System Gateway bằng gateway_admin install.
 Sau khi xong gọi host_system capabilities.
 ```
 
-Evernight returns the exact host command. Run it on the host, then ask
-Evernight or March7 for `host_system capabilities` to verify the service.
+Evernight returns the exact host command. If you already know the March7 install
+directory, pass it as `install_path`; a path to
+`scripts/bootstrap_system_gateway.py` also works. Run the generated command on
+the host, then ask Evernight or March7 for `host_system capabilities` to verify
+the service.
 
-The generated command only uses `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` when
-Evernight can verify that path contains both
-`scripts/bootstrap_system_gateway.py` and `services/system_gateway/`. If the
-path is unset or not visible from Evernight's runtime, the hint falls back to
-the placeholder `/path/to/march7`; replace it with the real repo root on the
-host before running the command.
+Without `install_path`, the generated command only uses
+`SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` when Evernight can verify that path
+contains both `scripts/bootstrap_system_gateway.py` and
+`services/system_gateway/`. If the path is unset or not visible from
+Evernight's runtime, the hint falls back to the placeholder `/path/to/march7`.
 
 ## Configuration
 

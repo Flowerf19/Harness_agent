@@ -183,8 +183,10 @@ async def test_install_hint_returns_bootstrap_hint(monkeypatch):
     )
 
     result = await tool.execute(command="install_hint")
-    assert "System Gateway bootstrap" in result
+    assert "System Gateway install" in result
     assert "```" in result
+    assert "install_path" in tool.parameters_schema["properties"]
+    assert "repo_root" not in tool.parameters_schema["properties"]
 
 
 @pytest.mark.asyncio
@@ -203,10 +205,59 @@ async def test_install_returns_manual_bootstrap_hint(monkeypatch):
 
     result = await tool.execute(command="install")
 
-    assert "Legacy bootstrap executor" in result
-    assert "System Gateway bootstrap" in result
+    assert "Chạy trên host" in result
+    assert "System Gateway install" in result
     assert "cd /path/to/march7" in result
     assert "scripts/bootstrap_system_gateway.py" in result
+
+
+@pytest.mark.asyncio
+async def test_install_accepts_owner_install_path(monkeypatch):
+    tool = GatewayAdminTool(
+        owner_user_id="owner-123",
+        gateway_monitor=None,
+    )
+
+    ctx = _FakeApprovalContext(user_id="owner-123")
+    monkeypatch.setattr(
+        "twin.shared.tools.modules.system.gateway_admin_tool.get_current_approval_context",
+        lambda: ctx,
+    )
+
+    result = await tool.execute(
+        command="install",
+        install_path="/home/flowerf/Projects/march7/scripts/bootstrap_system_gateway.py",
+    )
+
+    assert (
+        "cd /home/flowerf/Projects/march7 && python3 scripts/bootstrap_system_gateway.py"
+        in result
+    )
+    assert "/scripts/bootstrap_system_gateway.py &&" not in result
+
+
+@pytest.mark.asyncio
+async def test_install_keeps_repo_root_alias_for_compatibility(monkeypatch):
+    tool = GatewayAdminTool(
+        owner_user_id="owner-123",
+        gateway_monitor=None,
+    )
+
+    ctx = _FakeApprovalContext(user_id="owner-123")
+    monkeypatch.setattr(
+        "twin.shared.tools.modules.system.gateway_admin_tool.get_current_approval_context",
+        lambda: ctx,
+    )
+
+    result = await tool.execute(
+        command="install",
+        repo_root="/home/flowerf/Projects/march7",
+    )
+
+    assert (
+        "cd /home/flowerf/Projects/march7 && python3 scripts/bootstrap_system_gateway.py"
+        in result
+    )
 
 
 @pytest.mark.asyncio

@@ -17,6 +17,8 @@ Tool quản trị System Gateway dành riêng cho owner. Không dùng cho user t
 
 - `command`: `status`, `doctor`, `install_hint`, `install`, `update`.
 - `target_version`: phiên bản mục tiêu khi `command=update`.
+- `install_path`: thư mục cài March7 trên host, hoặc path tới
+  `scripts/bootstrap_system_gateway.py`, khi `command=install/install_hint`.
 
 ### Quy tắc an toàn
 
@@ -24,13 +26,15 @@ Tool quản trị System Gateway dành riêng cho owner. Không dùng cho user t
 - Không tự động cài hoặc update nếu owner chưa yêu cầu rõ.
 - `install` chỉ trả bootstrap command do code sinh ra để owner tự chạy trên host.
   KHÔNG nhận shell command do model/user viết.
+- Nếu owner đã đưa thư mục cài March7 hoặc path `scripts/bootstrap_system_gateway.py`,
+  truyền nguyên path đó vào `install_path`; tool tự cắt về project root.
 - `install_hint` chỉ cung cấp command để owner tự chạy trên host; không chạy thay owner.
 
 ### Quy tắc chống hallucination output
 
 - Khi tool trả về **code block / shell command** (đặc biệt `install_hint`, `update`),
-  copy **nguyên xi** output từ tool. Không tự suy ra command khác (ví dụ: `npx ...`,
-  `pip install ...`, `curl | bash ...`).
+  copy code block từ tool. Không tự suy ra command khác (ví dụ: `find /...`,
+  `npx ...`, `pip install ...`, `curl | bash ...`).
 - Nếu output trông bất thường hoặc thiếu, **báo lại cho owner** thay vì bịa command.
 - Khi trích dẫn, ghi rõ "Output từ tool:" để owner phân biệt với phần cậu nhận xét.
 

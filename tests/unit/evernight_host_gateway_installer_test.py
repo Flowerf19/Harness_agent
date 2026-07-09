@@ -18,17 +18,18 @@ def test_bootstrap_hint_uses_placeholder_when_repo_root_unset(monkeypatch):
 
     assert hint.platform == "linux"
     # Hint is now a single bootstrap-script call instead of 9 separate commands.
-    assert "cd /path/to/march7" in hint.command
-    assert "Thay `/path/to/march7`" in hint.render_for_chat()
+    assert hint.command == "cd /path/to/march7 && python3 scripts/bootstrap_system_gateway.py"
+    assert "Đổi `/path/to/march7`" in hint.render_for_chat()
     assert "scripts/bootstrap_system_gateway.py" in hint.command
     assert "python3 scripts/bootstrap_system_gateway.py" in hint.command
     assert "sudo" not in hint.command
     # Per-OS variant sanity checks.
     mac_hint = build_bootstrap_hint("macos")
-    assert "python3 scripts/bootstrap_system_gateway.py" in mac_hint.command
+    assert mac_hint.command == "cd /path/to/march7 && python3 scripts/bootstrap_system_gateway.py"
     assert "sudo" not in mac_hint.command
     win_hint = build_bootstrap_hint("windows")
-    assert "python scripts/bootstrap_system_gateway.py" in win_hint.command
+    assert win_hint.command.startswith('cd /d "')
+    assert "python scripts\\bootstrap_system_gateway.py" in win_hint.command
     # Old manual commands must NOT leak into the simplified hint.
     assert "venv" not in hint.command
     assert "pip install" not in hint.command
@@ -45,6 +46,57 @@ def test_bootstrap_hint_uses_placeholder_when_configured_root_is_not_visible(mon
     assert "/repo with space" not in hint.command
 
 
+def test_bootstrap_hint_accepts_owner_install_path():
+    hint = build_bootstrap_hint("linux", install_path="/home/flowerf/Projects/march7")
+
+    assert hint.command == (
+        "cd /home/flowerf/Projects/march7 "
+        "&& python3 scripts/bootstrap_system_gateway.py"
+    )
+    assert "Path cài đặt owner cung cấp" in hint.render_for_chat()
+
+
+def test_bootstrap_hint_normalises_owner_script_path():
+    hint = build_bootstrap_hint(
+        "linux",
+        install_path="/home/flowerf/Projects/march7/scripts/bootstrap_system_gateway.py",
+    )
+
+    assert hint.command == (
+        "cd /home/flowerf/Projects/march7 "
+        "&& python3 scripts/bootstrap_system_gateway.py"
+    )
+
+
+def test_bootstrap_hint_expands_owner_home_script_path(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+
+    hint = build_bootstrap_hint(
+        "linux",
+        install_path="~/Projects/march7/scripts/bootstrap_system_gateway.py",
+    )
+
+    assert hint.command == (
+        f"cd {home}/Projects/march7 "
+        "&& python3 scripts/bootstrap_system_gateway.py"
+    )
+
+
+def test_windows_bootstrap_hint_rejects_unsafe_install_path():
+    with pytest.raises(ValueError, match="Unsafe Windows install_path"):
+        build_bootstrap_hint("windows", install_path='C:\\march7"%TEMP%')
+
+
+def test_bootstrap_hint_keeps_repo_root_alias_for_compatibility():
+    hint = build_bootstrap_hint("linux", repo_root="/home/flowerf/Projects/march7")
+
+    assert hint.command == (
+        "cd /home/flowerf/Projects/march7 "
+        "&& python3 scripts/bootstrap_system_gateway.py"
+    )
+
+
 def test_bootstrap_hint_uses_verified_repo_root(monkeypatch, tmp_path):
     repo = tmp_path / "repo with space"
     (repo / "scripts").mkdir(parents=True)
@@ -55,8 +107,8 @@ def test_bootstrap_hint_uses_verified_repo_root(monkeypatch, tmp_path):
     hint = build_bootstrap_hint("linux")
 
     assert f"cd {repo!s}" not in hint.command
-    assert f"cd '{repo!s}'" in hint.command
-    assert "Repo root đã được verify" in hint.render_for_chat()
+    assert f"cd '{repo!s}' && python3 scripts/bootstrap_system_gateway.py" in hint.command
+    assert "Repo root đã verify" in hint.render_for_chat()
 
 
 @pytest.mark.asyncio
