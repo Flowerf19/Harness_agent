@@ -4,8 +4,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from twin.evernight.system_gateway import installer
-from twin.evernight.system_gateway.monitor import GatewayMonitor
+from twin.evernight.host_gateway import installer
+from twin.evernight.host_gateway.monitor import GatewayMonitor
 from twin.shared.system_gateway.auth import mint_approval_token
 from twin.shared.tools.approval_context import get_current_approval_context
 from twin.shared.tools.registry.base import BaseTool

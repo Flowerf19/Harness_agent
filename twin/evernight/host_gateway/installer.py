@@ -1,4 +1,4 @@
-"""Evernight-side System Gateway installer/update flow.
+"""Evernight-side Host Gateway installer/update flow.
 
 This module is the owner-facing orchestration layer for first-run bootstrap
 and post-bootstrap updates. The native service lives on the host and is outside
@@ -20,7 +20,7 @@ import json as jsonlib
 import shlex
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import PurePosixPath
+from pathlib import Path
 from typing import Optional
 
 import aiohttp
@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 # Stable sentinel — GatewayMonitor.compare_versions can compare against this
 # to detect "newer than what we know about" without needing a real registry.
 KNOWN_GOOD_VERSIONS = ("0.1.0",)
+BOOTSTRAP_REPO_PLACEHOLDER = "/path/to/march7"
+BOOTSTRAP_SCRIPT_REL = "scripts/bootstrap_system_gateway.py"
 
 
 class InstallerAction(str, Enum):
@@ -80,6 +82,21 @@ def sys_platform() -> str:
     return sys.platform
 
 
+def _verified_repo_root() -> tuple[str, bool]:
+    repo_root = os.getenv("SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT")
+    if not repo_root:
+        return BOOTSTRAP_REPO_PLACEHOLDER, False
+
+    root = Path(repo_root).expanduser()
+    markers = (
+        root / BOOTSTRAP_SCRIPT_REL,
+        root / "services" / "system_gateway",
+    )
+    if all(marker.exists() for marker in markers):
+        return str(root), True
+    return BOOTSTRAP_REPO_PLACEHOLDER, False
+
+
 def build_bootstrap_hint(platform_name: Optional[str] = None) -> BootstrapHint:
     """Return the bootstrap command for the given platform.
 
@@ -88,64 +105,58 @@ def build_bootstrap_hint(platform_name: Optional[str] = None) -> BootstrapHint:
     """
 
     name = platform_name or _detect_platform()
+    repo_root, repo_root_verified = _verified_repo_root()
+    repo_note = (
+        "Repo root đã được verify từ SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT."
+        if repo_root_verified
+        else (
+            "Thay `/path/to/march7` bằng repo root thật trên host "
+            "(thư mục chứa scripts/bootstrap_system_gateway.py)."
+        )
+    )
     if name == "linux":
-        repo_root = os.getenv("SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT", "/path/to/march7")
-        python_executable = os.getenv("SYSTEM_GATEWAY_BOOTSTRAP_PYTHON", "/usr/bin/python3")
-        venv_path = os.getenv("SYSTEM_GATEWAY_BOOTSTRAP_VENV", "/opt/system-gateway/venv")
-        venv_parent = str(PurePosixPath(venv_path).parent)
         return BootstrapHint(
             platform=name,
             command="\n".join(
                 [
                     f"cd {shlex.quote(repo_root)}",
-                    "sudo install -d -m 700 /etc/system-gateway",
-                    (
-                        "sudo test -s /etc/system-gateway/secret || "
-                        "{ echo 'write the shared secret to /etc/system-gateway/secret first' >&2; exit 2; }"
-                    ),
-                    f"sudo install -d -m 755 {shlex.quote(venv_parent)}",
-                    f"sudo {shlex.quote(python_executable)} -m venv --system-site-packages {shlex.quote(venv_path)}",
-                    (
-                        f"sudo {shlex.quote(venv_path)}/bin/python -m pip install "
-                        "--no-build-isolation services/system_gateway"
-                    ),
-                    (
-                        "sudo env SYSTEM_GATEWAY_HOST=0.0.0.0 "
-                        "SYSTEM_GATEWAY_PORT=8380 "
-                        "SYSTEM_GATEWAY_SHARED_SECRET_FILE=/etc/system-gateway/secret "
-                        f"{shlex.quote(venv_path)}/bin/python -m system_gateway install"
-                    ),
-                    "sudo systemctl restart system-gateway",
-                    "curl -sf http://127.0.0.1:8380/health",
+                    f"python3 {shlex.quote(BOOTSTRAP_SCRIPT_REL)}",
                 ]
             ),
             notes=(
-                "Chạy trên host, không chạy trong container.",
-                "Tạo `/etc/system-gateway/secret` trước với cùng SYSTEM_GATEWAY_SHARED_SECRET trong `.env`.",
+                "Chạy trên host, KHÔNG chạy trong container.",
+                repo_note,
+                "Script tự sinh/đồng bộ secret, tạo venv, cài + restart service, health check.",
             ),
         )
     if name == "macos":
         return BootstrapHint(
             platform=name,
-            command=(
-                "cp services/system_gateway/packaging/macos/com.twin.system-gateway.plist "
-                "~/Library/LaunchAgents/ && launchctl load -w "
-                "~/Library/LaunchAgents/com.twin.system-gateway.plist"
+            command="\n".join(
+                [
+                    f"cd {shlex.quote(repo_root)}",
+                    f"python3 {shlex.quote(BOOTSTRAP_SCRIPT_REL)}",
+                ]
             ),
             notes=(
-                "Yêu cầu `system-gateway` đã được `pip install` vào user env.",
+                "Chạy trên host, KHÔNG chạy trong container.",
+                repo_note,
+                "Script tự lo secret/venv/install (launchd plist)/health check.",
             ),
         )
     if name == "windows":
         return BootstrapHint(
             platform=name,
-            command=(
-                "python -m pip install -e services\\system_gateway && "
-                "python -m system_gateway"
+            command="\n".join(
+                [
+                    f"cd {repo_root}",
+                    f"python {shlex.quote(BOOTSTRAP_SCRIPT_REL)}",
+                ]
             ),
             notes=(
-                "Windows packaging notes ở services/system_gateway/packaging/windows/README.md.",
-                "Background service registration chưa được implement — chạy foreground.",
+                "Chạy trong Administrator shell (PowerShell/cmd as Admin).",
+                repo_note,
+                "Windows chưa hỗ trợ background service — script sẽ in lệnh run foreground.",
             ),
         )
     return BootstrapHint(

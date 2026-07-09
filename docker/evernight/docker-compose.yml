@@ -37,8 +37,6 @@ services:
 
       # Native System Gateway (runs on the host; HMAC shared secret from .env)
       - SYSTEM_GATEWAY_URL=http://host.docker.internal:8380
-      - SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT=/home/flowerf/Projects/march7
-      - SYSTEM_GATEWAY_BOOTSTRAP_PYTHON=/usr/bin/python3
       - SYSTEM_GATEWAY_BOOTSTRAP_VENV=/opt/system-gateway/venv
 
       # Evernight background jobs

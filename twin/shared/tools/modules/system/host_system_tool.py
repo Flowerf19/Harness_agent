@@ -164,7 +164,7 @@ class HostSystemTool(BaseTool):
         return mint_approval_token(secret=secret, action=action, actor=actor)
 
     def _render_needs_install(self) -> str:
-        from twin.evernight.system_gateway.installer import build_bootstrap_hint
+        from twin.evernight.host_gateway.installer import build_bootstrap_hint
 
         hint = build_bootstrap_hint()
         return json.dumps(

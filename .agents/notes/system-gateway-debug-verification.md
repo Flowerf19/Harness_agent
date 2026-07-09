@@ -13,10 +13,11 @@ Bản verify độc lập các kết luận debug của minimax (`minimax-m3`, s
 
 ## Đã verify ĐÚNG
 
-1. **`install_hint` thật = systemd unit, không phải `npx`.**
-   `twin/evernight/system_gateway/installer.py:83-101` —
-   `build_bootstrap_hint("linux")` trả về `sudo tee /etc/systemd/system/system-gateway.service …`
-   và `sudo systemctl daemon-reload && enable --now`. Không có `npx`/`pip`.
+1. **`install_hint` thật = owner-run bootstrap script, không phải `npx`.**
+   `twin/evernight/host_gateway/installer.py:82-107` —
+   `build_bootstrap_hint("linux")` trả về `cd <repo>` +
+   `python3 scripts/bootstrap_system_gateway.py`. Không có `npx`; model cũng
+   không tự bịa lại chuỗi `pip`/`systemctl` thủ công.
    → Evernight đã hallucinate `npx @anthropic-ai/system-gateway@latest install …`.
 
 2. **Default-deny: mọi structured action đều cần `approval_id`, kể cả read-only.**

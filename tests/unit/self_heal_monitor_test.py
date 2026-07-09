@@ -11,7 +11,7 @@ from twin.evernight.self_heal.monitor import (
 )
 
 
-from twin.evernight.system_gateway.monitor import RESTART_ALLOWED_CONTAINERS
+from twin.evernight.host_gateway.monitor import RESTART_ALLOWED_CONTAINERS
 
 
 class FakeGatewayMonitor:

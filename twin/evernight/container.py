@@ -11,7 +11,7 @@ from twin.shared.agent.runtime import SharedAgentRuntime, build_shared_agent_run
 from twin.shared.tools.registry.bootstrap import build_tool_registry
 from twin.shared.memory.diary import TimelineSummaryStore
 from twin.shared.config.settings import Config
-from twin.evernight.system_gateway import GatewayMonitor
+from twin.evernight.host_gateway import GatewayMonitor
 
 logger = logging.getLogger(__name__)
 

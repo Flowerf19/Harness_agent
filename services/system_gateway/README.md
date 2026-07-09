@@ -5,7 +5,26 @@ Docker, but host operations run through this service on the host OS. Agents do
 not receive a general host shell; they call `host_system`, which signs requests
 to System Gateway, and dangerous operations still require owner approval.
 
+This README describes the repo package and expected operating model. It does
+not mean the service is currently installed on this host; when in doubt, ask
+Evernight for `gateway_admin status` or `gateway_admin doctor`.
+
 ## Architecture
+
+Directory ownership:
+
+- `services/system_gateway/` is the native host service package. This is what
+  gets installed into the host venv and runs as `system-gateway.service`.
+- `twin/shared/system_gateway/` is shared protocol code: HMAC auth, request and
+  response types, client errors, and `HostGatewayClient`.
+- `twin/evernight/host_gateway/` is Evernight-side orchestration only:
+  health monitor, `gateway_admin` bootstrap hints, and update requests. It is
+  not a second service implementation.
+- `scripts/bootstrap_system_gateway.py` is the one-command installer for the
+  native service package in `services/system_gateway/`.
+- March7 and Evernight use `host_system` for host operations. Evernight also
+  exposes owner-only `gateway_admin` commands for status, diagnosis, install
+  hints, and update requests.
 
 ```mermaid
 flowchart LR
@@ -25,7 +44,8 @@ flowchart LR
 ```
 
 First install is special: when the service is missing, there is no host
-execution channel yet. Evernight's `gateway_admin install` returns a
+execution channel yet. Install guidance comes from Evernight's
+`gateway_admin install` or `gateway_admin install_hint`, which returns a
 code-generated command for the owner to run on the host. It does not execute a
 container-side bootstrap bridge.
 
@@ -74,23 +94,12 @@ Sau khi xong gọi host_system capabilities.
 Evernight returns the exact host command. Run it on the host, then ask
 Evernight or March7 for `host_system capabilities` to verify the service.
 
-### Manual Install Fallback
-
-From the repo root on the host:
-
-```bash
-/usr/bin/python3 -m venv --system-site-packages /opt/system-gateway/venv
-/opt/system-gateway/venv/bin/python -m pip install --no-build-isolation services/system_gateway
-SYSTEM_GATEWAY_HOST=0.0.0.0 \
-SYSTEM_GATEWAY_PORT=8380 \
-SYSTEM_GATEWAY_SHARED_SECRET_FILE=/etc/system-gateway/secret \
-  /opt/system-gateway/venv/bin/python -m system_gateway install
-systemctl restart system-gateway
-```
-
-Create `/etc/system-gateway/secret` first with the same
-`SYSTEM_GATEWAY_SHARED_SECRET` used by the containers. Do not print or commit
-that value.
+The generated command only uses `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` when
+Evernight can verify that path contains both
+`scripts/bootstrap_system_gateway.py` and `services/system_gateway/`. If the
+path is unset or not visible from Evernight's runtime, the hint falls back to
+the placeholder `/path/to/march7`; replace it with the real repo root on the
+host before running the command.
 
 ## Configuration
 
@@ -99,15 +108,12 @@ that value.
 | `SYSTEM_GATEWAY_URL` | `http://host.docker.internal:8380` | containers |
 | `SYSTEM_GATEWAY_HOST` | `127.0.0.1` | native service |
 | `SYSTEM_GATEWAY_PORT` | `8380` | native service |
-| `SYSTEM_GATEWAY_SHARED_SECRET` | unset | containers / signing |
-| `SYSTEM_GATEWAY_SHARED_SECRET_FILE` | unset | systemd service |
 | `SYSTEM_GATEWAY_RAW_SHELL` | `true` | emergency kill-switch |
 | `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` | unset | Evernight install hint |
-| `SYSTEM_GATEWAY_BOOTSTRAP_PYTHON` | `/usr/bin/python3` | Evernight install hint |
-| `SYSTEM_GATEWAY_BOOTSTRAP_VENV` | `/opt/system-gateway/venv` | Evernight install hint |
+| `SYSTEM_GATEWAY_BOOTSTRAP_VENV` | `/opt/system-gateway/venv` | bootstrap script |
 
-Docker compose loads the shared secret from `.env` via `env_file`; do not set it
-to an empty value in `environment:`.
+Signing configuration is managed by the bootstrap/tooling path. Keep sensitive
+values out of docs and chat.
 
 ## Operations
 
@@ -133,7 +139,7 @@ The second command should trigger owner approval before execution.
 /home/flowerf/.conda/envs/discord_bot/bin/python -m pytest services/system_gateway/tests -q -p no:phoenix
 /home/flowerf/.conda/envs/discord_bot/bin/python -m pytest \
   tests/unit/gateway_admin_tool_test.py \
-  tests/unit/evernight_system_gateway_installer_test.py \
+  tests/unit/evernight_host_gateway_installer_test.py \
   tests/unit/system_gateway_cli_test.py \
   tests/unit/tool_bootstrap_test.py \
   -q -p no:phoenix

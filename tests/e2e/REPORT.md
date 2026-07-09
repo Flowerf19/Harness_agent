@@ -172,7 +172,7 @@ Screenshot: `screenshots/2026-06-27-generic-shell/G3-FAIL-hallucinated-write.png
 
 **Bằng chứng**:
 ```python
-# twin/evernight/system_gateway/monitor.py:76-105
+# twin/evernight/host_gateway/monitor.py:76-105
 def render_for_chat(self) -> str:
     # HEALTHY
     lines = [

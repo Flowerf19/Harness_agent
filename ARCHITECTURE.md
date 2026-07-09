@@ -144,7 +144,7 @@ The host OS boundary. Runs native on the host (not in Docker), binds to
 - **Platform adapters** `services/system_gateway/adapters/` —
   `base.py` (interface), `linux.py` / `macos.py` / `windows.py` shell
   execution adapters with platform-specific capability reporting.
-- **Evernight monitor** `twin/evernight/system_gateway/` —
+- **Evernight host-gateway orchestration** `twin/evernight/host_gateway/` —
   `monitor.py` (`GatewayMonitor`), `installer.py` (bootstrap hint +
   `InstallerCoordinator`).
 
@@ -310,9 +310,11 @@ Verified gaps to flag for review:
 5. **`install_hint` hallucination vector.** Evernight previously
    hallucinated `npx @anthropic-ai/system-gateway@latest install` when asked
    for the install command. The real `build_bootstrap_hint("linux")`
-   (`twin/evernight/system_gateway/installer.py:83-101`) returns a
-   `sudo tee … /etc/systemd/system/system-gateway.service` + `systemctl
-   daemon-reload && enable --now` snippet — there is no `npx`/`pip` in it.
+   (`twin/evernight/host_gateway/installer.py:82-107`) returns only a
+   `cd <repo>` + `python3 scripts/bootstrap_system_gateway.py` command. The
+   script owns secret sync, venv creation, package install, service install,
+   restart, and health check — the model must not invent manual `pip` /
+   `systemctl` sequences.
    Anti-hallucination rules have been added to
    `twin/shared/tools/prompts/guides/gateway_admin.md` ("Output từ tool:",
    do not invent commands). Treat any `npx`/`pip install system-gateway`

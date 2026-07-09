@@ -1,6 +1,8 @@
 """Micro-catalog and lazy guide rendering for native tools."""
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -101,10 +103,37 @@ class ToolPromptCatalog:
             raise KeyError(f"Unknown tool guide: {tool_name}") from exc
 
 
+_INCLUDE_RE = re.compile(r"(?m)^[ \t]*@include[ \t]+(\S+)[ \t]*$")
+
+
+def _resolve_includes(body: str, base_dir: Path) -> str:
+    """Inline `@include <relpath>` lines with the referenced guide file.
+
+    Paths resolve against the directory of the including guide (``base_dir``),
+    so a guide includes a sibling by name (`@include sibling.md`). Absolute
+    paths are used as-is. Single level only (included files are not re-scanned).
+    Missing targets raise so a broken include fails loudly instead of silently
+    dropping content.
+    """
+
+    def _repl(match: re.Match[str]) -> str:
+        rel = match.group(1)
+        target = Path(rel)
+        if not target.is_absolute():
+            target = base_dir / target
+        if not target.exists():
+            raise FileNotFoundError(f"@include target not found: {target}")
+        return target.read_text(encoding="utf-8")
+
+    return _INCLUDE_RE.sub(_repl, body)
+
+
 def _read_guide(spec: ToolPromptSpec) -> str:
     if not spec.guide_path.exists():
         raise FileNotFoundError(f"Tool guide not found for {spec.name}: {spec.guide_path}")
-    return spec.guide_path.read_text(encoding="utf-8").strip()
+    body = spec.guide_path.read_text(encoding="utf-8")
+    body = _resolve_includes(body, base_dir=spec.guide_path.parent)
+    return body.strip()
 
 
 def read_tool_description(

@@ -1,11 +1,11 @@
-"""Tests for the Evernight System Gateway monitor start/stop and notify."""
+"""Tests for the Evernight Host Gateway monitor start/stop and notify."""
 from __future__ import annotations
 
 import asyncio
 
 import pytest
 
-from twin.evernight.system_gateway.monitor import (
+from twin.evernight.host_gateway.monitor import (
     GatewayMonitor,
     GatewayMonitorStatus,
     GatewaySnapshot,
