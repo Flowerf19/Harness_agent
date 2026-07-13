@@ -1,15 +1,15 @@
 # LLM Providers & Embeddings
 
-Cấu hình env vars cho chat + embedding của `march7`/`evernight`. Code lookup: hỏi codegraph (`codegraph_search GeminiService`, `codegraph_files twin/shared/llm`...).
+Cấu hình env vars cho chat + embedding của `march7`/`evernight`. Code lookup: hỏi codegraph (`codegraph_search chat providers`, `codegraph_files twin/shared/llm`...).
 
 ## Chat providers
 
 | `LLM_PROVIDER` | Protocol | Env vars |
 |---|---|---|
-| `gemini` | Gemini native | `GEMINI_API_KEY`, `LLM_MODEL` (vd `gemini-2.5-flash`), optional `GEMINI_API_URL` |
+| `gemini` | Gemini native | `GEMINI_API_KEY`, `GEMINI_MODEL` (vd `gemini-2.5-flash`), optional `GEMINI_API_URL` |
 | `openai_compat` (alias: `openai`) | OpenAI-compatible `POST /chat/completions` | `OPENAI_API_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL` |
 
-`OPENAI_API_URL` chấp nhận mọi endpoint OpenAI-compat: OpenAI gốc, OpenRouter, LM Studio (`http://host.docker.internal:1234/v1`), Qwen DashScope compatible-mode, ...
+`OPENAI_API_URL` chấp nhận mọi endpoint OpenAI-compat: OpenAI gốc, OpenRouter, Ollama (`http://host.docker.internal:11434/v1`), LM Studio (`http://host.docker.internal:1234/v1`, legacy), Qwen DashScope compatible-mode, ...
 
 ## Embedding providers
 
@@ -25,27 +25,30 @@ Voyage / Cohere v2-compat / LM Studio / OpenRouter → dùng `openai_compat` v�
 
 ## Ví dụ cấu hình
 
-### LM Studio (chat + embeddings cùng endpoint)
+### Ollama (local-first chat + embeddings)
 
 ```env
 LLM_PROVIDER=openai_compat
-OPENAI_API_URL=http://host.docker.internal:1234/v1
+OPENAI_API_URL=http://host.docker.internal:11434/v1
 OPENAI_API_KEY=dummy-key
-OPENAI_MODEL=<model-name-in-lm-studio>
+OPENAI_MODEL=<model-name-in-ollama>
 
 EMBEDDING_PROVIDER=openai_compat
-EMBEDDING_API_URL=http://host.docker.internal:1234/v1
+EMBEDDING_API_URL=http://host.docker.internal:11434/v1
 EMBEDDING_API_KEY=dummy-key
 EMBEDDING_MODEL_NAME=<embedding-model>
 EMBEDDING_VECTOR_SIZE=1024
 ```
+
+> [!NOTE]
+> Ollama phải bind `0.0.0.0` để container gọi qua `host.docker.internal`. LM Studio trên port `1234` là legacy; vẫn dùng cùng pattern nếu cần.
 
 ### Gemini cả chat + embeddings
 
 ```env
 LLM_PROVIDER=gemini
 GEMINI_API_KEY=...
-LLM_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-2.5-flash
 
 EMBEDDING_PROVIDER=gemini
 EMBEDDING_VECTOR_SIZE=1024
@@ -69,4 +72,4 @@ EMBEDDING_VECTOR_SIZE=1024
 
 ## Thêm provider mới
 
-Kế thừa `BaseEmbeddingService` (hoặc `BaseLLMService` cho chat) + thêm 1 nhánh vào factory. Codegraph lookup: `codegraph_node BaseEmbeddingService` / `codegraph_search create_embedding_service`.
+Thêm provider mới bằng cách: định nghĩa service chat/embedding tuân theo interface hiện có, cập nhật factory để chọn provider theo `LLM_PROVIDER`/`EMBEDDING_PROVIDER`, và thêm env vars cần thiết vào bảng cấu hình. Codegraph lookup: `codegraph_search chat providers`.

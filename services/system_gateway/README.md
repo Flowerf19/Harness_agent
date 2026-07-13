@@ -75,9 +75,17 @@ Current adapters expose one generic shell path:
 - Shell execution also requires a fresh owner approval token bound to action
   `shell` and the request actor.
 - Approval tokens are single-use; replayed nonces are rejected.
-- The Linux systemd unit runs from `/opt/system-gateway/venv/bin/python`, keeps
-  `ProtectHome=true`, and reads the shared secret from
-  `/etc/system-gateway/secret`.
+- The rendered Linux systemd unit (after `system-gateway install`) runs with
+  `ExecStart=/opt/system-gateway/venv/bin/python -m system_gateway run`. The
+  packaged template ships with `ExecStart=/usr/local/bin/system-gateway run`;
+  `install` rewrites it to the current Python interpreter.
+- The unit hardens the service with `NoNewPrivileges=true`,
+  `ProtectSystem=strict`, `ProtectHome=true`,
+  `ReadWritePaths=/etc/system-gateway`, empty `CapabilityBoundingSet`,
+  `SystemCallFilter=@system-service`, and `SystemCallErrorNumber=EPERM`.
+- The shared secret is read from `SYSTEM_GATEWAY_SHARED_SECRET_FILE`
+  (`/etc/system-gateway/secret` by default); `SYSTEM_GATEWAY_SHARED_SECRET`
+  is a fallback.
 - There is no Docker privileged host executor in the default stack.
 
 ## Quick Start
@@ -111,8 +119,12 @@ Evernight's runtime, the hint falls back to the placeholder `/path/to/march7`.
 | `SYSTEM_GATEWAY_HOST` | `127.0.0.1` | native service |
 | `SYSTEM_GATEWAY_PORT` | `8380` | native service |
 | `SYSTEM_GATEWAY_RAW_SHELL` | `true` | emergency kill-switch |
+| `SYSTEM_GATEWAY_SHARED_SECRET` | unset | native service / CLI (fallback if secret file is not used) |
+| `SYSTEM_GATEWAY_SHARED_SECRET_FILE` | platform default (e.g. `/etc/system-gateway/secret` on Linux) | native service / CLI (preferred) |
 | `SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` | unset | Evernight install hint |
 | `SYSTEM_GATEWAY_BOOTSTRAP_VENV` | `/opt/system-gateway/venv` | bootstrap script |
+
+`SYSTEM_GATEWAY_SHARED_SECRET_FILE` is the preferred way to supply the shared secret; `SYSTEM_GATEWAY_SHARED_SECRET` is a fallback. If both are set, the environment variable takes precedence.
 
 Signing configuration is managed by the bootstrap/tooling path. Keep sensitive
 values out of docs and chat.
@@ -138,14 +150,16 @@ The second command should trigger owner approval before execution.
 ## Development And Tests
 
 ```bash
-/home/flowerf/.conda/envs/discord_bot/bin/python -m pytest services/system_gateway/tests -q -p no:phoenix
-/home/flowerf/.conda/envs/discord_bot/bin/python -m pytest \
+python -m pytest services/system_gateway/tests -q -p no:phoenix
+python -m pytest \
   tests/unit/gateway_admin_tool_test.py \
   tests/unit/evernight_host_gateway_installer_test.py \
   tests/unit/system_gateway_cli_test.py \
   tests/unit/tool_bootstrap_test.py \
   -q -p no:phoenix
 ```
+
+Run from a Python environment that has the project dependencies installed.
 
 ## Migration Note
 

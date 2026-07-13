@@ -47,11 +47,11 @@ flowchart LR
 | **March7** | Chat chính, tool calling, T1/T2/T3 shared memory | 8000 |
 | **Evernight** | DM/tag/`!9` chat, notification/approval, self-heal, T1/T2/T3 shared memory | 8001 |
 
-Evernight nhận tác vụ xử lý tóm tắt trí nhớ (Consolidation) từ March7 qua A2A (`consolidate_discussion`), truy cập T1 để tóm tắt và ghi xuống T2/T3.
+Evernight nhận tác vụ xử lý tóm tắt trí nhớ (Consolidation) từ March7 qua A2A (`consolidate_discussion`): March7 ship T1 entries của scope sang Evernight, Evernight consolidate các entries đã ship và ghi xuống T2/T3.
 
 ### Memory 3 tầng — tại sao & vòng đời
 
-Hai agent chia nhau **một stack memory duy nhất**, tách 3 tầng vì mỗi tầng phục vụ một *latency budget* khác nhau: hot-path phải nhanh, semantic recall chạy async, profile thì biên dịch sẵn. Toàn bộ local-first (LLM + embeddings self-hosted qua LM Studio), không phụ thuộc cloud.
+Hai agent chia nhau **một stack memory duy nhất**, tách 3 tầng vì mỗi tầng phục vụ một *latency budget* khác nhau: hot-path phải nhanh, semantic recall chạy async, profile thì biên dịch sẵn. Toàn bộ local-first (LLM + embeddings self-hosted qua Ollama), không phụ thuộc cloud.
 
 - **T1 — active (working memory ngắn hạn):** cửa sổ trượt các message gần nhất theo từng scope (1-1 user hoặc channel) trong Redis. Nạp thẳng vào context mỗi lượt chat. Ngưỡng token kích hoạt consolidation; sau khi tổng hợp, T1 bị cắt bớt nhưng giữ lại phần đuôi gần nhất để giữ mạch hội thoại.
 - **T2 — timeline (semantic memory dài hạn), trên Redis Stack:** Lưu trữ các snapshot tóm tắt quá trình trò chuyện dưới dạng `TimelineSummary` (Redis HASH với vector embedding). Truy hồi ngữ nghĩa qua KNN vector search (`TimelineSummaryStore.search`). Dim index phải khớp `EMBEDDING_VECTOR_SIZE`; đổi dim → drop & tạo lại RediSearch index `timeline_summaries`.
@@ -61,19 +61,18 @@ Hai agent chia nhau **một stack memory duy nhất**, tách 3 tầng vì mỗi 
 Hệ thống sử dụng cơ chế A2A trực tiếp thay vì các pipeline tuần tự phức tạp trước đây (Extractor/Curator/Topic):
 1. **Observe:** `March7` nhận tin nhắn và lưu vào `T1 ActiveMemory`.
 2. **Trigger:** `InactivityTrigger` (hiện được quản lý hoàn toàn bởi `Evernight`, đã gỡ khỏi gateway của `March7`) theo dõi tính trạng idle. Khi thỏa điều kiện hoặc T1 đạt ngưỡng, một tác vụ `consolidate_discussion` được sinh ra. Đối với March7, nó dùng `ConsolidationClient` (qua port 8001) gửi yêu cầu sang `Evernight`.
-3. **Consolidate:** `Evernight` nhận yêu cầu (hoặc tự trigger) và chạy `ConsolidateMemoryTool`. Tool này gọi LLM để đọc toàn bộ T1 snapshot, sau đó tạo ra cả bản tóm tắt T2 (`TimelineSummaryStore`) và bản cập nhật T3 (`MarkdownProfileStore`) trong cùng một lượt, rồi lưu trực tiếp vào DB.
+3. **Consolidate:** `Evernight` nhận yêu cầu (hoặc tự trigger) và chạy `ConsolidateMemoryTool`. March7 **ship toàn bộ T1 entries** của scope sang Evernight qua A2A; Evernight consolidate đúng các entries đã ship mà không đọc lại T1 Redis của March7, sau đó tạo/cập nhật T2 (`TimelineSummaryStore`) và T3 (`MarkdownProfileStore`) trong cùng một lượt.
 4. **Trim:** T1 được tự động cắt bớt phần cũ để giải phóng context window. Cơ chế chi tiết có thể xem tại `twin/shared/memory/` và qua CodeGraph.
 
 ### Plan trạng thái
 
-- [Memory Rewrite](.agents/plans/memory-rewrite.md) — T1/T2/T3 chạy qua `twin/shared/memory/`, T2 dùng Redis Stack VECTOR HNSW (`EMBEDDING_VECTOR_SIZE`-dim), T3 là Markdown 8 section. **Tiến độ: Phase 11/11 ✓**.
-- Unified Discussion Memory: đã được hấp thụ vào memory rewrite; flow hiện tại dùng hoàn toàn cơ chế **A2A Consolidation** (InactivityTrigger → ConsolidateMemoryTool), thay thế hoàn toàn `SharedMemoryManager → Consolidator → DebouncedScheduler` cũ.
+- Unified Discussion Memory: flow hiện tại dùng hoàn toàn cơ chế **A2A Consolidation** (InactivityTrigger → ConsolidateMemoryTool), thay thế hoàn toàn `SharedMemoryManager → Consolidator → DebouncedScheduler` cũ.
 
 ### Gotcha runtime (dễ quên)
 
 - Channel memory chỉ observe channel được phép, không nghe toàn server. Reply trigger gồm cả reply-to-bot.
-- T1 đọc entry mới nhất trước (newest-first). Consolidation tự trigger khi token tích lũy vượt `TOKEN_THRESHOLD=2000` (xem `twin/shared/memory/active/constants.py`).
-- T2 timeline là user-centric: channel scope **extract 1 lần** rồi route mỗi memory về đúng participant nó nói về (`subject_user_id`), **không** fan-out per-author; Redis document dùng `user_id` thật (của subject) làm key trong `TimelineSummaryStore`.
+- T1 giữ cửa sổ gần nhất, trả về theo thứ tự thời gian. Consolidation tự trigger khi token tích lũy vượt `TOKEN_THRESHOLD=2000` (xem `twin/shared/memory/active/constants.py`).
+- T2 timeline là user-centric: channel scope lưu summary với `user_id=channel_id`, nên timeline channel tìm kiếm song song với timeline user.
 - Redis Stack RediSearch index phải ở DB 0; dùng `TIMELINE_REDIS_DB=0` cho T2, còn T1 có thể dùng DB riêng theo agent.
 - T3 profile inject vào system prompt mỗi turn qua `MarkdownProfileStore.get_system_prompt_context()`.
 
@@ -141,10 +140,10 @@ docker compose logs -f
 
 ```bash
 pip install -r requirements.txt
-python -m gateway
-# hoặc:
-python -m twin.march7
-python -m twin.evernight
+python -m gateway                 # bot chính (gateway + March7 + A2A)
+# hoặc chạy A2A standalone để dev/test từng agent:
+python -m twin.march7             # March7 A2A server dev fallback
+python -m twin.evernight          # Evernight A2A server dev fallback
 ```
 
 > [!TIP]
@@ -189,7 +188,7 @@ pytest tests/e2e/ -v
 - Trạng thái containers: `docker compose -f docker/docker-compose.yml ps`
 - Logs: `docker compose -f docker/docker-compose.yml logs -f march7 evernight`
 - A2A health: port `8000` và `8001`
-- **LM Studio**: phải bind `0.0.0.0` (`lms server start --host 0.0.0.0`) để container gọi được qua `host.docker.internal:1234`.
+- **Ollama**: phải bind `0.0.0.0:11434` (`OLLAMA_HOST=0.0.0.0:11434 ollama serve`) để container gọi được qua `OPENAI_API_URL=http://host.docker.internal:11434/v1`.
 - **Đổi embedding dim**: sau khi đổi `EMBEDDING_VECTOR_SIZE`, drop và tạo lại RediSearch index `timeline_summaries` (T2 data cũ không tương thích).
 
 ## Tài liệu liên quan
@@ -197,5 +196,5 @@ pytest tests/e2e/ -v
 - [.agents/](.agents/) — agent guidance (start: [README.md](.agents/README.md))
 - [services/system_gateway/README.md](services/system_gateway/README.md) — native host gateway architecture, install, security, and runbook
 - [twin/shared/llm/README.md](twin/shared/llm/README.md) — LLM + embedding config
-- [scripts/README.md](scripts/README.md) — bash executor security
+- [scripts/README.md](scripts/README.md) — System Gateway bootstrap and operational scripts
 - [docker/README.md](docker/README.md) — Docker runbook

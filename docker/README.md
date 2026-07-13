@@ -28,11 +28,10 @@ docker/
 │   ├── Dockerfile
 │   └── docker-compose.yml
 │
-├── README.md                    # This file
-│
-└── volumes/                     # Persistent data (bind mounts)
-    └── redis_data/              # Redis AOF/RDB — T1 + coordination
+└── README.md                    # This file
 ```
+
+Redis dùng named volume `redis_data` (định nghĩa trong `shared/docker-compose.redis.yml`), không dùng bind mount `docker/volumes/`.
 
 ## Architecture
 
@@ -40,7 +39,7 @@ docker/
 
 | Service | Container | Image | Port | Purpose |
 |---------|-----------|-------|------|---------|
-| `redis` | `march7-redis` | `redis/redis-stack-server` | 6379 | Shared T1 storage + coordination markers |
+| `redis` | `march7-redis` | `redis/redis-stack-server` | 6379 | Shared T1 active memory + T2 timeline/vector storage + coordination markers |
 | `codebox` | `march7-codebox` | `shroominic/codebox` | 8069 | Python sandbox |
 | `base` | — | `march7-base` | — | Shared Python runtime |
 | `march7` | `march7` | `march7-agent` | internal 8000 | Gateway + March7 Discord bot + March7 A2A |
@@ -54,8 +53,8 @@ Xem [ARCHITECTURE.md](ARCHITECTURE.md) để biết boundary private/shared chi 
 ### Current Build
 
 - **shared/Dockerfile.base**: runtime Python + dependencies chung.
-- **march7/Dockerfile**: March7-owned image, entrypoint `python -m gateway`.
-- **evernight/Dockerfile**: Evernight-owned image, entrypoint `python -m twin.evernight`.
+- **march7/Dockerfile**: March7-owned image, command mặc định `python -m gateway`.
+- **evernight/Dockerfile**: Evernight-owned image, command mặc định `python -m twin.evernight`.
 
 ## Quick Start
 
@@ -100,11 +99,17 @@ DOCKER_BUILDKIT=1 docker compose -f docker/docker-compose.yml build march7
 
 ## Data Persistence
 
-Tất cả dữ liệu lưu trong `docker/volumes/` qua bind mounts:
+Redis dùng named volume `redis_data` (quản lý bởi Docker), được mount vào `/data`:
 
-| Directory | Purpose | Storage |
-|-----------|---------|---------|
-| `redis_data/` | T1 + coordination | Redis AOF/RDB |
+| Volume | Purpose | Storage |
+|--------|---------|---------|
+| `redis_data` | T1 active + T2 timeline/vector + coordination | Redis AOF/RDB |
+
+Xóa volume khi thực sự cần reset dữ liệu:
+
+```bash
+docker compose down -v
+```
 
 ## Commands Reference
 
@@ -137,14 +142,6 @@ docker exec -it evernight bash
 docker compose ps
 ```
 
-## Hot-Reload
-
-Code changes trong `twin/`, `gateway/`, hoặc `memories/` được watch tự động bởi `watchmedo` — không cần rebuild container.
-
-Chỉ rebuild image khi:
-- Thay đổi `requirements.txt` (dependencies mới)
-- Sửa Dockerfile
-
 ## Environment Variables
 
 Bot service đọc từ `../.env`. Key variables:
@@ -160,13 +157,13 @@ GATEWAY_ENABLED_PLATFORMS=discord
 DISCORD_GATEWAY_ENABLED=true
 
 # LLM chat
-LLM_PROVIDER=openai
+LLM_PROVIDER=openai_compat
 OPENAI_API_URL=http://host.docker.internal:11434/v1
 OPENAI_API_KEY=dummy-key
 OPENAI_MODEL=your-model
 
 # Embeddings
-EMBEDDING_PROVIDER=openai
+EMBEDDING_PROVIDER=openai_compat
 EMBEDDING_API_URL=http://host.docker.internal:11434/v1
 EMBEDDING_API_KEY=dummy-key
 EMBEDDING_MODEL_NAME=your-embedding-model

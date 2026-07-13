@@ -26,6 +26,12 @@ inside a scheduled task or a third-party service wrapper.
    $env:SYSTEM_GATEWAY_PORT = "8380"
    ```
 
+   > **Note:** `scripts/bootstrap_system_gateway.py` writes the Windows secret
+   > to `C:\ProgramData\system-gateway\secret`, while the manual `pair` command
+   > above defaults to `%LOCALAPPDATA%\system-gateway\secret`. Pick one location
+   > and set `SYSTEM_GATEWAY_SHARED_SECRET_FILE` consistently for both the
+   > service and the CLI.
+
 4. Run the gateway:
 
    ```powershell
@@ -41,7 +47,9 @@ as a follow-up. The harness should:
 * set `SYSTEM_GATEWAY_SHARED_SECRET_FILE` to a protected path,
 * bind to `127.0.0.1:8380`,
 * forward stdout/stderr to Event Log or a log file,
-* refuse to start if the secret file is missing or world-readable.
+* refuse to start if the secret file is missing or world-readable
+  (recommended behavior for a future harness; the current Python service
+  starts without a secret and only rejects mutating requests).
 
 ## Security notes
 

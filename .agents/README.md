@@ -13,14 +13,16 @@ verified commands. Use CodeGraph for structural code questions.
 
 ## CodeGraph Usage
 
-Prefer CodeGraph over broad file reads for structural questions:
+Prefer CodeGraph over broad file reads for structural questions. The repo is
+indexed by the CodeGraph CLI (`codegraph init -i`). When used as an MCP server,
+only these tools are exposed:
 
-- Definitions/signatures: `codegraph_search` or `codegraph_node`
-- Callers/callees/impact: `codegraph_callers`, `codegraph_callees`,
-  `codegraph_impact`
-- Feature or bug context: `codegraph_context`, then one focused
-  `codegraph_explore`
-- File tree from the index: `codegraph_files`
+| MCP tool name | Typical CLI equivalent | Use for |
+|---|---|---|
+| `codegraph_search` | `codegraph search` | Find symbols/files by name or pattern |
+| `codegraph_node` | `codegraph node <symbol>` | Read a specific symbol's definition and metadata |
+| `codegraph_explore` | `codegraph explore <symbol>` | Browse neighbours/related symbols around a node |
+| `codegraph_callers` | `codegraph callers <symbol>` | Find callers/callees/impact of a symbol |
 
 Use native search/read for literal text, comments, docs, configs, manifests,
 or after CodeGraph has identified the exact file to inspect.
@@ -77,8 +79,8 @@ server, agents should fall back to targeted search/read.
 
 ## Current Task Status
 
-Gateway/platform abstraction is partially refactored as of 2026-06-07. See
-[plans/gateway-platform-abstraction.md](plans/gateway-platform-abstraction.md).
+Gateway/platform abstraction is partially refactored as of 2026-07-13. See
+plans/gateway-platform-abstraction.md (not present; status captured above).
 Production `gateway/__main__.py` now boots `gateway.core.GatewayChatHandler`
 and `gateway.core.AgentRouter`; Discord admin-channel/mention/typing behavior
 lives in the Discord adapter. Evernight Discord DM/tag/`!9` owner chat also
@@ -119,11 +121,11 @@ Current facts:
 - Legacy `twin/*/memories`, `twin/shared/memories`,
   `DiscussionConsolidator`, and `consolidate_t2_memory` paths are removed.
 
-Verification (2026-07-03): `conda run -n discord_bot python -m pytest tests -q
+Verification (2026-07-13): `python -m pytest tests -q
 --ignore=tests/unit/discord_send_response_test.py
 --ignore=tests/unit/evernight_discord_adapter_test.py
---ignore=tests/services/system_gateway_cli_test.py -p no:phoenix` —
-479 passed, 6 skipped.
+--ignore=tests/unit/system_gateway_cli_test.py -p no:phoenix` —
+487 passed, 6 skipped.
 
 Open follow-up: live Discord DM/channel smoke requires real bot tokens; local
 Docker health and A2A endpoints can be verified without Discord.
@@ -132,6 +134,6 @@ Docker health and A2A endpoints can be verified without Discord.
 
 - Docker/local runbook: [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)
 - LLM providers: [../twin/shared/llm/README.md](../twin/shared/llm/README.md)
-- Bash Executor security: [../scripts/README.md](../scripts/README.md)
+- System Gateway bootstrap and operational scripts: [../scripts/README.md](../scripts/README.md)
 - Docker services: [../docker/README.md](../docker/README.md)
 - T2 live verification: [`/home/flowerf/.claude/projects/-home-flowerf-Projects-march7/memory/t2-plan-progress.md`](/home/flowerf/.claude/projects/-home-flowerf-Projects-march7/memory/t2-plan-progress.md)
