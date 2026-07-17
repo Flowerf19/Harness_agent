@@ -1,200 +1,104 @@
-# Bé Bảy (March7) — Twin-Soul AI Assistant for Discord
+# Bé Bảy (March7)
 
-Bé Bảy là hệ Twin-Soul AI trên Discord: `march7` là agent hội thoại chính, `evernight` là agent độc lập vừa trò chuyện qua DM/tag/prefix vừa làm background consolidation, notification, self-heal. Hai agent giao tiếp qua A2A.
+Bé Bảy là hệ Twin-Soul AI cho Discord. `march7` xử lý hội thoại công khai và
+tool calling; `evernight` xử lý DM/prefix `!9`, các tác vụ nền, consolidation,
+notification và self-heal. Hai agent trao đổi qua A2A.
 
-## Tính năng chính
+## Tính năng
 
-- **Discord AI assistant**: hội thoại tự nhiên + tool calling.
-- **Twin-Soul runtime**: `march7` cho chat chính, `evernight` cho chat riêng + tác vụ nền.
-- **Evernight DM/tag/!9**: nhận DM, tag/mention, prefix `!9`; gửi DM thông báo/approval.
-- **Memory 3 tầng**: T1 Redis active, T2 `TimelineSummaryStore` (vector search), T3 Markdown profile.
-- **Background consolidation**: tự động tổng hợp thông qua A2A Consolidation (`March7` gọi `Evernight`).
-- **Self-heal loop**: framework có sẵn, đang phát triển.
+- Hội thoại Discord với unified gateway và tool calling.
+- Hai agent độc lập: March7 cho chat chính, Evernight cho owner chat và worker
+  nền.
+- Bộ nhớ T1/T2/T3: Redis JSON, Redis Stack timeline/vector, và Markdown profile.
+- Consolidation qua A2A: March7 gửi các entry T1 đã snapshot sang Evernight;
+  Evernight ghi T2/T3 và trả về đúng `entry_ids` để March7 trim.
+- System Gateway native cho các thao tác host có HMAC, policy, audit và owner
+  approval.
 
-## Yêu cầu cho agent workflow
+## Kiến trúc
 
-Repo này tối ưu cho agent (Claude Code, Antigravity, Cursor, ...). Trước khi để agent đụng vào, cài đặt 2 thứ:
+Docker Compose khởi động Redis Stack, Codebox, March7 và Evernight. A2A chỉ
+mở trên mạng Docker nội bộ: March7 dùng port `8000`, Evernight dùng `8001`.
 
-1. **CodeGraph** — index AST của repo, agent dùng cho mọi câu hỏi structural (where is X, what calls Y, impact of Z, ...). Skills đều giả định CodeGraph có sẵn.
-   ```bash
-   npm install -g @colbymchenry/codegraph
-   codegraph init -i      # chạy 1 lần trong repo, tạo .codegraph/
-   ```
-2. **Skills toàn cục** — 6 skill (`implementation-planner`, `thoughtful-coder`, `debug-investigator`, `code-reviewer`, `architecture-docs`, `create-readme`) ở [Flowerf19/agents-skills](https://github.com/Flowerf19/agents-skills). Clone 1 lần, dùng cho mọi project:
-   ```bash
-   git clone https://github.com/Flowerf19/agents-skills.git ~/.claude/skills
-   ```
-   Claude Code auto-discover qua `/<skill-name>`; agent khác point thẳng vào `~/.claude/skills/<name>/SKILL.md`.
+- `gateway/` chuyển event Discord thành unified model và định tuyến. Core không
+  được phụ thuộc vào object của Discord.
+- `twin/march7/` chứa agent chat và container wiring. Production entrypoint là
+  `python -m gateway`; `python -m twin.march7` là entrypoint A2A standalone cho
+  local development.
+- `twin/evernight/` chứa worker consolidation/self-heal, owner chat và A2A.
+- `twin/shared/` chứa A2A, LLM, tools và memory dùng chung.
 
-Agent docs project-specific (boundary A2A, gotcha runtime, testing) ở [.agents/](.agents/) — bắt đầu đọc từ [.agents/README.md](.agents/README.md).
+Memory dùng chung code và Redis service nhưng không phải một scope duy nhất:
+T1 tách theo agent/DB (`MARCH7_REDIS_DB=0`, `EVERNIGHT_REDIS_DB=1`), T2 dùng
+RediSearch trên `TIMELINE_REDIS_DB=0`, còn T3 là Markdown dưới `memories/`.
+T2 không tự động chèn vào prompt. Model gọi `search_memory` khi cần truy hồi,
+có thể tìm song song user scope và channel scope.
 
-## Kiến trúc tổng quan
+## Yêu cầu
 
-```mermaid
-flowchart LR
-    D[Discord] --> M[March7 bot]
-    D --> E[Evernight bot]
-    M -- "A2A Task (port 8001)<br/>consolidate_discussion" --> E
-    M --> S[(Shared memory stack)]
-    E --> S
-    S --> T1[(T1 active memory)]
-    S --> T2[(T2 timeline/vector)]
-    S --> T3[(T3 profile)]
-```
+- Python `3.11+`.
+- Docker và Docker Compose v2 cho runtime đầy đủ.
+- Discord bot token, chat LLM provider và embedding provider.
+- System Gateway trên host chỉ bắt buộc khi dùng `host_system` hoặc
+  `gateway_admin`.
 
-| Agent | Vai trò | Port |
-|---|---|---|
-| **March7** | Chat chính, tool calling, T1/T2/T3 shared memory | 8000 |
-| **Evernight** | DM/tag/`!9` chat, notification/approval, self-heal, T1/T2/T3 shared memory | 8001 |
+## Khởi động nhanh
 
-Evernight nhận tác vụ xử lý tóm tắt trí nhớ (Consolidation) từ March7 qua A2A (`consolidate_discussion`): March7 ship T1 entries của scope sang Evernight, Evernight consolidate các entries đã ship và ghi xuống T2/T3.
-
-### Memory 3 tầng — tại sao & vòng đời
-
-Hai agent chia nhau **một stack memory duy nhất**, tách 3 tầng vì mỗi tầng phục vụ một *latency budget* khác nhau: hot-path phải nhanh, semantic recall chạy async, profile thì biên dịch sẵn. Toàn bộ local-first (LLM + embeddings self-hosted qua Ollama), không phụ thuộc cloud.
-
-- **T1 — active (working memory ngắn hạn):** cửa sổ trượt các message gần nhất theo từng scope (1-1 user hoặc channel) trong Redis. Nạp thẳng vào context mỗi lượt chat. Ngưỡng token kích hoạt consolidation; sau khi tổng hợp, T1 bị cắt bớt nhưng giữ lại phần đuôi gần nhất để giữ mạch hội thoại.
-- **T2 — timeline (semantic memory dài hạn), trên Redis Stack:** Lưu trữ các snapshot tóm tắt quá trình trò chuyện dưới dạng `TimelineSummary` (Redis HASH với vector embedding). Truy hồi ngữ nghĩa qua KNN vector search (`TimelineSummaryStore.search`). Dim index phải khớp `EMBEDDING_VECTOR_SIZE`; đổi dim → drop & tạo lại RediSearch index `timeline_summaries`.
-- **T3 — profile:** một markdown profile các section cố định được cập nhật trực tiếp sau mỗi chu kỳ tóm tắt, sau đó inject vào system prompt mỗi lượt. Profile lưu giữ các fact cốt lõi một cách cô đọng.
-
-**Vòng đời (A2A Consolidation):**
-Hệ thống sử dụng cơ chế A2A trực tiếp thay vì các pipeline tuần tự phức tạp trước đây (Extractor/Curator/Topic):
-1. **Observe:** `March7` nhận tin nhắn và lưu vào `T1 ActiveMemory`.
-2. **Trigger:** `InactivityTrigger` (hiện được quản lý hoàn toàn bởi `Evernight`, đã gỡ khỏi gateway của `March7`) theo dõi tính trạng idle. Khi thỏa điều kiện hoặc T1 đạt ngưỡng, một tác vụ `consolidate_discussion` được sinh ra. Đối với March7, nó dùng `ConsolidationClient` (qua port 8001) gửi yêu cầu sang `Evernight`.
-3. **Consolidate:** `Evernight` nhận yêu cầu (hoặc tự trigger) và chạy `ConsolidateMemoryTool`. March7 **ship toàn bộ T1 entries** của scope sang Evernight qua A2A; Evernight consolidate đúng các entries đã ship mà không đọc lại T1 Redis của March7, sau đó tạo/cập nhật T2 (`TimelineSummaryStore`) và T3 (`MarkdownProfileStore`) trong cùng một lượt.
-4. **Trim:** T1 được tự động cắt bớt phần cũ để giải phóng context window. Cơ chế chi tiết có thể xem tại `twin/shared/memory/` và qua CodeGraph.
-
-### Plan trạng thái
-
-- Unified Discussion Memory: flow hiện tại dùng hoàn toàn cơ chế **A2A Consolidation** (InactivityTrigger → ConsolidateMemoryTool), thay thế hoàn toàn `SharedMemoryManager → Consolidator → DebouncedScheduler` cũ.
-
-### Gotcha runtime (dễ quên)
-
-- Channel memory chỉ observe channel được phép, không nghe toàn server. Reply trigger gồm cả reply-to-bot.
-- T1 giữ cửa sổ gần nhất, trả về theo thứ tự thời gian. Consolidation tự trigger khi token tích lũy vượt `TOKEN_THRESHOLD=2000` (xem `twin/shared/memory/active/constants.py`).
-- T2 timeline là user-centric: channel scope lưu summary với `user_id=channel_id`, nên timeline channel tìm kiếm song song với timeline user.
-- Redis Stack RediSearch index phải ở DB 0; dùng `TIMELINE_REDIS_DB=0` cho T2, còn T1 có thể dùng DB riêng theo agent.
-- T3 profile inject vào system prompt mỗi turn qua `MarkdownProfileStore.get_system_prompt_context()`.
-
-### Host boundary — System Gateway
-
-Host interaction giờ đi qua **System Gateway** — native service chạy trực tiếp trên host OS (Linux/macOS/Windows), thay vì qua Docker `nsenter`. Model-facing tool là `host_system` (xem `twin/shared/tools/modules/system/host_system_tool.py`).
-
-Ranh giới code:
-
-- `services/system_gateway/` là native host service package được cài và chạy trên host.
-- `twin/shared/system_gateway/` là protocol/client chung cho HMAC signing, request/response types và `HostGatewayClient`.
-- March7/Evernight gọi host qua `host_system`; riêng Evernight có `gateway_admin` để status/doctor/install/update gateway.
-
-```mermaid
-flowchart LR
-    subgraph C["Container (march7-bot)"]
-        LLM[March7 LLM] --> H["host_system"]:::cur
-        H --> G{"Trạm Gác<br/>ApprovalGate"}
-        G -->|reject| RA["❌ từ chối bởi Trạm Gác"]
-    end
-    G -->|approved<br/>HMAC-signed| N["System Gateway :8380"]:::cur
-    subgraph H["Host"]
-        N -->|policy + audit| X["OS adapter<br/>(Linux/macOS/Windows)"]
-        X --> R["owner-approved shell"]:::cur
-    end
-    classDef cur fill:#e6ffe6,stroke:#1f9d55;
-```
-
-System Gateway cung cấp:
-
-- **HMAC request signing** giữa container ↔ gateway (không còn tin `Origin`).
-- **Nonce + timestamp** chống replay.
-- **Approval id binding** trên mỗi mutating request (server lưu consumed approvals).
-- **Local policy + audit log** ở gateway; raw shell chỉ chạy sau owner approval.
-- **OS adapters** (Linux/macOS/Windows) chạy native trên host, không qua Docker `nsenter`.
-
-Gateway install/update/admin details live in [services/system_gateway/README.md](services/system_gateway/README.md).
-Install guidance phải lấy từ `gateway_admin install` hoặc `gateway_admin install_hint`.
-Khi owner đưa thư mục cài March7 trên host, truyền path đó vào `install_path`;
-tool sẽ sinh lệnh `cd <repo> && python3 scripts/bootstrap_system_gateway.py`.
-Nếu không có `install_path`, Evernight chỉ auto-fill path khi
-`SYSTEM_GATEWAY_BOOTSTRAP_REPO_ROOT` verify được marker
-`scripts/bootstrap_system_gateway.py` và `services/system_gateway/`; không
-verify được thì dùng placeholder `/path/to/march7`.
-
-## Prerequisites
-
-- Python `3.11+`
-- Docker + Docker Compose v2
-- Discord bot token(s) + API key LLM provider
-
-## Quick start
-
-**Docker (khuyến nghị):**
+Tạo `.env` từ mẫu và điền secret/token cần thiết, sau đó chạy:
 
 ```bash
-cd docker
-docker compose down
-DOCKER_BUILDKIT=1 docker compose build
-docker compose up -d
-docker compose logs -f
+cp .env.example .env
+docker compose -f docker/docker-compose.yml up -d --build
+docker compose -f docker/docker-compose.yml ps
+docker exec march7 curl -sf http://localhost:8000/.well-known/agent.json
+docker exec evernight curl -sf http://localhost:8001/.well-known/agent.json
 ```
 
-**Local Python:**
+Chạy local không dùng Docker:
 
 ```bash
 pip install -r requirements.txt
-python -m gateway                 # bot chính (gateway + March7 + A2A)
-# hoặc chạy A2A standalone để dev/test từng agent:
-python -m twin.march7             # March7 A2A server dev fallback
-python -m twin.evernight          # Evernight A2A server dev fallback
+python -m gateway
+python -m twin.evernight
 ```
 
-> [!TIP]
-> Health: `http://localhost:8000/.well-known/agent.json`, `http://localhost:8001/.well-known/agent.json`.
+Xem [docker/README.md](docker/README.md) và [.agents/PROJECT_CONTEXT.md](.agents/PROJECT_CONTEXT.md) để biết runtime chi tiết.
 
 ## Cấu hình
 
-Nhóm env vars chính (chi tiết ở [.agents/PROJECT_CONTEXT.md](.agents/PROJECT_CONTEXT.md)):
+Các nhóm env quan trọng là `REDIS_URL`, `TIMELINE_REDIS_DB`,
+`CODEBOX_API_URL`, `LLM_PROVIDER`, `OPENAI_API_URL`/`OPENAI_MODEL` hoặc
+`GEMINI_*`, `EMBEDDING_PROVIDER`, `EMBEDDING_API_URL`,
+`EMBEDDING_MODEL_NAME`, `EMBEDDING_VECTOR_SIZE`,
+`DISCORD_MARCH7_TOKEN`, `DISCORD_EVERNIGHT_TOKEN`, `MARCH7_A2A_PORT`, và
+`EVERNIGHT_A2A_PORT`. Container gọi dịch vụ trên host qua
+`host.docker.internal`, không dùng `localhost`. Không in `.env` hoặc secret vào
+log/chat. Chi tiết provider ở [twin/shared/llm/README.md](twin/shared/llm/README.md).
 
-- Shared: `REDIS_URL`, `TIMELINE_REDIS_DB`, `CODEBOX_API_URL`, `SYSTEM_GATEWAY_URL`
-- March7: `MARCH7_A2A_PORT`, `MARCH7_REDIS_DB`, `MARCH7_PERSONA_PATH`
-- Evernight: `EVERNIGHT_A2A_PORT`, `EVERNIGHT_REDIS_DB`, `POLL_INTERVAL`, `SELF_HEAL_ENABLED`
-- Discord/Gateway: `DISCORD_MARCH7_TOKEN`, `DISCORD_EVERNIGHT_TOKEN`, `GATEWAY_ENABLED_PLATFORMS`
-- T1 budget: `T1_CONTEXT_MAX_TOKENS`, `T1_CONTEXT_MAX_MESSAGES`
-- Embeddings/T2: `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL_NAME`, `EMBEDDING_VECTOR_SIZE`, `EMBEDDING_API_URL`, `EMBEDDING_API_KEY`
-- LLM: `LLM_PROVIDER`, `OPENAI_API_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL` (OpenAI-compat; đặt URL/key theo provider)
-
-> [!NOTE]
-> Docker dùng `redis/redis-stack-server` — cùng service phục vụ cả T1 và T2.
-
-> [!IMPORTANT]
-> Mọi entrypoint gọi `load_dotenv(override=True)` — file `.env` LUÔN đè block `environment:` trong docker-compose. **`.env` là nguồn sự thật.** Sau khi đổi `.env`, recreate container (không cần rebuild image):
-> ```bash
-> docker compose -f docker/docker-compose.yml up -d --force-recreate march7 evernight
-> ```
-
-LLM + embeddings (OpenAI-compat / Gemini native qua factory): xem [twin/shared/llm/README.md](twin/shared/llm/README.md).
-
-## Development & testing
+## Phát triển và kiểm thử
 
 ```bash
-pytest tests/unit/ -v
-pytest tests/integration/ -v
-pytest tests/e2e/ -v
+python -m pytest tests/unit -q
+python -m pytest tests/gateway -q
+python -m pytest services/system_gateway/tests -q -p no:phoenix
+python -m pytest tests -q \
+  --ignore=tests/unit/discord_send_response_test.py \
+  --ignore=tests/unit/evernight_discord_adapter_test.py \
+  --ignore=tests/unit/system_gateway_cli_test.py \
+  -p no:phoenix
 ```
 
-## Troubleshooting
+Baseline hiện tại của lệnh cuối: `487 passed, 6 skipped`. Hướng dẫn chọn test
+nằm ở [.agents/TESTING_GUIDE.md](.agents/TESTING_GUIDE.md).
 
-> [!WARNING]
-> Bash Executor là tool đặc quyền. Bật khi cần và giữ luồng approve theo [scripts/README.md](scripts/README.md).
+## Xử lý sự cố
 
-- Trạng thái containers: `docker compose -f docker/docker-compose.yml ps`
-- Logs: `docker compose -f docker/docker-compose.yml logs -f march7 evernight`
-- A2A health: port `8000` và `8001`
-- **Ollama**: phải bind `0.0.0.0:11434` (`OLLAMA_HOST=0.0.0.0:11434 ollama serve`) để container gọi được qua `OPENAI_API_URL=http://host.docker.internal:11434/v1`.
-- **Đổi embedding dim**: sau khi đổi `EMBEDDING_VECTOR_SIZE`, drop và tạo lại RediSearch index `timeline_summaries` (T2 data cũ không tương thích).
-
-## Tài liệu liên quan
-
-- [.agents/](.agents/) — agent guidance (start: [README.md](.agents/README.md))
-- [services/system_gateway/README.md](services/system_gateway/README.md) — native host gateway architecture, install, security, and runbook
-- [twin/shared/llm/README.md](twin/shared/llm/README.md) — LLM + embedding config
-- [scripts/README.md](scripts/README.md) — System Gateway bootstrap and operational scripts
-- [docker/README.md](docker/README.md) — Docker runbook
+- Kiểm tra container: `docker compose -f docker/docker-compose.yml ps` và
+  `docker compose -f docker/docker-compose.yml logs -f march7 evernight`.
+- T2 phải dùng Redis DB `0`; đổi dimension embedding hoặc kiểu index cần xử lý
+  lại RediSearch index `timeline_summaries`.
+- `docker compose down -v` xóa volume Redis và dữ liệu T1/T2; chỉ dùng khi
+  muốn reset dữ liệu.
+- System Gateway native chạy ngoài Docker trên `127.0.0.1:8380`; xem
+  [services/system_gateway/README.md](services/system_gateway/README.md) để cài
+  đặt và kiểm tra approval boundary.

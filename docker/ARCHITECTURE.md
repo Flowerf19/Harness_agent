@@ -45,9 +45,12 @@ Evernight owns its own Discord interaction surface and background work:
 
 - independent DM/tag/`!9` chat
 - notification and approval DMs for work March7 needs to report or request
-- inactivity consolidation
-- T2 timeline consolidation/search support
+- consolidation for Evernight user scopes and processing of March7 A2A payloads
 - self-heal monitor
+
+Both agents can use the `search_memory` tool for T2 timeline retrieval; T2
+storage is shared on Redis DB 0 while each agent's T1 active memory uses its own
+Redis DB.
 
 Evernight must use March7 A2A for March7 memory. It should not read March7 T1 Redis keys directly.
 

@@ -16,8 +16,9 @@ Rules for coding agents working in this repository.
     enough.
   - Never bypass the gateway by having Evernight or March7 execute host
     commands through Redis, Docker socket, or any other side channel.
-  - Raw shell is denied by default; enabling it requires explicit config and
-    still requires owner approval.
+  - `SYSTEM_GATEWAY_RAW_SHELL` is an emergency kill switch and defaults to
+    `true` in the native service; even when enabled, raw shell still requires
+    owner approval.
   - Do not log the shared secret or approval tokens.
 - Keep the March7/Evernight A2A boundary intact. Evernight must not read or
   clear March7 T1 state by direct Redis key access.
@@ -34,11 +35,12 @@ Rules for coding agents working in this repository.
 - Make small, task-scoped changes. Avoid broad refactors, speculative abstractions, unrelated formatting, and new tooling unless requested.
 - If a change affects runtime flow, env vars, Docker, memory schema, or public
   behavior, update relevant docs in this folder and project READMEs.
-- If touching `gateway/`, first check
-  [plans/gateway-platform-abstraction.md](plans/gateway-platform-abstraction.md).
-  Until that plan is implemented, avoid adding new dependencies from
-  `twin/shared/*`, `twin/march7/*`, or gateway core files back into
-  `gateway.adapters.discord`.
+- If touching `gateway/`, first check the current gateway status in
+  [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) and
+  [../ARCHITECTURE.md](../ARCHITECTURE.md). Keep Discord SDK concerns in
+  `gateway.adapters.discord`; do not add new dependencies from
+  `twin/shared/*`, `twin/march7/*`, or gateway core files back into that adapter
+  layer.
 
 ## Skills
 
@@ -81,10 +83,11 @@ Update upstream: `cd ~/.claude/skills && git pull`.
 - **No Zalo adapter implementation exists yet.** `gateway/adapters/factory.py`
   raises `NotImplementedError` for `zalo`. Treat Zalo as planned/held until the
   Zalo webhook/token settings and adapter contract are defined.
-- **Run tests through the conda env interpreter.** Use
-  `conda run -n discord_bot python -m pytest ...`, not
-  `conda run -n discord_bot pytest ...`; the latter may resolve to the wrong
-  pytest executable/interpreter.
+- **Run tests through the project interpreter.** Prefer `python -m pytest ...`
+  from an environment with the repository dependencies installed. When the
+  `discord_bot` Conda environment exists, use
+  `conda run -n discord_bot python -m pytest ...`; do not assume that
+  environment exists on every host and do not use bare `pytest`.
 - T3 storage is Markdown via `MarkdownProfileStore`, not YAML.
 - `README.md` is the project README filename currently used at repo root.
 - Root lint/format/type-check config is not currently established; do not add
@@ -96,8 +99,11 @@ Update upstream: `cd ~/.claude/skills && git pull`.
   channel scope summaries with `user_id=channel_id`. Channel scope is
   consolidated via A2A with shipped entries; do not invent channel sentinel ids
   as `user_id` in `TimelineSummaryStore`.
-- The legacy local Python consolidation paths (including `DiscussionConsolidator`, `consolidate_t2_memory`, `Consolidator`, `CleanupScheduler`, `TimelineStore`, `TimelineSearch`, and `T2Memory`) were removed. Current flow uses **A2A Consolidation**: `InactivityTrigger` on Evernight detects idle scopes → March7 sends task via `ConsolidationClient` (A2A) with shipped T1 entries → Evernight runs `ConsolidateMemoryTool` using those shipped entries (it does not re-read March7's T1) and writes to `TimelineSummaryStore` / `MarkdownProfileStore`.
-- Each agent builds the shared stack (`ActiveMemory`, `MarkdownProfileStore`, `TimelineSummaryStore`) in its container. T2 RediSearch index must use Redis DB 0 (`TIMELINE_REDIS_DB=0`).
+- The legacy local Python consolidation paths (including `DiscussionConsolidator`, `consolidate_t2_memory`, `Consolidator`, `CleanupScheduler`, `TimelineStore`, `TimelineSearch`, and `T2Memory`) were removed. Current flow uses **A2A Consolidation**: `ActiveMemory` can invoke a consolidation callback when a scope reaches `TOKEN_THRESHOLD`; idle polling is provided by the standalone `twin.march7` entrypoint for user/channel scopes and by production Evernight for user scopes. March7 ships its T1 entries via `ConsolidationClient` and Evernight runs `ConsolidateMemoryTool` on those entries without re-reading March7's T1, then writes to `TimelineSummaryStore` / `MarkdownProfileStore`.
+- Each agent builds its own runtime from the shared components (`ActiveMemory`,
+  `MarkdownProfileStore`, `TimelineSummaryStore`). T1 uses isolated agent Redis
+  DBs (`MARCH7_REDIS_DB=0`, `EVERNIGHT_REDIS_DB=1`); the T2 RediSearch index is
+  shared on Redis DB 0 (`TIMELINE_REDIS_DB=0`).
 - **`twin/shared/tools/` consolidated 2026-05-26.** Core types live in `twin.shared.tools.registry`; individual tool classes live under `twin/shared.tools.modules.<domain>.<tool>` (domains: `execution`, `memory`, `profile`, `web`). The paths `twin.shared.tools.base_tool` / `tool_registry` / `tool_discovery` / `implementations.system.*` no longer exist — do not recreate them.
 - **LLM/embedding endpoints chạy trên host phải dùng `host.docker.internal`, không phải `localhost`.** Container march7/evernight có `extra_hosts: host.docker.internal:host-gateway` trong compose; `localhost` trong `.env` sẽ trỏ vào chính container và fail với `Cannot connect to host localhost:<port>`. Áp dụng cho `OPENAI_API_URL`, `EMBEDDING_API_URL`, `LM_STUDIO_API_URL`, `TOOL_LLM_ENDPOINT`. Service nội-mạng Docker (redis, codebox, evernight) thì dùng service name.
 - **Docker entry for March7 is `python -m gateway`** (`gateway/__main__.py`),

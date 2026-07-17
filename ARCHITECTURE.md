@@ -1,16 +1,14 @@
 # March7 — Architecture Review
 
-Single-source architecture overview for owner review. Grounded in the working
-tree on 2026-06-25 (branch `feat/agent-action-loop`, uncommitted since
-`ab5865f`). For per-symbol detail, query CodeGraph; this doc intentionally avoids
-file-structure dumps.
+Single-source architecture overview for owner review. It records the current
+runtime boundaries and verified security behavior; use CodeGraph for per-symbol
+detail rather than turning this document into a file inventory.
 
 Related docs (read alongside, not duplicated here):
 
 - `.agents/PROJECT_CONTEXT.md` — runtime modes, env vars, memory tiers.
 - `.agents/AGENT_RULES.md` — safety invariants and verified gotchas.
 - `docker/ARCHITECTURE.md` — Docker ownership map.
-- `.agents/plans/system-gateway.md` — phase-by-phase plan status.
 - `.agents/notes/system-gateway-debug-verification.md` — independent security
   verification (the source of the gaps flagged below).
 - `services/system_gateway/README.md` — threat model, API, env vars, runbook.
@@ -29,7 +27,7 @@ flowchart TB
     GW["host.docker.internal:8380<br/>(extra_hosts: host-gateway)<br/>HostGatewayClient · HMAC + approval token"]
     subgraph Host["② Host OS — loopback 127.0.0.1:8380"]
         SG["<b>System Gateway</b><br/>services/system_gateway/<br/>native service · NOT containerized · OS boundary"]
-        OS["③ Real host OS + Docker daemon<br/>Linux: full adapter · macOS/Windows: stubs"]
+        OS["③ Real host OS + Docker daemon<br/>platform-specific shell adapters"]
     end
     M -. HMAC-signed .-> GW
     E -. HMAC-signed .-> GW
@@ -69,12 +67,14 @@ stage.
 Background consolidation and self-heal agent. Independent Discord surface:
 DMs and `!9` prefix, A2A server on port 8001. Owns:
 
-- Inactivity-triggered consolidation (sends tasks to March7 via A2A; March7
-  then calls Evernight's `ConsolidateMemoryTool`).
+- Consolidation for its own user scopes and processing of March7 A2A payloads.
+  March7 ships T1 snapshots to Evernight, where `ConsolidateMemoryTool`
+  processes those shipped entries.
 - Owner approval delivery for host actions (DM approval backend).
 - `GatewayMonitor` + `SelfHealMonitor` — polls March7 health and the native
-  gateway; can request `container.restart` through System Gateway with an
-  owner-minted approval token (`GatewayRecoveryExecutor`).
+  gateway and owns the gateway-backed container-recovery path. That path uses
+  `GatewayRecoveryExecutor` and is not verified until its approval action name
+  matches the native `/shell/run` contract.
 - `gateway_admin` tool (owner-only) for gateway `status` / `doctor` /
   `install_hint` / `update`.
 
@@ -84,22 +84,26 @@ directly.
 
 ## 3. Memory Tiers (shared)
 
-All memory source lives once under `twin/shared/memory/`. Both agents build
-the shared stack in their own container.
+All memory implementation lives once under `twin/shared/memory/`. Both agents
+build the same runtime components in their own container; T1 uses separate
+agent Redis DBs, T2 uses the shared RediSearch DB, and T3 uses the shared
+Markdown profile path.
 
 - **T1 Active** — Redis JSON, scoped `user` or `channel`. Short-term session
   context.
 - **T2 Timeline** — Redis Stack HASH with RediSearch `VECTOR HNSW` index
-  `timeline_summaries`. Semantic pre-flight retrieval. Requires
-  `TIMELINE_REDIS_DB=0`.
+  `timeline_summaries`. Retrieval is tool-only through `search_memory`; there is
+  no automatic semantic pre-flight. Requires `TIMELINE_REDIS_DB=0`.
 - **T3 Profile** — Markdown files via `MarkdownProfileStore`, default base
   `memories/`, 8 sections. The durable core memory; T1/T2 may be disposable
   in dev but T3 must not be deleted without confirmation.
 
-A2A Consolidation flow: `InactivityTrigger` (Evernight) detects idle scopes →
-March7 sends a task via `ConsolidationClient` to Evernight:8001 → Evernight
-runs `ConsolidateMemoryTool`, summarizing `ActiveMemory` into
-`TimelineSummaryStore` / `MarkdownProfileStore` in one LLM call.
+A2A Consolidation flow: `ActiveMemory` threshold callbacks can request
+consolidation directly. Idle polling is provided by the standalone March7
+entrypoint for user/channel scopes and by production Evernight for user scopes.
+On March7's A2A path, `ConsolidationClient` sends the T1 snapshot to
+Evernight:8001; Evernight runs `ConsolidateMemoryTool` on those shipped entries
+and writes `TimelineSummaryStore` / `MarkdownProfileStore`.
 
 ## 4. Tool Runtime
 
@@ -196,8 +200,9 @@ same token cannot be reused.
 
 `evaluate_shell_policy` (`policy.py`):
 
-- Raw shell is denied unless `SYSTEM_GATEWAY_RAW_SHELL=true`, and still
-  requires a valid approval token.
+- `SYSTEM_GATEWAY_RAW_SHELL` is an emergency kill switch and defaults to
+  `true` in the native service. When enabled, raw shell still requires a valid
+  approval token.
 - Replayed approval id → `APPROVAL_REPLAYED`.
 
 ### 5.6 Generic Shell Path
@@ -274,12 +279,10 @@ Verified strengths (from
 Verified gaps to flag for review:
 
 1. **`/self/update` has no server-side owner gate.** The owner check lives
-   only in the Evernight `gateway_admin` tool
-   (`gateway_admin_tool.py:85-94`, `_is_owner` compares `context.user_id` to
-   `owner_user_id`). The server's `self_update` handler
-   (`server.py:460-584`) validates that the approval token binds
-   `action="self.update"` + `actor`, but does **not** verify the actor is the
-   owner. Anyone holding `SYSTEM_GATEWAY_SHARED_SECRET` (Evernight container,
+   only in the Evernight `GatewayAdminTool._is_owner` check, which compares
+   `context.user_id` to `owner_user_id`. The server's `self_update` handler
+   validates that the approval token binds `action="self.update"` + `actor`,
+   but does **not** verify the actor is the owner. Anyone holding `SYSTEM_GATEWAY_SHARED_SECRET` (Evernight container,
    March7 container, any co-tenant) can mint a `self.update` token with
    `actor="evernight"` and the server returns **HTTP 200 "update accepted"**.
    Owner protection relies entirely on the client-side tool layer; if
@@ -309,8 +312,7 @@ Verified gaps to flag for review:
 
 5. **`install_hint` hallucination vector.** Evernight previously
    hallucinated `npx @anthropic-ai/system-gateway@latest install` when asked
-   for the install command. The real `build_bootstrap_hint("linux")`
-   (`twin/evernight/host_gateway/installer.py:82-107`) returns only a
+   for the install command. The real `build_bootstrap_hint("linux")` returns only a
    `cd <repo>` + `python3 scripts/bootstrap_system_gateway.py` command. The
    script owns secret sync, venv creation, package install, service install,
    restart, and health check — the model must not invent manual `pip` /
@@ -361,21 +363,23 @@ curl -sf http://localhost:8380/health
 - **Host-bound endpoints use `host.docker.internal`, never `localhost`.**
   Inside a container, `localhost` resolves to the container itself and
   fails. Applies to LLM/embedding endpoints and `SYSTEM_GATEWAY_URL`.
-- **Run tests through the conda env interpreter:**
-  `conda run -n discord_bot python -m pytest …`, not `conda run -n discord_bot pytest …`.
-- **T2 index**: after changing the T2 FT schema, drop and recreate
-  `FT.DROPINDEX timeline_summaries` then restart; `_create_index` skips if
-  the index exists.
-- **Repo hygiene — stray files already removed (2026-06-25):** the duplicate
-  `services/system_gateway2/` tree and the junk file `!` at repo root were
-  deleted before this doc was drawn. The entire System Gateway subsystem is
-  still **uncommitted since `ab5865f`** — commit is the remaining step.
+- **Run tests through the project interpreter:** prefer
+  `python -m pytest …`. Use `conda run -n discord_bot python -m pytest …`
+  only when that environment exists; do not use bare `pytest`.
+- **T2 index**: only dimension or index-type changes require
+  `FT.DROPINDEX timeline_summaries` and recreation. The current schema adds
+  `day`, `period_start`, and `period_end` with `FT.ALTER` without reindexing.
 
-## 10. Open Items Tracked Elsewhere
 
-- `tests/unit/system_gateway_adapter_test.py` (TASK-027) — missing-executable,
-  timeout, truncation, unauthorized-approver cases only partially covered.
-- Channel-button approver restriction (TASK-026, deferred).
-- `EVENT_APPROVAL_REQUESTED` emission (TASK-045, partial).
-- Audit log persistence (no task yet — flagged in §7.2).
-- Server-side owner gate for `/self/update` (no task yet — flagged in §7.1).
+## 10. Known Follow-ups
+
+- `/self/update` has no server-side owner identity check; owner enforcement is
+  currently in `GatewayAdminTool`.
+- Audit history is in memory and capped, so restart loses forensic history.
+- `EVENT_APPROVAL_REQUESTED` is defined but is not emitted.
+- Channel approval buttons are not restricted to the owner; owner-DM approval is
+  the safer current path.
+- Evernight's gateway-backed self-heal mints a `container.restart` approval
+  token but submits through `/shell/run`, whose server validates a `shell` token.
+  This action-name mismatch needs a code fix and focused test before that
+  recovery path is considered verified.
