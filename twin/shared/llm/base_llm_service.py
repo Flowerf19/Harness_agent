@@ -2,11 +2,11 @@
 
 import abc
 import logging
-import os
 import re
 from typing import Dict, List, Optional, Union
 
 from .llm_response import LLMResponse
+from .prompt_manager import PromptManager
 
 # Sentinel strings returned (not raised) by LLM services when generation fails
 # hard — e.g. the upstream endpoint resets the stream or returns a non-200.
@@ -28,21 +28,28 @@ class BaseLLMService(abc.ABC):
         self.logger = logging.getLogger(f"discord_bot.{self.__class__.__name__}")
         self.tool_registry = None
 
-        # persona_path: "memories" (legacy shared) or "twin/march7/personas" or "twin/evernight/personas"
-        self._persona_path = persona_path
-
-        # Load file tính cách từ Markdown (Static Persona)
-        self.static_identity = self._load_prompt("IDENTITY.md")
-        self.static_soul = self._load_prompt("SOUL.md")
-        self.static_persona_extras = self._load_extra_persona_prompts()
+        self.prompt_manager = PromptManager(persona_path, logger=self.logger)
         self.tool_prompt_catalog = None
 
     def reload_persona_prompts(self) -> None:
         """Reload persona Markdown after a runtime persona update."""
-        self.static_identity = self._load_prompt("IDENTITY.md")
-        self.static_soul = self._load_prompt("SOUL.md")
-        self.static_persona_extras = self._load_extra_persona_prompts()
+        self.prompt_manager.reload()
         self.logger.info("Persona prompts đã được reload")
+
+    @property
+    def static_identity(self) -> str:
+        """Compatibility view of the identity prompt owned by PromptManager."""
+        return self.prompt_manager.identity
+
+    @property
+    def static_soul(self) -> str:
+        """Compatibility view of the soul prompt owned by PromptManager."""
+        return self.prompt_manager.soul
+
+    @property
+    def static_persona_extras(self) -> list[str]:
+        """Compatibility view of extra persona prompts."""
+        return self.prompt_manager.extras
 
     def set_tool_registry(self, tool_registry) -> None:
         """Inject ToolRegistry vào LLM Service để lấy tool schemas."""
@@ -53,53 +60,6 @@ class BaseLLMService(abc.ABC):
         """Inject lazy tool prompt catalog for the short system prompt."""
         self.tool_prompt_catalog = tool_prompt_catalog
         self.logger.debug("ToolPromptCatalog đã được inject vào LLM Service")
-
-    def _load_prompt(self, filename: str) -> str:
-        """Load prompt content from persona_path."""
-        try:
-            base_dir = os.path.dirname(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-            )
-            filepath = os.path.join(base_dir, self._persona_path, filename)
-            if os.path.exists(filepath):
-                with open(filepath, "r", encoding="utf-8") as f:
-                    content = f.read().strip()
-                    self.logger.debug(f"✅ Loaded prompt: {filename} from {self._persona_path}")
-                    return content
-            else:
-                self.logger.warning(f"⚠️ Prompt file not found: {filepath}")
-                return ""
-        except Exception as e:
-            self.logger.error(f"❌ Error loading prompt {filename}: {e}")
-            return ""
-
-    def _load_extra_persona_prompts(self) -> list[str]:
-        """Load non-empty persona Markdown files beyond IDENTITY.md and SOUL.md."""
-        try:
-            base_dir = os.path.dirname(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-            )
-            persona_dir = os.path.join(base_dir, self._persona_path)
-            if not os.path.isdir(persona_dir):
-                return []
-
-            prompts: list[str] = []
-            for filename in sorted(os.listdir(persona_dir)):
-                if filename in {"IDENTITY.md", "SOUL.md"}:
-                    continue
-                if filename.startswith(".") or not filename.endswith(".md"):
-                    continue
-                filepath = os.path.join(persona_dir, filename)
-                if not os.path.isfile(filepath):
-                    continue
-                with open(filepath, "r", encoding="utf-8") as f:
-                    content = f.read().strip()
-                if content:
-                    prompts.append(f"## {filename}\n{content}")
-            return prompts
-        except Exception as e:
-            self.logger.error(f"❌ Error loading extra persona prompts: {e}")
-            return []
 
     def _build_final_system_prompt(
         self,
@@ -118,28 +78,14 @@ class BaseLLMService(abc.ABC):
                 utility calls (e.g. consolidation Summarizer) where the chat persona
                 is noise — the task lives entirely in the user message.
         """
-        parts = []
-
-        # 1. Nhét tính cách gốc của Bot vào trước (IDENTITY.md và SOUL.md)
-        if include_persona:
-            identity_parts = [part for part in (self.static_identity, *self.static_persona_extras) if part]
-            if identity_parts:
-                identity_prompt = "\n\n".join(identity_parts)
-                parts.append(f"=== NHÂN CÁCH CỦA BẠN ===\n{identity_prompt}")
-            if self.static_soul:
-                parts.append(f"=== HƯỚNG DẪN HỘI THOẠI ===\n{self.static_soul}")
-
-        # 2. Nhét micro-catalog tool. Full guide chỉ load sau khi chọn tool.
+        tool_catalog = ""
         if include_tool_catalog and self.tool_prompt_catalog:
             tool_catalog = self.tool_prompt_catalog.render_catalog()
-            if tool_catalog:
-                parts.append(f"=== CÔNG CỤ ===\n{tool_catalog}")
-
-        # 3. Nhét hồ sơ người dùng (Từ Tầng 3 gửi sang) vào sau
-        if dynamic_core_prompt:
-            parts.append(dynamic_core_prompt)
-
-        return "\n\n".join(parts)
+        return self.prompt_manager.build_system_prompt(
+            dynamic_core_prompt,
+            tool_catalog=tool_catalog,
+            include_persona=include_persona,
+        )
 
     # 🔴 CHỮ KÝ HÀM MỚI QUAN TRỌNG NHẤT
     # Note: Không dùng @traceable ở abstract method vì subclass đã có trace riêng

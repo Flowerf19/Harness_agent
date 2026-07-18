@@ -216,6 +216,14 @@ Consolidation** mechanism.
   dedups only on exact case-insensitive match, so paraphrased bullets accumulate.
   The profile is now merged directly during the A2A consolidation step via `ConsolidateMemoryTool` instead of relying on a separate `ProfileCurator` and `DebouncedScheduler`.
 - **`manage_user_profile` tool modes**: The tool supports both a single-section mode (modifying one specific section with `bullets` list) and a whole-file mode (accepting a `sections` map of all sections, where unspecified sections are deleted). Both modes check `expected_profile_hash` to guard against conflicts. Whole-file mode also supports an `allow_shrink` flag (default false) to prevent LLM errors or accidental large deletions from shrinking the profile by >50%.
+- **Persona prompt lifecycle**: `twin/shared/llm/prompt_manager.py` owns loading,
+  caching, runtime placeholder rendering, and final assembly for each agent's
+  `IDENTITY.md`, `SOUL.md`, and extra persona Markdown files. `BaseLLMService`
+  delegates prompt construction and `reload_persona_prompts()` to that manager;
+  `UpdatePersonalityTool` calls the reload hook immediately after a successful
+  file rewrite, so the same agent process uses the new prompt on its next turn.
+  Runtime-only values come from `twin/shared/llm/prompts/runtime.md` and are
+  appended after static prompt content to preserve provider prefix-cache reuse.
 - **Agent loop (Think/Act)**: Chat/tool orchestration lives in `twin/shared/agent/agent_loop.py`. The loop is `Think(Decide) -> Think(Refine) -> Act -> ... -> Think(Decide)`. `Think` is the only LLM-facing stage and keeps the bot's persona by going through the existing LLM service prompt builder. `Act` is pure tool execution: it has no LLM access, loads no persona, and only calls `ToolRegistry.execute_tool`. `Think(Decide)` either answers the user directly or selects the next tool; `Think(Refine)` remains the mandatory selected-tool validation pass before execution. Refine cancellation/error and loop-limit exits ask a final `Think(Decide)` pass with native tools disabled; there is no separate Resolve stage. `BaseLLMService.generate_response` accepts `include_tool_catalog`; only `Think(Decide)` passes `True`, while `Think(Refine)` receives the selected-tool guide and no full catalog. Prerequisite routing is still supported: if the tool selected in pass 1 lacks required arguments, `Think(Refine)` may switch to a prerequisite tool (e.g. `get_profile` to obtain `expected_profile_hash` for `manage_user_profile`).
 
 ## Memory Tiers

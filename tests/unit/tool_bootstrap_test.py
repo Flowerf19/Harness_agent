@@ -238,6 +238,7 @@ async def test_update_personality_reloads_llm_persona_cache(tmp_path):
     (persona_dir / "VOICE.md").write_text("old voice", encoding="utf-8")
 
     llm = DummyPersonaLLM(persona_path=str(persona_dir))
+    prompt_manager = llm.prompt_manager
     result = build_tool_registry(
         agent_name="march7",
         core_manager=None,
@@ -254,6 +255,8 @@ async def test_update_personality_reloads_llm_persona_cache(tmp_path):
         },
     )
 
+    assert llm.prompt_manager is prompt_manager
+    assert prompt_manager.soul == "Nói ngắn gọn hơn trong mọi câu trả lời."
     assert llm.static_soul == "Nói ngắn gọn hơn trong mọi câu trả lời."
     assert "Nói ngắn gọn hơn" in llm._build_final_system_prompt("")
     assert "old voice" in llm._build_final_system_prompt("")
