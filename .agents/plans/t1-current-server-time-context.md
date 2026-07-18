@@ -8,9 +8,10 @@ last_updated: 2026-07-18
 
 ## Summary
 
-Render a `{{current_time}}` placeholder from a final runtime prompt template at
-system prompt assembly time. Keep static persona content cacheable and do not
-change T1 storage, gateway timestamps, or message contents.
+Keep server-local current time out of static persona/system prompt assembly.
+Each `Think` inference attaches fresh runtime time to a copied stage message;
+Decide keeps persona while Refine receives its task context without persona.
+Persisted T1 entries and gateway timestamps remain unchanged.
 
 ### GOAL-001: Add a server-time prompt anchor
 
@@ -38,17 +39,28 @@ change T1 storage, gateway timestamps, or message contents.
 | TASK-010 | Run focused and broad unit verification. | ✓ | 2026-07-18 |
 | TASK-011 | Move `{{current_time}}` from the start of `SOUL.md` to a final runtime template so the static prompt prefix remains cacheable. | ✓ | 2026-07-18 |
 
+### GOAL-004: Move runtime context to Think stages
+
+| ID | Task | Done | Date |
+|----|------|------|------|
+| TASK-012 | Remove runtime placeholder/file ownership from `PromptManager`; keep it focused on static persona loading and assembly. | ✓ | 2026-07-18 |
+| TASK-013 | Attach fresh server time to each `Think` stage message without mutating persisted T1 messages. | ✓ | 2026-07-18 |
+| TASK-014 | Omit persona prompts from `Think(Refine)` while retaining its tool guide, dynamic context, conversation, and runtime time. | ✓ | 2026-07-18 |
+| TASK-015 | Add focused stage/prompt regression tests and run the relevant unit suites. | ✓ | 2026-07-18 |
+| TASK-016 | Synchronize architecture guidance with stage-owned runtime context and persona-free Refine. | ✓ | 2026-07-18 |
+
 ## Test Plan
 
-- Construct `PromptManager` with a fixed clock and assert the exact timestamp replaces the placeholder.
-- Assert final system prompts for both personas pass through `PromptManager` and contain the rendered time.
-- Assert no unresolved `{{current_time}}` appears in the final system prompt.
 - Rewrite a persona file through `UpdatePersonalityTool` and assert the same `PromptManager` instance exposes the new content immediately.
-- Assert runtime time is appended after dynamic context and omitted for `include_persona=False` utility prompts.
+- Assert static system-prompt assembly contains no runtime timestamp.
+- Assert every `Think` call receives a fresh server time in a copied stage message.
+- Assert `Think(Decide)` includes persona while `Think(Refine)` omits it.
+- Assert runtime injection does not mutate the T1 message list owned by the agent loop.
 - Run focused LLM prompt and memory test suites.
 
 ## Assumptions
 
 - The server clock and server-local timezone are configured correctly by deployment.
-- `PromptManager` only recognizes `{{current_time}}`; unknown template text remains literal.
 - Relative persona paths resolve from the repository root; absolute paths remain supported for tests/runtime overrides.
+- Runtime time is server-local and formatted as `YYYY-MM-DD HH:MM:SS`.
+- Runtime context is stage input, not persisted T1 content or global persona content.

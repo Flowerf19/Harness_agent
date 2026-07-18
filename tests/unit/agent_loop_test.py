@@ -35,6 +35,7 @@ class FakeLLM:
         include_tool_catalog=True,
         max_tokens=None,
         tool_choice=None,
+        include_persona=True,
     ):
         self.calls.append(
             {
@@ -42,6 +43,7 @@ class FakeLLM:
                 "system_prompt": system_prompt,
                 "use_native_tools": use_native_tools,
                 "include_tool_catalog": include_tool_catalog,
+                "include_persona": include_persona,
                 "max_tokens": max_tokens,
             }
         )
@@ -147,6 +149,7 @@ async def test_no_tool_path_returns_decide_text_directly():
     # Decide
     assert llm.calls[0]["use_native_tools"] is True
     assert llm.calls[0]["include_tool_catalog"] is True
+    assert llm.calls[0]["include_persona"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +196,9 @@ async def test_one_tool_path_order():
     assert llm.calls[0]["include_tool_catalog"] is True
     assert llm.calls[1]["include_tool_catalog"] is False
     assert llm.calls[2]["include_tool_catalog"] is True
+    assert llm.calls[0]["include_persona"] is True
+    assert llm.calls[1]["include_persona"] is False
+    assert llm.calls[2]["include_persona"] is True
 
     # First-tool-only: only search_memory executed, web_search deferred
     assert registry.calls == [

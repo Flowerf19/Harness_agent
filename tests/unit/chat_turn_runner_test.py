@@ -31,6 +31,7 @@ class FakeLLM:
         include_tool_catalog=True,
         max_tokens=None,
         tool_choice=None,
+        include_persona=True,
     ):
         self.calls.append(
             {
@@ -38,6 +39,7 @@ class FakeLLM:
                 "system_prompt": system_prompt,
                 "use_native_tools": use_native_tools,
                 "include_tool_catalog": include_tool_catalog,
+                "include_persona": include_persona,
                 "max_tokens": max_tokens,
             }
         )

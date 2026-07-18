@@ -88,7 +88,8 @@ class FakeLLM:
         return "FakeLLM"
 
     async def generate_response(
-        self, messages, system_prompt, use_native_tools, include_tool_catalog=True, max_tokens=None, tool_choice=None
+        self, messages, system_prompt, use_native_tools, include_tool_catalog=True,
+        max_tokens=None, tool_choice=None, include_persona=True
     ):
         self.last_messages = list(messages)
         self.last_system_prompt = system_prompt
@@ -145,7 +146,15 @@ async def test_handle_chat_in_channel_loads_channel_scope_only():
         }
     ]
     seen = agent._fake_llm.last_messages  # type: ignore[attr-defined]
-    assert seen == [{"role": "user", "content": "Hoà: Năm 2070+10 bằng?"}]
+    assert len(seen) == 1
+    assert seen[0]["role"] == "user"
+    assert seen[0]["content"].startswith(
+        "Hoà: Năm 2070+10 bằng?\n\nThời gian hiện tại: "
+    )
+    assert memory.channel_scope_msgs["c1"][0] == {
+        "role": "user",
+        "content": "Hoà: Năm 2070+10 bằng?",
+    }
     # DM-only contamination must not appear in the LLM context for a channel turn.
     contents = [m.get("content", "") for m in seen]
     assert not any("kiểm tra tool" in c for c in contents)
