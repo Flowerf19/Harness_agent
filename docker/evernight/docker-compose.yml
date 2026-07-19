@@ -20,6 +20,7 @@ services:
       - ../../.env
     environment:
       # Evernight-owned runtime
+      - TZ=Asia/Ho_Chi_Minh
       - AGENT_NAME=evernight
       - EVERNIGHT_A2A_PORT=8001
       - EVERNIGHT_REDIS_DB=1

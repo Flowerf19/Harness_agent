@@ -17,6 +17,12 @@ from discord.ext import commands
 from underthesea import sent_tokenize
 
 from gateway.adapters.discord.approval import build_discord_approval_context
+from gateway.adapters.discord.adapter import (
+    RECONNECT_BASE_DELAY,
+    RECONNECT_MAX_DELAY,
+    _is_auth_error,
+    _is_network_error,
+)
 from gateway.adapters.discord.converter import DiscordMessageConverter
 from gateway.core.handler import GatewayChatHandler
 from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
@@ -281,17 +287,43 @@ class EvernightDiscordAdapter:
         """Start the Discord bot."""
         if not self._token:
             raise RuntimeError("Evernight Discord token not set")
-        self._task = asyncio.create_task(self._bot.start(self._token))
-        self._task.add_done_callback(self._on_done)
+        self._task = asyncio.create_task(self._run_supervised(self._token))
         logger.info("Evernight adapter: bot.start() task created")
 
-    def _on_done(self, task: asyncio.Task) -> None:
-        try:
-            task.result()
-        except asyncio.CancelledError:
-            logger.info("Evernight bot task cancelled")
-        except Exception as exc:
-            logger.exception("Evernight bot task exited with error: %s", exc)
+    async def _run_supervised(self, token: str) -> None:
+        """Run bot.start() and auto-reconnect through login-time failures.
+
+        Mirrors DiscordPlatformAdapter._run_supervised: discord.py's
+        reconnect=True does not cover the initial login(), so a DNS failure at
+        container boot would kill the bot permanently without this loop.
+        """
+        attempt = 0
+        while True:
+            try:
+                await self._bot.start(token, reconnect=True)
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if _is_auth_error(exc):
+                    logger.error("Evernight Discord auth error (not retrying): %s", exc)
+                    return
+                if _is_network_error(exc):
+                    logger.warning("Evernight Discord connection lost (network error): %s", exc)
+                else:
+                    logger.exception("Evernight bot task exited with error")
+                delay = min(RECONNECT_BASE_DELAY * (2 ** attempt), RECONNECT_MAX_DELAY)
+                attempt += 1
+                logger.info(
+                    "Reconnecting Evernight Discord bot in %.1fs (attempt %d)",
+                    delay, attempt,
+                )
+                await asyncio.sleep(delay)
+                try:
+                    await self._bot.close()
+                except Exception:
+                    pass
+                self._bot.clear()
 
     async def disconnect(self) -> None:
         """Stop the Discord bot."""

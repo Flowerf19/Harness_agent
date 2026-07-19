@@ -29,6 +29,33 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Reconnect backoff for login-time network failures (DNS not ready at container
+# boot, transient outages). discord.py's own reconnect=True only covers drops
+# AFTER a successful connect — the initial login() is not covered, so the
+# adapter supervises it here.
+RECONNECT_BASE_DELAY = 2.0  # seconds
+RECONNECT_MAX_DELAY = 60.0  # seconds
+
+_NETWORK_ERROR_MARKERS = (
+    "name resolution", "gaierror", "connectordnserror",
+    "connection refused", "network is unreachable",
+    "temporary failure", "ssl handshake",
+)
+_AUTH_ERROR_MARKERS = (
+    "privileged intent", "disallowed intent",
+    "token is invalid", "login failed",
+)
+
+
+def _is_network_error(exc: Exception) -> bool:
+    """True when *exc* is a transient network failure worth retrying."""
+    return any(kw in str(exc).lower() for kw in _NETWORK_ERROR_MARKERS)
+
+
+def _is_auth_error(exc: Exception) -> bool:
+    """True when *exc* is a credential/intent failure that retrying won't fix."""
+    return any(kw in str(exc).lower() for kw in _AUTH_ERROR_MARKERS)
+
 
 class DiscordPlatformAdapter(PlatformAdapter):
     """Adapter that bridges the existing Discord ``CoreBot`` with the gateway."""
@@ -208,33 +235,53 @@ class DiscordPlatformAdapter(PlatformAdapter):
         if not token:
             raise RuntimeError(f"Discord token not set for {self._bot_name} bot")
 
-        self._task = asyncio.create_task(self._bot.start(token))
-        self._task.add_done_callback(self._on_bot_done)
+        self._task = asyncio.create_task(self._run_supervised(token))
         logger.info(f"Discord adapter: {self._bot_name} bot.start() task created")
 
-    def _on_bot_done(self, task: asyncio.Task) -> None:
-        try:
-            task.result()
-        except asyncio.CancelledError:
-            logger.info(f"Discord bot {self._bot_name} task cancelled")
-        except Exception as exc:
-            self._classify_bot_error(exc)
+    async def _run_supervised(self, token: str) -> None:
+        """Run bot.start() and auto-reconnect through login-time failures.
 
-    def _classify_bot_error(self, exc: Exception) -> None:
-        error_str = str(exc).lower()
-        if any(kw in error_str for kw in (
-            "name resolution", "gaierror", "connectordnserror",
-            "connection refused", "network is unreachable",
-            "temporary failure", "ssl handshake",
-        )):
-            logger.warning(f"Discord connection lost (network error) for {self._bot_name}: {exc}")
-        elif any(kw in error_str for kw in (
-            "privileged intent", "disallowed intent",
-            "token is invalid", "login failed",
-        )):
-            logger.error(f"Discord auth error for {self._bot_name}: {exc}")
-        else:
-            logger.exception(f"Discord bot {self._bot_name} task exited with error")
+        discord.py's reconnect=True only kicks in after a successful connect,
+        so a DNS failure during login() (common when the container boots before
+        DNS is ready) would otherwise kill the bot for good. This loop retries
+        network failures with capped exponential backoff and reuses the same
+        client (close + clear, keeping registered event listeners).
+        """
+        attempt = 0
+        while True:
+            try:
+                await self._bot.start(token, reconnect=True)
+                return  # start() returned cleanly (closed) — stop supervising.
+            except asyncio.CancelledError:
+                raise  # disconnect() cancelled us — propagate.
+            except Exception as exc:
+                if _is_auth_error(exc):
+                    logger.error(
+                        f"Discord auth error for {self._bot_name} (not retrying): {exc}"
+                    )
+                    return
+                if _is_network_error(exc):
+                    logger.warning(
+                        f"Discord connection lost (network error) for "
+                        f"{self._bot_name}: {exc}"
+                    )
+                else:
+                    logger.exception(
+                        f"Discord bot {self._bot_name} task exited with error"
+                    )
+                delay = min(RECONNECT_BASE_DELAY * (2 ** attempt), RECONNECT_MAX_DELAY)
+                attempt += 1
+                logger.info(
+                    "Reconnecting Discord bot %s in %.1fs (attempt %d)",
+                    self._bot_name, delay, attempt,
+                )
+                await asyncio.sleep(delay)
+                # Reset the client so start() can be called again.
+                try:
+                    await self._bot.close()
+                except Exception:
+                    pass
+                self._bot.clear()
 
     async def disconnect(self) -> None:
         if self._task and not self._task.done():
