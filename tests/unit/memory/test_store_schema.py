@@ -530,7 +530,7 @@ async def test_initialize_survives_alter_failure(caplog):
     assert any("FT.ALTER" in rec.message for rec in caplog.records)
 
 
-# ---------------------------------------------------------------- P2.2: diary upsert
+# ---------------------------------------------------------------- diary write path
 
 
 class DiaryRedis(FakeRedis):
@@ -547,19 +547,6 @@ class DiaryRedis(FakeRedis):
             self.search_calls.append(args)
             return self.search_reply
         return await super().execute_command(*args)
-
-
-class FakeEmbedder:
-    def __init__(self, dim: int = 8, fail: bool = False):
-        self.dim = dim
-        self.fail = fail
-        self.texts: list[str] = []
-
-    async def get_embedding(self, text: str) -> list[float]:
-        if self.fail:
-            raise RuntimeError("embed backend down")
-        self.texts.append(text)
-        return [0.5] * self.dim
 
 
 def _resp2_diary_hit(
@@ -622,8 +609,8 @@ async def test_store_summary_day_uses_vn_timezone_not_utc():
 
 
 @pytest.mark.asyncio
-async def test_store_summary_no_embedding_service_appends_without_merge_lookup():
-    """No embedding_service → append-only legacy behavior, zero FT.SEARCH."""
+async def test_store_summary_appends_without_knn_lookup():
+    """store_summary is append-only — zero FT.SEARCH on the write path."""
     redis = DiaryRedis()
     store = TimelineSummaryStore(redis_client=redis, embedding_dim=8)
 
@@ -631,183 +618,6 @@ async def test_store_summary_no_embedding_service_appends_without_merge_lookup()
 
     assert redis.search_calls == []
     assert len(redis.hset_calls) == 1
-
-
-@pytest.mark.asyncio
-async def test_diary_merge_same_day_overwrites_existing_doc(monkeypatch):
-    monkeypatch.setattr(Config, "T2_MERGE_MIN_COSINE", 0.60)
-    monkeypatch.setattr(Config, "T2_MERGE_MAX_CHARS", 1500)
-    ps_old = _ts(datetime(2026, 7, 2, 2, 0, tzinfo=timezone.utc))
-    pe_old = _ts(datetime(2026, 7, 2, 3, 0, tzinfo=timezone.utc))
-    redis = DiaryRedis(_resp2_diary_hit(
-        summary_id="old-id", summary="Sáng làm dự án X.", score=0.25,  # cosine 0.75
-        importance=3, period_start=ps_old, period_end=pe_old,
-        source_entry_ids=["e1"],
-    ))
-    embedder = FakeEmbedder(dim=8)
-    store = TimelineSummaryStore(
-        redis_client=redis, embedding_dim=8, embedding_service=embedder,
-    )
-
-    ps_new = _ts(datetime(2026, 7, 2, 4, 0, tzinfo=timezone.utc))
-    pe_new = _ts(datetime(2026, 7, 2, 5, 0, tzinfo=timezone.utc))
-    sid = await store.store_summary(
-        user_id="u1",
-        summary="Chiều fix xong bug auth.",
-        embedding=[0.1] * 8,
-        importance=4,
-        period_start=ps_new,
-        period_end=pe_new,
-        source_entry_ids=["e2", "e1"],  # e1 dup — union must dedup
-    )
-
-    # Kept the OLD doc's id and overwrote its hash.
-    assert sid == "old-id"
-    assert len(redis.hset_calls) == 1
-    call = redis.hset_calls[0]
-    assert call["key"] == "timeline:summary:old-id"
-    m = call["mapping"]
-    assert m["summary"] == "Sáng làm dự án X.\nChiều fix xong bug auth."
-    assert m["importance"] == 4                      # max(3, 4)
-    assert m["period_start"] == ps_old               # min
-    assert m["period_end"] == pe_new                 # max
-    assert json.loads(m["source_entry_ids"]) == ["e1", "e2"]  # union, order-preserving
-    # Re-embedded the merged text (passage prefix + concat).
-    assert len(embedder.texts) == 1
-    assert embedder.texts[0].endswith("Sáng làm dự án X.\nChiều fix xong bug auth.")
-    assert m["embedding"] == struct.pack("8f", *([0.5] * 8))
-    # TTL reset per merged importance (4 → 180 days).
-    assert redis.expire_calls[-1] == ("timeline:summary:old-id", 180 * 86400)
-    # The merged doc must NOT rewrite user_id/topic/day (unchanged on the hash).
-    assert "user_id" not in m and "day" not in m
-
-
-@pytest.mark.asyncio
-async def test_diary_merge_candidate_query_filters_by_user_and_day(monkeypatch):
-    """The KNN lookup must be restricted to same user + same (escaped) VN day —
-    that filter IS the never-merge-across-days guarantee."""
-    monkeypatch.setattr(Config, "T2_MERGE_MIN_COSINE", 0.60)
-    redis = DiaryRedis([0])  # no candidates
-    store = TimelineSummaryStore(
-        redis_client=redis, embedding_dim=8, embedding_service=FakeEmbedder(dim=8),
-    )
-
-    ps = _ts(datetime(2026, 7, 2, 3, 0, tzinfo=timezone.utc))
-    await store.store_summary(
-        user_id="u1", summary="A.", embedding=[0.1] * 8, period_start=ps,
-    )
-
-    assert len(redis.search_calls) == 1
-    query = redis.search_calls[0][2]
-    assert "@user_id:{u1}" in query
-    assert "@day:{2026\\-07\\-02}" in query  # hyphens escaped for the TAG parser
-    assert "KNN 1" in query
-    # No merge hit → appended as a new doc with its own day field.
-    assert redis.hset_calls[0]["mapping"]["day"] == "2026-07-02"
-
-
-@pytest.mark.asyncio
-async def test_diary_merge_below_cosine_gate_appends(monkeypatch):
-    monkeypatch.setattr(Config, "T2_MERGE_MIN_COSINE", 0.60)
-    # score 0.55 → cosine 0.45 < 0.60 → no merge.
-    redis = DiaryRedis(_resp2_diary_hit(summary_id="old-id", summary="Khác chuyện.", score=0.55))
-    store = TimelineSummaryStore(
-        redis_client=redis, embedding_dim=8, embedding_service=FakeEmbedder(dim=8),
-    )
-
-    sid = await store.store_summary(user_id="u1", summary="B.", embedding=[0.1] * 8)
-
-    assert sid != "old-id"
-    assert redis.hset_calls[0]["key"] == f"timeline:summary:{sid}"
-    assert redis.hset_calls[0]["mapping"]["summary"] == "B."
-
-
-@pytest.mark.asyncio
-async def test_diary_merge_over_char_cap_appends(monkeypatch):
-    monkeypatch.setattr(Config, "T2_MERGE_MIN_COSINE", 0.60)
-    monkeypatch.setattr(Config, "T2_MERGE_MAX_CHARS", 50)
-    redis = DiaryRedis(_resp2_diary_hit(
-        summary_id="old-id", summary="X" * 45, score=0.2,  # cosine 0.8, would merge
-    ))
-    embedder = FakeEmbedder(dim=8)
-    store = TimelineSummaryStore(
-        redis_client=redis, embedding_dim=8, embedding_service=embedder,
-    )
-
-    sid = await store.store_summary(user_id="u1", summary="Y" * 10, embedding=[0.1] * 8)
-
-    # 45 + 1 + 10 = 56 > 50 → append new doc, no re-embed happened.
-    assert sid != "old-id"
-    assert embedder.texts == []
-    assert redis.hset_calls[0]["mapping"]["summary"] == "Y" * 10
-
-
-@pytest.mark.asyncio
-async def test_diary_merge_lookup_failure_falls_back_to_append(monkeypatch):
-    """FT.SEARCH blowing up (e.g. index missing the day field) must degrade
-    to append, never crash the consolidation write."""
-    monkeypatch.setattr(Config, "T2_MERGE_MIN_COSINE", 0.60)
-
-    class ExplodingSearchRedis(FakeRedis):
-        async def execute_command(self, *args):
-            if args[0] == "FT.SEARCH":
-                raise Exception("Unknown field `day`")
-            return await super().execute_command(*args)
-
-    redis = ExplodingSearchRedis()
-    store = TimelineSummaryStore(
-        redis_client=redis, embedding_dim=8, embedding_service=FakeEmbedder(dim=8),
-    )
-
-    sid = await store.store_summary(user_id="u1", summary="C.", embedding=[0.1] * 8)
-
-    assert sid
-    assert redis.hset_calls[0]["mapping"]["summary"] == "C."
-
-
-@pytest.mark.asyncio
-async def test_diary_merge_reembed_failure_falls_back_to_append(monkeypatch):
-    monkeypatch.setattr(Config, "T2_MERGE_MIN_COSINE", 0.60)
-    monkeypatch.setattr(Config, "T2_MERGE_MAX_CHARS", 1500)
-    redis = DiaryRedis(_resp2_diary_hit(summary_id="old-id", summary="Cũ.", score=0.2))
-    store = TimelineSummaryStore(
-        redis_client=redis, embedding_dim=8,
-        embedding_service=FakeEmbedder(dim=8, fail=True),
-    )
-
-    sid = await store.store_summary(user_id="u1", summary="Mới.", embedding=[0.1] * 8)
-
-    # Re-embed failed → appended a fresh doc with the ORIGINAL embedding.
-    assert sid != "old-id"
-    assert redis.hset_calls[0]["mapping"]["summary"] == "Mới."
-    assert redis.hset_calls[0]["mapping"]["embedding"] == struct.pack("8f", *([0.1] * 8))
-
-
-@pytest.mark.asyncio
-async def test_diary_merge_candidate_missing_period_fields_uses_new_span(monkeypatch):
-    """Merging into a doc that predates period_* (v2 doc that somehow got a
-    day tag, or partial write): the merged span falls back to the new batch's."""
-    monkeypatch.setattr(Config, "T2_MERGE_MIN_COSINE", 0.60)
-    monkeypatch.setattr(Config, "T2_MERGE_MAX_CHARS", 1500)
-    redis = DiaryRedis(_resp2_diary_hit(
-        summary_id="old-id", summary="Cũ.", score=0.2,  # no period_*, no source ids
-    ))
-    store = TimelineSummaryStore(
-        redis_client=redis, embedding_dim=8, embedding_service=FakeEmbedder(dim=8),
-    )
-
-    ps = _ts(datetime(2026, 7, 2, 4, 0, tzinfo=timezone.utc))
-    pe = _ts(datetime(2026, 7, 2, 5, 0, tzinfo=timezone.utc))
-    sid = await store.store_summary(
-        user_id="u1", summary="Mới.", embedding=[0.1] * 8,
-        period_start=ps, period_end=pe, source_entry_ids=["e9"],
-    )
-
-    assert sid == "old-id"
-    m = redis.hset_calls[0]["mapping"]
-    assert m["period_start"] == ps
-    assert m["period_end"] == pe
-    assert json.loads(m["source_entry_ids"]) == ["e9"]
 
 
 def test_escape_tag_value_escapes_specials():

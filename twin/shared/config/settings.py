@@ -174,15 +174,6 @@ class Config:
     # embedding model (e.g. e5-small on Vietnamese) collapses all cosines into a
     # narrow high band, so this only bites once a discriminating model is used.
     T2_MIN_COSINE = float(os.getenv("T2_MIN_COSINE", "0.0"))
-    # T2 diary model (write path). A new summary is merged into an existing
-    # same-user same-VN-day doc when their cosine similarity reaches this
-    # floor (calibrated 2026-07-03: same-topic follow-ups 0.507–0.782,
-    # cross-topic max 0.526 — biased high because a missed merge just appends
-    # like before, while a false merge glues unrelated topics together).
-    T2_MERGE_MIN_COSINE = float(os.getenv("T2_MERGE_MIN_COSINE", "0.60"))
-    # Char cap for a merged diary doc: beyond this, append a new doc instead
-    # of growing a mega-doc whose embedding averages into mush.
-    T2_MERGE_MAX_CHARS = int(os.getenv("T2_MERGE_MAX_CHARS", "1500"))
     # Archive raw T1 entries to a cold per-day Redis list on trim instead of
     # hard-deleting (W3): t1:archive:{scope}:{scope_id}:{day}. Best-effort —
     # an archive failure never blocks the trim.

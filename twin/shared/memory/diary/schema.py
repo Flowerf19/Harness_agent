@@ -122,7 +122,7 @@ async def ensure_diary_fields(redis: Any, index_name: str, info: Any) -> None:
     """Best-effort FT.ALTER for an index predating the diary-model fields
     (schema v2 -> v3, P2.1); adds whichever of day/period_start/period_end
     are missing. Never raises — an index that can't be altered just keeps
-    working without these fields (diary merge finds no same-day candidate).
+    working without these fields (time filters fall back to created_at).
     """
     try:
         existing = extract_field_names(info)

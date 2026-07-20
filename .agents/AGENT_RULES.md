@@ -130,8 +130,7 @@ Update upstream: `cd ~/.claude/skills && git pull`.
 - **New T2/T1 env vars control current behavior:** `EMBEDDING_MODEL_NAME`,
   `EMBEDDING_VECTOR_SIZE`, `EMBEDDING_QUERY_PREFIX`,
   `EMBEDDING_PASSAGE_PREFIX`, `T2_MIN_COSINE` (default `0.0`; calibrated/deployed
-  `0.35`), `T2_MERGE_MIN_COSINE` (default `0.60`), `T2_MERGE_MAX_CHARS`
-  (default `1500`), `T1_ARCHIVE_ENABLED` (default `true`),
+  `0.35`), `T1_ARCHIVE_ENABLED` (default `true`),
   `T1_ARCHIVE_TTL_DAYS` (default `90`).
 - **`search_memory` is the only supported T2 retrieval tool.** It accepts
   `user_id`, optional `channel_id` (dual-scope), optional `query`, optional
@@ -140,7 +139,7 @@ Update upstream: `cd ~/.claude/skills && git pull`.
 - **`TimelineSummaryStore` is a package (`twin/shared/memory/diary/`).** Import
   `TimelineSummaryStore` from `twin.shared.memory.diary`; import `_rrf_fuse`
   from `twin.shared.memory.diary.store` if needed for tests.
-- **Embedding service must be wired into `TimelineSummaryStore`.** If
-  `embedding_service` is `None`, same-day diary merge is disabled and the store
-  is append-only. Verify probe/production wiring passes the service, not just
-  `embedding_dim`.
+- **`TimelineSummaryStore` writes are append-only.** The constructor takes only
+  `redis_client` and `embedding_dim`. The same-day diary merge (and its
+  `embedding_service` constructor arg) was removed 2026-07-20 — each
+  consolidation pass writes its own doc.

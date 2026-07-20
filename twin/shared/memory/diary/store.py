@@ -1,9 +1,8 @@
 """Timeline summary storage — T2 memory layer (schema v3: diary model).
 
-TimelineSummaryStore orchestrates write (store_summary, same-day diary
-merge) and hybrid KNN+BM25 search over Redis Stack. Field encode/decode
-lives in codec.py, same-day merge in merge.py, and index
-DDL/introspection in schema.py.
+TimelineSummaryStore handles append-only writes (store_summary) and
+hybrid KNN+BM25 search over Redis Stack. Field encode/decode lives in
+codec.py, index DDL/introspection in schema.py.
 """
 from __future__ import annotations
 
@@ -16,7 +15,6 @@ from typing import Any
 
 from twin.shared.config.settings import Config
 from twin.shared.llm.embedding.embedding_trace_logger import cosine_similarity
-from twin.shared.memory.diary.merge import try_diary_merge
 from twin.shared.memory.diary.codec import (
     escape_tag_value,
     importance_to_ttl,
@@ -83,15 +81,9 @@ class TimelineSummaryStore:
         self,
         redis_client: Any,
         embedding_dim: int = 384,
-        embedding_service: Any = None,
     ):
         self.redis = redis_client
         self.embedding_dim = embedding_dim
-        # Only needed to re-embed merged text on a diary-merge write (P2.2).
-        # None disables merging entirely (falls back to pre-diary
-        # append-only behavior) — keeps every caller/test that constructs
-        # this store without one working unchanged.
-        self.embedding_service = embedding_service
         self.index_name = "timeline_summaries"
         self.prefix = "timeline:summary"
 
@@ -132,12 +124,10 @@ class TimelineSummaryStore:
         period_end: float | None = None,
         source_entry_ids: list[str] | None = None,
     ) -> str:
-        """Store a topic summary as a diary entry; return summary_id.
-
-        Same-day near-duplicates (cosine >= T2_MERGE_MIN_COSINE) merge into
-        the existing doc instead of appending (needs embedding_service).
-        Raises ValueError on embedding dim mismatch — storing anyway used to
-        silently fail RediSearch indexing, leaving the summary unsearchable.
+        """Store a topic summary as a diary entry (append-only); return
+        summary_id. Raises ValueError on embedding dim mismatch — storing
+        anyway used to silently fail RediSearch indexing, leaving the
+        summary unsearchable.
         """
         if len(embedding) != self.embedding_dim:
             raise ValueError(
@@ -150,21 +140,6 @@ class TimelineSummaryStore:
         pe = float(period_end) if period_end is not None else ps
         day = vn_day_str(ps)
         entry_ids = [str(x) for x in (source_entry_ids or [])]
-
-        if self.embedding_service is not None:
-            merged_id = await try_diary_merge(
-                self,
-                user_id=user_id,
-                day=day,
-                summary=summary,
-                embedding=embedding,
-                importance=importance,
-                period_start=ps,
-                period_end=pe,
-                source_entry_ids=entry_ids,
-            )
-            if merged_id is not None:
-                return merged_id
 
         entry = TimelineSummary(
             user_id=user_id,

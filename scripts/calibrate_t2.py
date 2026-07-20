@@ -3,11 +3,9 @@
 
 Measures the REAL cosine distribution between labeled queries (query-side,
 with Config.EMBEDDING_QUERY_PREFIX applied — the thing P0 fixed) and the
-T2 summaries actually stored in Redis, then proposes values for:
+T2 summaries actually stored in Redis, then proposes a value for:
 
   - T2_MIN_COSINE        (search gate — query vs doc)
-  - T2_MERGE_MIN_COSINE  (P2 diary same-day merge gate — incoming summary
-                          vs stored doc, passage vs passage)
 
 Run MANUALLY on the host (outside the container), read-only against Redis:
 
@@ -16,7 +14,7 @@ Run MANUALLY on the host (outside the container), read-only against Redis:
         --redis-url redis://localhost:6379
 
 It never writes to Redis (SCAN + HGETALL only) and never touches the
-production trace file. Merge probes are embedded in-memory only.
+production trace file.
 """
 
 from __future__ import annotations
@@ -97,31 +95,6 @@ QUERIES: list[tuple[str, str, set[str]]] = [
     (REAL, "công thức nấu phở bò sao cho ngọt nước", set()),
     (REAL, "M search hộ t cái coi", set()),
 ]
-
-# Merge probes: synthetic "incoming consolidation summary" texts (diary-entry
-# style), embedded PASSAGE-side in-memory. same-topic pair = should merge on
-# the same day; vs other topics = must never merge.
-MERGE_PROBES: list[tuple[str, str, str]] = [
-    (PERSONA, "food",
-     "Hòa nấu bún bò Huế sáng nay, cay xé lưỡi, sả ớt chanh, thịt bò bắp với "
-     "chả cua. Vẫn mê nấu món Việt như mọi khi."),
-    (PERSONA, "pet",
-     "Mèo Mun hôm nay leo lên mái nhà làm Hòa hết hồn, gọi mãi mới chịu "
-     "xuống, xong nhảy vào đùi đòi ăn."),
-    (PERSONA, "work",
-     "Hòa vẫn vật lộn với bug state trong app todo React/TypeScript, nghi do "
-     "Zustand store update mà component không re-render."),
-    (PERSONA, "hiking",
-     "Cuối tuần này Hòa tính đổi gió leo núi Chứa Chan thay vì Bà Đen, rủ "
-     "thêm hai đứa bạn cùng đi."),
-    (REAL, "psychological",
-     "Đêm nay Hòa lại thấy cô đơn, nhắn liên tiếp mấy tin tâm sự, cần được "
-     "lắng nghe hơn là lời khuyên."),
-    (REAL, "work",
-     "Hòa chốt dùng qwen3-embedding 0.6b thay cho e5-small cho semantic "
-     "search tiếng Việt, reindex 1024 chiều đã chạy xong."),
-]
-
 
 def fmt(v: float) -> str:
     return f"{v:.3f}"
@@ -228,35 +201,6 @@ async def main() -> None:
                 if scored:
                     neg.append((scored[0][0], query))
 
-        # ---------------- MERGE gate: incoming summary vs docs ----------------
-        same, cross = [], []
-        print("\n" + "-" * 78)
-        print("MERGE calibration — synthetic incoming summaries (passage-side, in-memory)")
-        print("-" * 78)
-        for scope, topic, text in MERGE_PROBES:
-            emb = await svc.get_embedding(Config.EMBEDDING_PASSAGE_PREFIX + text)
-            if not emb:
-                print(f"!! embed failed for merge probe {topic}")
-                continue
-            for d in by_scope.get(scope, []):
-                c = cosine_similarity(emb, d["embedding"])
-                if d["topic"] == topic:
-                    same.append((c, f"{topic}↔{topic}"))
-                    print(f"[SAME ] {topic:<13} vs {d['topic']:<13} {fmt(c)}")
-                else:
-                    cross.append((c, f"{topic}↔{d['topic']}"))
-        # stored doc↔doc, same scope, different topic (must never merge)
-        for scope, ds in by_scope.items():
-            for i in range(len(ds)):
-                for j in range(i + 1, len(ds)):
-                    if ds[i]["topic"] != ds[j]["topic"]:
-                        c = cosine_similarity(ds[i]["embedding"], ds[j]["embedding"])
-                        cross.append((c, f"{ds[i]['topic']}↔{ds[j]['topic']}"))
-        cross.sort(key=lambda x: -x[0])
-        print("[CROSS] top-5 highest cross-topic (must stay BELOW merge gate):")
-        for c, label in cross[:5]:
-            print(f"        {label:<30} {fmt(c)}")
-
         # ---------------- Summary & suggestions ----------------
         def dist(name: str, xs: list[tuple[float, str]]) -> None:
             if not xs:
@@ -274,8 +218,6 @@ async def main() -> None:
         dist("POS (query vs its relevant doc)      ", pos)
         dist("IRR (pos query vs best OTHER-topic)  ", irr)
         dist("NEG (negative query vs best doc)     ", neg)
-        dist("SAME (merge probe vs same-topic doc) ", same)
-        dist("CROSS (probe/doc vs other-topic doc) ", cross)
 
         noise_hi = max([v for v, _ in irr + neg], default=0.0)
         pos_lo = min([v for v, _ in pos], default=1.0)
@@ -283,12 +225,6 @@ async def main() -> None:
               f"  {'SEPARATED' if pos_lo > noise_hi else '!! OVERLAP — pick by trade-off'}")
         print(f"  suggestion zone: ({fmt(noise_hi)}, {fmt(pos_lo)}) → "
               f"midpoint {fmt((noise_hi + pos_lo) / 2)}")
-        cross_hi = max([v for v, _ in cross], default=0.0)
-        same_lo = min([v for v, _ in same], default=1.0)
-        print(f"MERGE gate: highest cross-topic={fmt(cross_hi)}  lowest same-topic={fmt(same_lo)}"
-              f"  {'SEPARATED' if same_lo > cross_hi else '!! OVERLAP — bias HIGH (false merge is worse)'}")
-        print(f"  suggestion zone: ({fmt(cross_hi)}, {fmt(same_lo)}) → "
-              f"upper-third {fmt(cross_hi + (same_lo - cross_hi) * 2 / 3)}")
         if mismatches:
             print(f"\nNOTE: live search() top1 differed from matrix top1 on {mismatches} "
                   f"queries (RRF/BM25 fusion) — inspect above.")

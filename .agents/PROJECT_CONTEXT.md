@@ -257,8 +257,6 @@ Shared infrastructure and LLM:
 - `EMBEDDING_QUERY_PREFIX` default instruct wrapper for Qwen asymmetric search
 - `EMBEDDING_PASSAGE_PREFIX` default empty
 - `T2_MIN_COSINE` default `0.0`; deployed/calibrated `0.35`
-- `T2_MERGE_MIN_COSINE` default `0.60` (same-day merge gate)
-- `T2_MERGE_MAX_CHARS` default `1500`
 - `LLM_PROVIDER` and provider-specific chat/embedding variables
 
 March7:
