@@ -14,6 +14,32 @@ from .base_llm_service import (
 from .llm_response import LLMResponse
 
 
+def _coerce_message_text(value: object) -> str:
+    """Flatten OpenAI-compat content/reasoning fields to a string.
+
+    Providers may return a string, a list of text parts, or
+    ``reasoning_details`` as a list of objects. ``LLMResponse.content``
+    must stay a str so later ``in frozenset`` checks do not crash.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                if item:
+                    parts.append(item)
+                continue
+            if isinstance(item, dict):
+                text = item.get("text") or item.get("summary") or item.get("content")
+                if isinstance(text, str) and text:
+                    parts.append(text)
+        return "\n".join(parts)
+    return ""
+
+
 class OpenAIService(BaseLLMService):
     """
     Generic OpenAI-compatible chat completions service.
@@ -136,15 +162,15 @@ class OpenAIService(BaseLLMService):
 
                 choice = response_data["choices"][0]
                 message = choice.get("message", {})
-                content = message.get("content", "") or ""
+                content = _coerce_message_text(message.get("content"))
                 # Ollama proxy returns `reasoning` (OpenAI-compat surface).
                 # `reasoning_details` appears when reasoning_split=True.
                 # Legacy Ollama field `reasoning_content` is also accepted as
                 # a fallback so older provider quirks don't drop the trace.
                 reasoning_content = (
-                    message.get("reasoning")
-                    or message.get("reasoning_details")
-                    or message.get("reasoning_content")
+                    _coerce_message_text(message.get("reasoning"))
+                    or _coerce_message_text(message.get("reasoning_details"))
+                    or _coerce_message_text(message.get("reasoning_content"))
                     or None
                 )
                 reasoning_only = False

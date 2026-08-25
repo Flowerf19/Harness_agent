@@ -17,6 +17,15 @@ LLM_ERROR_BAD_FORMAT = "Error: Unexpected response format."
 LLM_ERROR_RESPONSES = frozenset({LLM_ERROR_RESPONSE, LLM_ERROR_BAD_FORMAT})
 
 
+def is_llm_error_response(value: object) -> bool:
+    """True when *value* is a hard-failure sentinel string.
+
+    Providers may put a list in ``LLMResponse.content`` (content parts or
+    ``reasoning_details``). Membership against the frozenset must not hash that.
+    """
+    return isinstance(value, str) and value in LLM_ERROR_RESPONSES
+
+
 class BaseLLMService(abc.ABC):
     """
     Abstract base class defining the common interface for all LLM services.

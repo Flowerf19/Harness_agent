@@ -9,7 +9,7 @@ import logging
 from typing import Any
 
 from twin.shared.config.settings import Config
-from twin.shared.llm.base_llm_service import LLM_ERROR_RESPONSES
+from twin.shared.llm.base_llm_service import is_llm_error_response
 from twin.shared.llm.llm_response import LLMResponse
 
 from .act import Act
@@ -89,7 +89,7 @@ class AgentLoop:
 
             # Keep LLM hard-failure sentinels as failures; let ChatTurnRunner
             # convert them into the existing friendly fallback.
-            if isinstance(decide_response, str) and decide_response in LLM_ERROR_RESPONSES:
+            if is_llm_error_response(decide_response):
                 return AgentLoopResult(
                     response=decide_response,
                     raw_response=decide_response,
@@ -101,7 +101,7 @@ class AgentLoop:
 
             if (
                 isinstance(decide_response, LLMResponse)
-                and decide_response.content in LLM_ERROR_RESPONSES
+                and is_llm_error_response(decide_response.content)
             ):
                 return AgentLoopResult(
                     response=decide_response.content,
@@ -203,7 +203,7 @@ class AgentLoop:
                 trace_metadata=trace_metadata,
             )
 
-            if isinstance(refine_response, str) and refine_response in LLM_ERROR_RESPONSES:
+            if is_llm_error_response(refine_response):
                 return AgentLoopResult(
                     response=refine_response,
                     raw_response=refine_response,
@@ -213,7 +213,7 @@ class AgentLoop:
                     stopped_by="failure",
                 )
 
-            if isinstance(refine_response, LLMResponse) and refine_response.content in LLM_ERROR_RESPONSES:
+            if isinstance(refine_response, LLMResponse) and is_llm_error_response(refine_response.content):
                 return AgentLoopResult(
                     response=refine_response.content,
                     raw_response=refine_response,
@@ -342,7 +342,7 @@ class AgentLoop:
             trace_metadata=trace_metadata,
         )
 
-        if isinstance(decide_response, str) and decide_response in LLM_ERROR_RESPONSES:
+        if is_llm_error_response(decide_response):
             return AgentLoopResult(
                 response=decide_response,
                 raw_response=decide_response,
@@ -354,7 +354,7 @@ class AgentLoop:
 
         if (
             isinstance(decide_response, LLMResponse)
-            and decide_response.content in LLM_ERROR_RESPONSES
+            and is_llm_error_response(decide_response.content)
         ):
             return AgentLoopResult(
                 response=decide_response.content,

@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from twin.shared.llm.base_llm_service import LLM_ERROR_RESPONSES
+from twin.shared.llm.base_llm_service import is_llm_error_response
 from twin.shared.llm.llm_response import LLMResponse
 
 from .agent_loop import AgentLoop
@@ -97,7 +97,7 @@ class ChatTurnRunner:
             result = ChatTurnResult(
                 content=content,
                 raw_response=raw_response,
-                is_failure=content in LLM_ERROR_RESPONSES,
+                is_failure=is_llm_error_response(content),
                 reasoning_only=raw_response.reasoning_only,
                 is_structured=True,
                 input_tokens=raw_response.input_tokens,
@@ -108,7 +108,7 @@ class ChatTurnRunner:
             result = ChatTurnResult(
                 content=content,
                 raw_response=raw_response,
-                is_failure=content in LLM_ERROR_RESPONSES,
+                is_failure=is_llm_error_response(content),
             )
 
         return result

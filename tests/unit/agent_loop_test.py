@@ -515,6 +515,51 @@ async def test_act_does_not_call_llm():
 
 
 # ---------------------------------------------------------------------------
+# List-shaped content must not crash sentinel checks
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_list_content_with_tool_call_does_not_crash():
+    """Providers may put content-parts / reasoning_details (a list) in content.
+
+    Membership against LLM_ERROR_RESPONSES used to raise
+    TypeError: unhashable type: 'list' before the tool was selected.
+    """
+    llm = FakeLLM(
+        [
+            LLMResponse(
+                content=[{"type": "reasoning.text", "text": "rewrite soul"}],
+                tool_calls=[
+                    {
+                        "id": "call_1",
+                        "name": "search_memory",
+                        "arguments": {"query": "adu"},
+                    }
+                ],
+            ),
+            _text_response(
+                json.dumps(
+                    {
+                        "action": "call_tool",
+                        "tool_name": "search_memory",
+                        "arguments": {"query": "adu"},
+                    }
+                )
+            ),
+            _text_response("updated"),
+        ]
+    )
+    registry = FakeRegistry()
+    loop = _make_loop(llm, registry=registry)
+    messages = [{"role": "user", "content": "bỏ chữ adu"}]
+
+    result = await loop.run(messages=messages, system_prompt="sys")
+
+    assert result.response == "updated"
+    assert result.tools_executed == 1
+    assert registry.calls == [{"tool_name": "search_memory", "arguments": {"query": "adu"}}]
+
+
+# ---------------------------------------------------------------------------
 # Prompt-scope tests
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
