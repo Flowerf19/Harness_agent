@@ -71,6 +71,20 @@ Update upstream: `cd ~/.claude/skills && git pull`.
 
 ## Verified Gotchas
 
+- **`discord.Client.start()` does not retry login failures.** Its internal backoff
+  only covers the websocket loop, so anything that fails before a socket exists
+  (TLS during `static_login`, e.g. `certificate is not yet valid` when the
+  container boots before NTP steps the clock) raises out of the task and the bot
+  stays silently disconnected while the process keeps serving A2A. Both adapters
+  run `start()` under `gateway.adapters.discord.connect.supervise_bot`. Do not
+  call `bot.close()` to reset between attempts — it sets `loop = MISSING` and the
+  next `start()` raises; `supervise_bot` closes only `bot.http` and resets
+  `bot.http.connector`.
+- **`/.well-known/agent.json` is not a health signal.** It answers 200 whenever
+  the A2A server is up, including when Discord is disconnected, so it cannot
+  detect the failure above. Use `/health` (503 when not connected) for
+  containers/watchers and keep the agent card for liveness of the A2A API.
+
 - **Gateway abstraction is partially refactored.** Production boot now uses
   `gateway.core.GatewayChatHandler` and `gateway.core.AgentRouter`; Discord
   policy/send behavior belongs in `gateway.adapters.discord`. Approval and

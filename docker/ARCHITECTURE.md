@@ -100,5 +100,9 @@ docker compose logs -f march7 evernight
 
 Expected health endpoints:
 
-- March7: `http://localhost:8000/.well-known/agent.json`
-- Evernight: `http://localhost:8001/.well-known/agent.json`
+- March7: `http://localhost:8000/health`
+- Evernight: `http://localhost:8001/health`
+
+Cả hai trả 503 khi Discord bot chưa connected — process vẫn sống và A2A vẫn
+trả lời bình thường, nên agent card (`/.well-known/agent.json`) không phải
+health signal.

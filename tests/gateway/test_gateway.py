@@ -177,3 +177,18 @@ class TestChatGateway:
         await gateway.start_all()
         assert good.is_connected
         assert not bad.is_connected
+
+    @pytest.mark.asyncio
+    async def test_is_healthy_requires_every_adapter_connected(self, gateway: ChatGateway):
+        assert not gateway.is_healthy, "no adapters registered"
+
+        gateway.register_adapter("good", MockAdapter())
+        await gateway.start_all()
+        assert gateway.is_healthy
+
+        # Registered but never connected — the silent-zombie case.
+        gateway.register_adapter("silent", MockAdapter())
+        assert not gateway.is_healthy
+
+        await gateway.stop_all()
+        assert not gateway.is_healthy

@@ -71,8 +71,10 @@ docker compose logs -f
 
 Health endpoints sau khi chạy:
 
-- `http://localhost:8000/.well-known/agent.json`
-- `http://localhost:8001/.well-known/agent.json`
+- `http://localhost:8000/health`, `http://localhost:8001/health` — 503 khi Discord bot
+  chưa connected (process vẫn sống nên vẫn phải phân biệt được hai trạng thái này)
+- Agent card A2A: `http://localhost:8000/.well-known/agent.json`,
+  `http://localhost:8001/.well-known/agent.json`
 
 ### From project root
 

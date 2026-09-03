@@ -61,7 +61,12 @@ class March7A2AHandler:
         )
 
 
-def start_server(agent: March7Agent, host="0.0.0.0", port=8000) -> A2AServer:
+def start_server(
+    agent: March7Agent,
+    host="0.0.0.0",
+    port=8000,
+    health_probe=None,
+) -> A2AServer:
     handler = March7A2AHandler(agent)
     server = A2AServer(
         agent_card=agent.get_agent_card(),
@@ -72,5 +77,6 @@ def start_server(agent: March7Agent, host="0.0.0.0", port=8000) -> A2AServer:
         },
         host=host,
         port=port,
+        health_probe=health_probe,
     )
     return server

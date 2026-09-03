@@ -16,6 +16,7 @@ import discord
 from gateway.adapters.discord.cogs.admin_channels import ChannelMode
 from gateway.shared.adapter_base import PlatformAdapter
 from gateway.adapters.discord.approval import build_discord_approval_context
+from gateway.adapters.discord.connect import supervise_bot
 from gateway.adapters.discord.converter import DiscordMessageConverter
 from twin.shared.tools.approval_context import (
     clear_current_approval_context,
@@ -195,7 +196,7 @@ class DiscordPlatformAdapter(PlatformAdapter):
     # ------------------------------------------------------------------
 
     async def connect(self) -> None:
-        """Start the Discord bot via ``bot.start()``."""
+        """Start the Discord bot under a supervisor that retries failures."""
         from twin.shared.config.settings import Config
 
         # Determine which token to use
@@ -208,33 +209,12 @@ class DiscordPlatformAdapter(PlatformAdapter):
         if not token:
             raise RuntimeError(f"Discord token not set for {self._bot_name} bot")
 
-        self._task = asyncio.create_task(self._bot.start(token))
-        self._task.add_done_callback(self._on_bot_done)
+        # bot.start() only survives websocket drops; anything that fails before a
+        # socket exists (TLS during login) escapes it and silences the bot.
+        self._task = asyncio.create_task(
+            supervise_bot(self._bot, token, name=self._bot_name)
+        )
         logger.info(f"Discord adapter: {self._bot_name} bot.start() task created")
-
-    def _on_bot_done(self, task: asyncio.Task) -> None:
-        try:
-            task.result()
-        except asyncio.CancelledError:
-            logger.info(f"Discord bot {self._bot_name} task cancelled")
-        except Exception as exc:
-            self._classify_bot_error(exc)
-
-    def _classify_bot_error(self, exc: Exception) -> None:
-        error_str = str(exc).lower()
-        if any(kw in error_str for kw in (
-            "name resolution", "gaierror", "connectordnserror",
-            "connection refused", "network is unreachable",
-            "temporary failure", "ssl handshake",
-        )):
-            logger.warning(f"Discord connection lost (network error) for {self._bot_name}: {exc}")
-        elif any(kw in error_str for kw in (
-            "privileged intent", "disallowed intent",
-            "token is invalid", "login failed",
-        )):
-            logger.error(f"Discord auth error for {self._bot_name}: {exc}")
-        else:
-            logger.exception(f"Discord bot {self._bot_name} task exited with error")
 
     async def disconnect(self) -> None:
         if self._task and not self._task.done():

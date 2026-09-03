@@ -212,3 +212,14 @@ class ChatGateway:
     @property
     def is_running(self) -> bool:
         return self._running
+
+    @property
+    def is_healthy(self) -> bool:
+        """Whether every registered adapter still has a live platform link.
+
+        The A2A server answers even when a bot is disconnected, so liveness of
+        the process alone is not a usable health signal.
+        """
+        if not self._adapters:
+            return False
+        return all(adapter.is_connected for adapter in self._adapters.values())

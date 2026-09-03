@@ -53,7 +53,9 @@ services:
       - ../../memories:/app/memories:z
       - ../../.env:/app/.env:z
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8001/.well-known/agent.json || exit 1"]
+      # /health covers the Discord link, not just the HTTP server: a bot that
+      # failed to log in leaves the process reachable but unable to reply.
+      test: ["CMD-SHELL", "curl -sf http://localhost:8001/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3

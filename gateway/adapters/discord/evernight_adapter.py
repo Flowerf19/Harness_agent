@@ -17,6 +17,7 @@ from discord.ext import commands
 from underthesea import sent_tokenize
 
 from gateway.adapters.discord.approval import build_discord_approval_context
+from gateway.adapters.discord.connect import supervise_bot
 from gateway.adapters.discord.converter import DiscordMessageConverter
 from gateway.core.handler import GatewayChatHandler
 from twin.shared.observability import call_with_langsmith_extra, langsmith_extra
@@ -278,20 +279,15 @@ class EvernightDiscordAdapter:
             logger.exception("Failed to send DM to user %s", user_id)
 
     async def connect(self) -> None:
-        """Start the Discord bot."""
+        """Start the Discord bot under a supervisor that retries failures."""
         if not self._token:
             raise RuntimeError("Evernight Discord token not set")
-        self._task = asyncio.create_task(self._bot.start(self._token))
-        self._task.add_done_callback(self._on_done)
+        # bot.start() only survives websocket drops; anything that fails before a
+        # socket exists (TLS during login) escapes it and silences the bot.
+        self._task = asyncio.create_task(
+            supervise_bot(self._bot, self._token, name="evernight")
+        )
         logger.info("Evernight adapter: bot.start() task created")
-
-    def _on_done(self, task: asyncio.Task) -> None:
-        try:
-            task.result()
-        except asyncio.CancelledError:
-            logger.info("Evernight bot task cancelled")
-        except Exception as exc:
-            logger.exception("Evernight bot task exited with error: %s", exc)
 
     async def disconnect(self) -> None:
         """Stop the Discord bot."""

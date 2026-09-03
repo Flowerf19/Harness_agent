@@ -3,7 +3,7 @@ import asyncio
 import json
 import logging
 import uuid
-from typing import AsyncIterator, Callable, Dict
+from typing import AsyncIterator, Callable, Dict, Optional
 
 from aiohttp import web
 
@@ -38,9 +38,14 @@ class A2AServer:
         skill_handlers: Dict[str, TaskHandler],
         host: str = "0.0.0.0",
         port: int = 8000,
+        health_probe: Optional[Callable[[], bool]] = None,
     ):
         self.agent_card = agent_card
         self.skill_handlers = skill_handlers
+        # Liveness of the platform connections behind the agent (e.g. Discord),
+        # which the agent card cannot report: the A2A server stays up while the
+        # bot is silently disconnected.
+        self._health_probe = health_probe
         self.host = host
         self.port = port
         self._app: web.Application | None = None
@@ -52,6 +57,7 @@ class A2AServer:
     def build_app(self) -> web.Application:
         app = web.Application()
         app.router.add_get("/.well-known/agent.json", self._handle_agent_card)
+        app.router.add_get("/health", self._handle_health)
         app.router.add_post("/", self._handle_jsonrpc)
         app.router.add_get("/tasks/{task_id}/stream", self._handle_stream)
         return app
@@ -89,6 +95,11 @@ class A2AServer:
             "skills": self.agent_card.skills,
         }
         return web.json_response(data)
+
+    async def _handle_health(self, request: web.Request) -> web.Response:
+        connected = True if self._health_probe is None else bool(self._health_probe())
+        payload = {"status": "ok" if connected else "degraded", "connected": connected}
+        return web.json_response(payload, status=200 if connected else 503)
 
     async def _handle_jsonrpc(self, request: web.Request) -> web.Response:
         try:

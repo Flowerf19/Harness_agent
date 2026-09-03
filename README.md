@@ -147,7 +147,8 @@ python -m twin.evernight
 ```
 
 > [!TIP]
-> Health: `http://localhost:8000/.well-known/agent.json`, `http://localhost:8001/.well-known/agent.json`.
+> Health: `http://localhost:8000/health`, `http://localhost:8001/health` (503 khi bot Discord
+> chưa connected). Agent card A2A: cùng port, `/.well-known/agent.json`.
 
 ## Cấu hình
 

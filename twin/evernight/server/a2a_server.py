@@ -353,6 +353,9 @@ def start_server(
         },
         host=host,
         port=port,
+        # Health reflects the Discord link (approval DMs depend on it); with no
+        # Discord bot configured Evernight is A2A-only, so report healthy.
+        health_probe=(lambda: discord_bot.is_ready()) if discord_bot is not None else None,
     )
     # Patch: add the DM endpoints
     original_build_app = server.build_app

@@ -45,14 +45,6 @@ async def _run_gateway() -> None:
     march7_container = March7Container.get_instance(config=March7Config.from_env())
     await march7_container.initialize()
 
-    # March7 A2A server (port 8000) — for Evernight and external callers
-    from twin.march7.server.a2a_server import start_server
-    a2a_server = start_server(march7_container.agent, port=march7_container.config.port)
-    await a2a_server.start()
-    logger.info(f"March7 A2A server listening on port {march7_container.config.port}")
-
-
-
     # Evernight A2A client (HTTP to evernight container)
     evernight_client = None
     from twin.shared.config.settings import Config
@@ -74,6 +66,18 @@ async def _run_gateway() -> None:
     adapters = create_adapters(config, gateway)
     for name, adapter in adapters.items():
         gateway.register_adapter(name, adapter)
+
+    # March7 A2A server (port 8000) — for Evernight and external callers.
+    # Health reflects the platform links, not just this HTTP server: the process
+    # stays reachable while a disconnected bot makes it useless.
+    from twin.march7.server.a2a_server import start_server
+    a2a_server = start_server(
+        march7_container.agent,
+        port=march7_container.config.port,
+        health_probe=lambda: gateway.is_healthy,
+    )
+    await a2a_server.start()
+    logger.info(f"March7 A2A server listening on port {march7_container.config.port}")
 
     if not gateway.adapter_names:
         logger.warning("No platform adapters registered")
